@@ -1,0 +1,267 @@
+"""Spec §14.6 / Phase 4 — fault injection: raising pipeline → debugger path capped at DEBUG_RETRIES;
+sleeping pipeline → timeout kill; malformed researcher JSON → one re-ask then FAILED (also in
+test_roles.py); BLOCKED marking; stall directive; spend guard; policy violations; sandbox isolation."""
+import json
+import os
+import pathlib
+import re
+import subprocess
+import sys
+import time
+
+import pytest
+
+from agent.llm_client import MockLLMClient
+from agent.roles import parse_file_blocks, render_file_blocks
+from agent.sandbox import detect_isolation, make_env, run_command, static_code_check
+from agent.schemas import TokenUsage
+from agent.stub_roles import default_mock_handlers
+from tests.conftest import ROOT, make_toy_harness, sha256_tree
+
+
+def _champion_files(user):
+    return parse_file_blocks(user.split("# Current champion files", 1)[-1].split("# Pipeline contract", 1)[0])
+
+
+def _engineer_transform(fn):
+    def engineer(role, system, messages):
+        files = _champion_files(messages[-1]["content"])
+        files["pipeline.py"] = fn(files["pipeline.py"])
+        return render_file_blocks(files)
+    return engineer
+
+
+RAISE = "S = load(a.data)"
+CRASH = "raise RuntimeError('injected crash')\n    S = load(a.data)"
+
+
+# ---------------------------------------------------------------- raising pipeline -> debugger, capped at 3
+def test_raising_pipeline_invokes_debugger_capped_at_retries(tmp_path, base_cfg, mini_data):
+    debug_calls = []
+
+    def debugger(role, system, messages):
+        debug_calls.append(messages[-1]["content"])
+        files = parse_file_blocks(messages[-1]["content"].split("# Failing files", 1)[-1].split("# Error", 1)[0])
+        files["pipeline.py"] = files["pipeline.py"].replace("injected crash", f"still broken {len(debug_calls)}")   # never fixes
+        return f"FIX SUMMARY: attempt {len(debug_calls)}\n" + render_file_blocks(files)
+    handlers = default_mock_handlers()
+    handlers["engineer"] = _engineer_transform(lambda c: c.replace(RAISE, CRASH))
+    handlers["debugger"] = debugger
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "DEBUG_RETRIES": 3}})
+    st = h.init_or_resume()
+    h.phase0()
+    before = sha256_tree(h.best_dir)
+    hist = h.run_iteration(1)
+    assert len(debug_calls) == 3                                     # capped at DEBUG_RETRIES
+    assert "RuntimeError: injected crash" in debug_calls[0] and "Traceback" in debug_calls[0]
+    assert hist["status"] == "failed" and hist["decision"] == "failed" and st.streak == 1 and st.iteration == 1
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    assert [a["attempt"] for a in log["errors_and_recovery"]] == [1, 2, 3]
+    assert all(a["status_after"] == "failed" for a in log["errors_and_recovery"])
+    assert "retries exhausted" in log["result"]["error_excerpt"]
+    assert st.blocked and "failed after 3 debug attempts" in st.blocked[0]
+    assert sha256_tree(h.best_dir) == before
+    for k in (1, 2, 3):
+        assert os.path.exists(os.path.join(h.run_dir, "iterations", "it01", "attempts", f"a{k}", "pipeline.py"))
+
+
+def test_debugger_fix_that_works_yields_scored_iteration(tmp_path, base_cfg, mini_data):
+    def debugger(role, system, messages):
+        files = parse_file_blocks(messages[-1]["content"].split("# Failing files", 1)[-1].split("# Error", 1)[0])
+        files["pipeline.py"] = files["pipeline.py"].replace(CRASH, RAISE)
+        return "FIX SUMMARY: removed the injected raise\n" + render_file_blocks(files)
+    handlers = default_mock_handlers()
+    handlers["engineer"] = _engineer_transform(lambda c: c.replace(RAISE, CRASH).replace("THETA = 0.50", "THETA = 0.55"))
+    handlers["debugger"] = debugger
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
+    st = h.init_or_resume()
+    h.phase0()
+    hist = h.run_iteration(1)
+    assert hist["status"] == "scored" and hist["decision"] == "promoted" and st.best_iter == 1
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    assert len(log["errors_and_recovery"]) == 1 and log["errors_and_recovery"][0]["status_after"] == "scored"
+    assert log["errors_and_recovery"][0]["fix_summary"] == "removed the injected raise"
+    assert not st.blocked
+
+
+def test_debugger_abandon_marks_blocked(tmp_path, base_cfg, mini_data):
+    handlers = default_mock_handlers()
+    handlers["engineer"] = _engineer_transform(lambda c: c.replace(RAISE, CRASH))
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
+    st = h.init_or_resume()
+    h.phase0()
+    h.run_iteration(1)
+    assert len(st.blocked) == 1 and "abandoned by debugger" in st.blocked[0]
+    assert "BLOCKED: it01:" in open(os.path.join(h.run_dir, "state.md")).read()
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    assert log["errors_and_recovery"][0]["status_after"] == "abandoned"
+
+
+# ---------------------------------------------------------------- sleeping pipeline -> timeout kill
+def test_sleeping_pipeline_is_killed_on_timeout(tmp_path, base_cfg, mini_data):
+    handlers = default_mock_handlers()
+    handlers["engineer"] = _engineer_transform(lambda c: c.replace(RAISE, "import time; time.sleep(60)\n    " + RAISE))
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 1, "EXPERIMENT_TIMEOUT_S": 2}})
+    st = h.init_or_resume()
+    h.phase0()
+    t0 = time.time()
+    hist = h.run_iteration(1)
+    assert time.time() - t0 < 20
+    assert hist["status"] == "timeout" and hist["decision"] == "failed" and st.streak == 1
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    assert log["result"]["status"] == "timeout" and "TIMEOUT" in log["result"]["error_excerpt"]
+    assert log["errors_and_recovery"] == []                          # timeouts are terminal by default (no debugger)
+    assert st.blocked and "timeout 2s" in st.blocked[0]
+    line = open(os.path.join(h.run_dir, "ledger.md")).read().splitlines()[-1]
+    assert "RESULT: FAILED(timeout" in line
+    # no orphaned sandbox process keeps running
+    ps = subprocess.run(["pgrep", "-f", f"{h.run_dir}/iterations/it01"], capture_output=True, text=True)
+    assert ps.stdout.strip() == ""
+
+
+def test_timeout_retry_with_debugger_when_configured(tmp_path, base_cfg, mini_data):
+    calls = []
+
+    def debugger(role, system, messages):
+        calls.append(1)
+        files = parse_file_blocks(messages[-1]["content"].split("# Failing files", 1)[-1].split("# Error", 1)[0])
+        files["pipeline.py"] = files["pipeline.py"].replace("time.sleep(60)", "time.sleep(0)")
+        return "FIX SUMMARY: removed the sleep\n" + render_file_blocks(files)
+    handlers = default_mock_handlers()
+    handlers["engineer"] = _engineer_transform(lambda c: c.replace(RAISE, "import time; time.sleep(60)\n    " + RAISE))
+    handlers["debugger"] = debugger
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 1, "EXPERIMENT_TIMEOUT_S": 2, "retry_timeouts_with_debugger": True}})
+    h.init_or_resume()
+    h.phase0()
+    hist = h.run_iteration(1)
+    assert calls == [1] and hist["status"] == "scored"
+
+
+# ---------------------------------------------------------------- stall directive + consecutive failures
+def test_stall_directive_injected_after_three_failures(tmp_path, base_cfg, mini_data):
+    briefings = []
+
+    def researcher(role, system, messages):
+        briefings.append(messages[-1]["content"])
+        return default_mock_handlers()["researcher"](role, system, messages)
+    handlers = default_mock_handlers()
+    handlers["researcher"] = researcher
+    handlers["engineer"] = _engineer_transform(lambda c: c.replace(RAISE, CRASH))
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 4, "N_FLAT": 99, "STALL_FAILURES": 3}})
+    st = h.init_or_resume()
+    h.phase0()
+    for it in range(1, 5):
+        h.run_iteration(it)
+    assert st.consecutive_failures == 4
+    assert "STALL RECOVERY DIRECTIVE" not in briefings[2]           # before the 3rd failure completed
+    assert "STALL RECOVERY DIRECTIVE" in briefings[3]               # injected into the 4th briefing
+    assert "3 iterations ALL failed" in briefings[3]
+
+
+def test_consecutive_failures_reset_on_score(tmp_path, base_cfg, mini_data):
+    state = {"n": 0}
+
+    def engineer(role, system, messages):
+        state["n"] += 1
+        files = _champion_files(messages[-1]["content"])
+        if state["n"] <= 3:
+            files["pipeline.py"] = files["pipeline.py"].replace(RAISE, CRASH)
+        return render_file_blocks(files)
+    handlers = default_mock_handlers()
+    handlers["engineer"] = engineer
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 4, "N_FLAT": 99}})
+    st = h.init_or_resume()
+    h.phase0()
+    for it in range(1, 5):
+        h.run_iteration(it)
+    assert st.consecutive_failures == 0 and st.streak == 4          # streak still ticks (flat), stall counter reset
+
+
+# ---------------------------------------------------------------- spend guard
+def test_spend_guard_stops_run_and_finalizes(tmp_path, base_cfg, mini_data):
+    class ExpensiveMock(MockLLMClient):
+        def complete(self, **kw):
+            r = super().complete(**kw)
+            r.usage = TokenUsage(input_tokens=50_000, output_tokens=1_000)
+            return r
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, overrides={"run": {"MAX_ITERS": 50, "N_FLAT": 99}, "llm": {"max_total_tokens": 300_000}})
+    h.roles.client = ExpensiveMock(default_mock_handlers())
+    st = h.run()
+    assert st.stop_reason == "spend_guard" and st.iteration == 2 and st.finalize["ok"]
+    assert st.tokens_total >= 300_000
+
+
+# ---------------------------------------------------------------- policy violations (static guard)
+def test_policy_violation_never_executes_and_goes_to_debugger(tmp_path, base_cfg, mini_data):
+    seen = []
+
+    def debugger(role, system, messages):
+        seen.append(messages[-1]["content"])
+        return json.dumps({"action": "abandon", "reason": "policy"})
+    handlers = default_mock_handlers()
+    handlers["engineer"] = _engineer_transform(lambda c: "import subprocess\n" + c)
+    handlers["debugger"] = debugger
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
+    h.init_or_resume()
+    h.phase0()
+    hist = h.run_iteration(1)
+    assert hist["status"] == "failed" and "policy violation" in seen[0] and "forbidden import 'subprocess'" in seen[0]
+    assert not os.path.exists(os.path.join(h.run_dir, "iterations", "it01", "stdout.txt"))   # code was never run
+
+
+def test_static_code_check_rules(base_cfg):
+    sb = base_cfg["sandbox"]
+    assert static_code_check({"pipeline.py": "import numpy as np\nfrom sklearn.linear_model import LogisticRegression\n"}, sb) == []
+    bad = static_code_check({"pipeline.py": "import os\nos.system('pip install x')\nfrom urllib.request import urlopen\n"}, sb)
+    assert any("urllib" in b for b in bad) and any("pip install" in b for b in bad)
+    assert static_code_check({"notes.md": "import subprocess"}, sb) == []                  # only .py files are checked
+
+
+# ---------------------------------------------------------------- sandbox isolation
+def test_sandbox_env_strips_secrets(monkeypatch, base_cfg):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+    monkeypatch.setenv("MY_TOKEN", "t")
+    env = make_env(base_cfg["sandbox"], pythonpath=["/x"])
+    assert "ANTHROPIC_API_KEY" not in env and "MY_TOKEN" not in env and env["PYTHONPATH"] == "/x"
+    assert env["PYTHONDONTWRITEBYTECODE"] == "1"
+
+
+@pytest.mark.skipif(detect_isolation("auto") != "sandbox-exec", reason="OS sandbox only on macOS with sandbox-exec")
+def test_sandbox_exec_blocks_network_and_outside_writes(tmp_path, base_cfg):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    # pytest's tmp_path lives under the OS temp tree, which the profile allows; probe a repo path instead
+    outside = pathlib.Path(ROOT) / "runs" / f".probe_outside_{os.getpid()}.txt"
+    secret_dir = tmp_path / "secret"
+    secret_dir.mkdir()
+    (secret_dir / "s.txt").write_text("hidden")
+    (ws / "probe.py").write_text(f"""
+import socket, json
+r = {{}}
+try:
+    socket.create_connection(("1.1.1.1", 80), timeout=3); r["net"] = "open"
+except Exception as e:
+    r["net"] = type(e).__name__
+try:
+    open({str(outside)!r}, "w").write("x"); r["outside_write"] = "ok"
+except Exception as e:
+    r["outside_write"] = type(e).__name__
+try:
+    open({str(secret_dir / 's.txt')!r}).read(); r["denied_read"] = "ok"
+except Exception as e:
+    r["denied_read"] = type(e).__name__
+open("inside.txt", "w").write("x"); r["inside_write"] = "ok"
+print(json.dumps(r))
+""")
+    res = run_command([sys.executable, "probe.py"], str(ws), 30, make_env(base_cfg["sandbox"]), isolation="sandbox-exec",
+                      deny_read=[str(secret_dir)])
+    assert res.ok, res.stderr_tail
+    r = json.loads(res.stdout_tail.strip().splitlines()[-1])
+    assert r == {"net": "PermissionError", "outside_write": "PermissionError", "denied_read": "PermissionError", "inside_write": "ok"}
+    try:
+        assert not outside.exists()
+    finally:
+        if outside.exists():
+            outside.unlink()

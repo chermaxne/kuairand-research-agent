@@ -110,3 +110,15 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   it03 patience/epochs → 0.6015 kept, converged (streak 3), submission.csv accepted by the kit checker (170,588 rows).
 * Tests: 54 passing (adds `tests/test_roles.py`: parsing, §3 assembly order, one re-ask then FAILED, token accounting,
   Anthropic request shape without network, refusal → LLMError, key never in request).
+
+### Phase 4 — robustness (2026-08-28) — GATE PASSED (fault-injection tests)
+* Verified through the production code path on the toy task (`tests/test_fault_injection.py`, 14 tests): raising pipeline →
+  Debugger invoked with the traceback, capped at DEBUG_RETRIES=3, every attempt archived under `iterations/itNN/attempts/aK/`
+  and listed in `errors_and_recovery`; a working fix yields a scored (here promoted) iteration; abandon/exhaustion/timeout add a
+  BLOCKED entry shown in the state block; sleeping pipeline killed at the timeout (process group, no orphans), terminal by
+  default, optional Debugger retry via `run.retry_timeouts_with_debugger`; malformed Researcher JSON → one re-ask → FAILED
+  (`tests/test_roles.py`); stall directive injected into the briefing after STALL_FAILURES=3 consecutive failures and the
+  counter resets on a scored iteration (the flat streak keeps ticking); spend guard stops the run and still finalizes from
+  best/; static policy violations are never executed and go to the Debugger; sandbox env strips every non-passthrough
+  variable (API keys); `sandbox-exec` blocks network, writes outside the workspace and reads of the denied data dir.
+* Tests: 66 passing.
