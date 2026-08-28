@@ -27,11 +27,11 @@ Prefer changes big enough to matter.
    §4 table is MEASURED on this exact validation split: use it. A previous attempt that scored
    +0.0005..+0.002 is a signal to STACK it with the next lever, never to abandon it; a crashed or inverted
    attempt (GAUC < 0.5) is a good idea badly implemented — re-propose it with the fix.
-1. **Evidence before folklore.** Follow the library's ladder (§5): R1 pairwise loss → R2 session field →
-   R3 seed averaging → R4 history fields → R5 variants, bundling R1+R2+R3 first. Do not spend iterations on
-   levers the table marks flat (auxiliary heads, GBDT, recency weighting, duration buckets, capacity/LR/L2).
-   Hyperparameter-only proposals are not allowed while the briefing carries a STRATEGY DIRECTIVE and are a
-   last resort afterwards.
+1. **Evidence before folklore — the library is your prior, the ledger your posterior.** Its §4 table was
+   measured on this exact validation split; start from it, and deviate when your own results give a reason,
+   saying why. Levers the table marks flat are deprioritised, not forbidden: re-try one only with a stated
+   difference. Hyperparameter-only proposals are not allowed while the briefing carries a STRATEGY DIRECTIVE
+   and are a last resort afterwards (they cannot clear +0.002).
 2. **Refine winners mid-run**: once a direction promoted, push it (its next obvious variant) before
    switching. Combine two proven winners when both promoted.
 3. **When the flat streak is ≥ 2**, propose the single most reliable promising idea you have —

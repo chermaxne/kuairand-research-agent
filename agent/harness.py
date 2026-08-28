@@ -51,14 +51,13 @@ new files, runtime well under the limit, minimal diff. State in `rationale` why 
 
 
 STRUCTURAL_DIRECTIVE = """# STRATEGY DIRECTIVE (harness policy, iteration {it} of the first {n})
-Propose only changes that the knowledge library ranks as high-gain and measured (its §5 ladder: R1 pairwise
-within-user loss from scratch, R2 label-free session-context field, R3 seed rank-average, R4 past-only history
-fields, then R5 variants). In iteration 1 BUNDLE R1 + R2 + R3 exactly as the recipes state — that is the only
-combination measured to clear the +0.002 convergence threshold in one step; afterwards add ONE new element per
-iteration on top of the champion. Hyperparameter-only proposals (learning rate, embedding size, epochs, patience,
-regularisation, batch size, bucket counts) are NOT allowed before iteration {n}. Every change spec must name the
-self-check the code prints (e.g. train GAUC after epoch 1 > 0.6). Do not re-try levers the library marks as
-measured flat (auxiliary heads, GBDT, recency weighting, fine duration buckets)."""
+Three consecutive misses end the run and every single lever measured on this data is about +0.001, so this
+iteration must aim at > +0.002: combine complementary changes or make a structural one, with the knowledge
+library's measured table as your prior and the ledger as your evidence. Hyperparameter-only proposals (learning
+rate, embedding size, epochs, patience, regularisation, batch size, bucket counts) are not allowed in these first
+{n} iterations unless they are part of a structural change. State the expected gain, why it should exceed +0.002,
+and the self-check the code will print. Re-trying something the library marks flat is allowed if you say what is
+different about your version."""
 
 
 class FinalizeError(RuntimeError):

@@ -87,7 +87,9 @@ measured table in §4 as ground truth about THIS dataset and metric — it overr
 | rank-avg of FM + the 0.5842 LightGBM | 0.5941 | −0.007 | a weak ensemble member drags the strong one down |
 | FM trained on week 1 only | 0.5981 | −0.0034 | half the data costs 0.003 |
 
-## 5. Direction ladder — ranked by measured gain × reliability, with recipes
+## 5. Direction ladder — ranked by measured gain × reliability. A prior, not an order.
+The recipes are reference implementations that worked once; use them to avoid implementation failures (two of the
+first four autonomous attempts crashed or inverted), not as a script. Deviate whenever the ledger gives a reason.
 **R1. Pairwise within-user loss, from scratch (+0.0013, high reliability).** Keep the FM scorer and fields.
 Training set = the train rows of *mixed* users (users with both labels). Each epoch: for every positive row of a
 mixed user draw one random negative row of the SAME user; shuffle the pairs; batches of 8192 pairs. Loss
@@ -113,21 +115,30 @@ interactions in disguise, so they survive the within-user rule. Untested on top 
 **R5. Untested, plausible small gains (≤ +0.002):** listwise / sampled-softmax within user (a variant of R1;
 literature says a tighter DCG surrogate); a video × tab cross field; a DeepFM/DCN trunk over the same fields
 (capacity alone is flat — only with the new fields).
-**R6. Multi-task — measured flat here (§2, §4); lowest priority.** If attempted at all: ESMM-style
-p(long_view) = p(click) · p(long_view | click), or heads on genuinely different behaviours (like, profile_enter)
-with gated sharing (MMoE/PLE) — and expect ≤ +0.001.
-**Not worth iterations (measured):** GBDT in any form; auxiliary click/watch-time heads; recency weighting; fine
-duration buckets; K / LR / L2 / patience knobs; cold-start handling; video age; the statistic feature file;
-static user/video side features (organizers); warm-starting pairwise from pointwise.
+**R6. Multi-task — measured flat here (§2, §4), so low expected gain, not forbidden.** The variants we tried were
+simple (linear heads sharing the FM interaction; click / watch-time targets). Untried forms with a real argument:
+ESMM-style p(long_view) = p(click) · p(long_view | click); heads on genuinely different behaviours (like,
+profile_enter) with gated sharing (MMoE/PLE); an MLP tower per task. Expect ≤ +0.001 unless you can say why yours
+differs.
+**Measured flat in our probes — deprioritise, and re-try only with a stated reason why your version differs:**
+GBDT (pointwise and user-grouped lambdarank, with and without an out-of-fold FM score); auxiliary click / watch-time
+heads; recency weighting; fine duration buckets; K / LR / L2 / patience knobs; cold-start handling (1.9% of users);
+video age; static user/video side features (organizers' finding); warm-starting pairwise from pointwise.
+The statistic feature file is not "flat" — it is forbidden (§3, §7).
 
 ## 6. Strategy under the convergence rule
-1. **Bundle R1 + R2 + R3 in the first iteration** — measured 0.6042 (+0.0027), the only combination known to clear
-   the +0.002 streak threshold in one step. Single levers are each ≈ +0.001 and will trip the three-miss rule.
-2. Then add exactly one thing per iteration on top of the champion (a field from R2/R4, a loss variant from R5),
-   keep the seed averaging, and re-measure. A +0.0005..+0.002 result is a signal to keep stacking, not to abandon.
-3. Every change spec must state a self-check the code prints (train GAUC after epoch 1; number of pairs; the new
-   field's vocabulary size) so a broken implementation is caught before the score is wasted.
-4. A result below the popularity rung (0.581) or a GAUC < 0.5 is an implementation bug, not a research outcome.
+1. **This file is the prior; your ledger is the posterior.** When your own measured iterations contradict a number
+   here, trust the ledger and say so in the rationale. When an attempt failed for implementation reasons (crash,
+   GAUC < 0.5, exploding loss), the idea is untested — fix it rather than move on.
+2. Arithmetic you cannot escape: single levers on this data are each ≈ +0.001, the streak resets only on > +0.002,
+   and three misses end the run. Early iterations should therefore combine complementary levers rather than test one
+   at a time (a loss change + a new field + seed averaging measured 0.6042 together; each alone ≈ 0.602–0.603) —
+   which combination, and in what implementation, is your call.
+3. A +0.0005..+0.002 result is a signal to keep stacking on it, not to abandon it; adding several new fields at once
+   can hurt, so grow the champion one element at a time once it survives.
+4. Put a self-check in every change spec that the code must print (train GAUC after epoch 1, pair count, a new
+   field's vocabulary size) — a wasted iteration costs a third of the run.
+5. A result below the popularity rung (0.581) or a GAUC < 0.5 is an implementation bug, not a research outcome.
 
 ## 7. Trap list
 - Same-row feedback columns (`is_click`, `play_time_ms`, `is_like`, …) as inputs = leakage. Session/time features

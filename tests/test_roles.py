@@ -629,12 +629,12 @@ def test_structural_directive_in_early_briefings_only(tmp_path, base_cfg, mini_d
     assert "STRATEGY DIRECTIVE" in briefings[0] and "iteration 1 of the first 2" in briefings[0]
     assert "STRATEGY DIRECTIVE" in briefings[1]
     assert "STRATEGY DIRECTIVE" not in briefings[2]
-    assert "R1 + R2 + R3" in briefings[0] and "NOT allowed before iteration 2" in briefings[0]
+    assert "iteration 1 of the first 2" in briefings[0] and "library marks flat is allowed" in briefings[0]
 
 
 def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
     run, llm = base_cfg["run"], base_cfg["llm"]
-    assert run["structural_first_until_iter"] >= 5 and run["implausible_gauc_below"] == 0.5
+    assert 1 <= run["structural_first_until_iter"] <= 5 and run["implausible_gauc_below"] == 0.5
     assert llm["engineer_model"] == "deepseek/deepseek-v4-flash" and llm["researcher_model"] == "deepseek/deepseek-v4-flash"
     for role in ("researcher", "engineer", "debugger", "scribe"):          # initial phase: no Claude-priced model anywhere
         assert not any("claude" in m for m in [llm[f"{role}_model"]] + llm["fallback_models"][role])

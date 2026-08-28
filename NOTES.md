@@ -282,6 +282,22 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   unvalidatable ≈ +0.002–0.004, but spec §5.2 says pipelines must fit on the train split only, so it is NOT used; ask
   the organizers whether training on validation for the final submission is permitted.
 
+### Direction vs. autonomy — judgement call (2026-08-29)
+* Question raised by the team: does the knowledge file over-direct the agent instead of letting it adapt from feedback?
+  Assessment: the *facts, measurements and traps* are information a human researcher would also start with and stay;
+  but four elements had become commands — a scripted iteration 1 ("bundle R1+R2+R3 exactly"), a ban on re-trying
+  levers marked flat, "not worth iterations" absolutes, and a 10-iteration hyperparameter ban. Those pre-solve the
+  agent's decisions outside the loop and would rightly be discounted by judges grading the research process.
+* Changes: §5 header reframed ("a prior, not an order"; recipes are reference implementations); "not worth" →
+  "measured flat in our probes — deprioritise, re-try with a stated reason"; multi-task explicitly "low expected gain,
+  not forbidden" with the untried forms listed; §6 rewritten around "this file is the prior, your ledger is the
+  posterior" and the convergence arithmetic (combine complementary levers early — which ones is the agent's call);
+  the harness directive no longer names recipes or bans retries, and its window shrank from 10 to 3 iterations (the
+  window in which three misses end the run); Researcher rule 1 says deviate when the ledger gives a reason.
+* Not changed on purpose: pure feedback-reliance is not viable under N = 3 — both unguided 10-iteration runs ended at
+  iteration 3 — and multi-task stays low-ranked on five flat measurements plus the nested-label structure, not on
+  anyone's preference.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

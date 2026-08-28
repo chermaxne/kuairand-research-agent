@@ -166,9 +166,8 @@ run:
   STALL_FAILURES: 3                # N consecutive failed iterations -> canned recovery directive in next briefing
   implausible_gauc_below: 0.5      # a scored GAUC below this = inverted ranking (random is 0.5): one Debugger pass for a
                                    # sign/logic fix before the result is accepted (set null to disable)
-  structural_first_until_iter: 10  # briefing directive: iterations 1..N must propose major structural changes (multitask
-                                   # incl. watch time, history/sequence features, GBDT stacking, new loss); no
-                                   # hyperparameter-only proposals before then (set 0 to disable)
+  structural_first_until_iter: 3   # briefing directive for the first N iterations (the window in which three misses
+                                   # end the run): aim for > +0.002, no hyperparameter-only proposals (0 disables)
   retry_timeouts_with_debugger: false   # a timeout is terminal for the iteration (no traceback to fix)
   mask_test_period_in_loop: true   # experiments see a derived data dir WITHOUT test-period rows
   categories: [feature, model, training, multitask, other]   # §5.1 category vocabulary
