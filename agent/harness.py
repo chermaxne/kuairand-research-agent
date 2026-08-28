@@ -477,12 +477,20 @@ def main(argv=None) -> int:
     ap.add_argument("--session-iters", type=int, default=None, help="stop this process after N iterations (resumable)")
     ap.add_argument("--set", action="append", default=[], help="override config: a.b.c=value")
     ap.add_argument("--phase0-only", action="store_true", help="run Phase 0 (baseline reproduction + self-checks) and exit")
+    ap.add_argument("--llm-profile", default=None, help="apply llm.profiles.<name> from config (e.g. poe)")
+    ap.add_argument("--llm-check", action="store_true", help="ping every configured role model with a tiny request and exit")
     a = ap.parse_args(argv)
 
     root = os.path.dirname(os.path.abspath(a.config))
     cfg = load_config(a.config)
     if a.toy:
         deep_update(cfg, cfg.get("toy", {}).get("overrides", {}))
+    if a.llm_profile:
+        profiles = cfg.get("llm", {}).get("profiles", {}) or {}
+        if a.llm_profile not in profiles:
+            print(f"unknown llm profile {a.llm_profile!r}; available: {sorted(profiles)}", file=sys.stderr)
+            return 2
+        deep_update(cfg["llm"], copy.deepcopy(profiles[a.llm_profile]))
     if a.max_iters is not None:
         cfg["run"]["MAX_ITERS"] = a.max_iters
     for s in a.set:
@@ -492,6 +500,14 @@ def main(argv=None) -> int:
         for p in parts[:-1]:
             d = d.setdefault(p, {})
         d[parts[-1]] = yaml.safe_load(v)
+    if a.llm_check:
+        from .llm_client import connectivity_check
+        results = connectivity_check(cfg)
+        for r in results:
+            print(json.dumps(r))
+        ok = all(r["ok"] for r in results)
+        print("LLM CHECK " + ("PASSED" if ok else "FAILED") + f" (provider={cfg['llm'].get('provider')})")
+        return 0 if ok else 2
     runs_dir = os.path.join(root, cfg["paths"]["runs"])
     os.makedirs(runs_dir, exist_ok=True)
     run_dir = os.path.abspath(a.run_dir) if a.run_dir else new_run_dir(runs_dir, a.label or ("toy" if a.toy else ""))

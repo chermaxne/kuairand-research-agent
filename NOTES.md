@@ -138,6 +138,16 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   `.gitignore` (runs/, data, caches, venv, secrets), `scripts/make_example_run.py`.
 * Final state: 69 tests passing; commits at every phase gate.
 
+### Post-Phase-6 addition — Poe provider profile (2026-08-28)
+* The humans hold a **Poe** key, not an Anthropic key. Poe documents an Anthropic-compatible gateway (`https://api.poe.com`,
+  key in `x-api-key`, models = Poe bot handles such as `claude-opus-5` / `claude-haiku-4.5`, streaming supported, 500 rpm,
+  only official Anthropic bots). Added `llm.profiles.poe` + `--llm-profile poe`: same `AnthropicClient`, `base_url`
+  swapped, "compat" request shape (plain-string system prompt, no cache_control / thinking / effort / beta headers, since the
+  gateway does not document them). Token usage still comes from the response `usage` field.
+* `--llm-check` pings every role model with a tiny request so key/endpoint/model-id problems surface before Phase 0.
+* Untested against the live gateway (no key in this environment): exact accepted model handles (`claude-opus-5` vs
+  `Claude-Opus-5`), whether `system` content blocks or `thinking` pass through, and whether `usage` includes cache fields.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

@@ -45,6 +45,20 @@ The API key is read from the environment variable named in `config.yaml` (`llm.a
 export ANTHROPIC_API_KEY=...               # needed only for real (non --mock) runs
 ```
 
+**Using a Poe key instead** (Poe exposes the Claude bots through an Anthropic-compatible gateway at
+`https://api.poe.com`): export it as `POE_API_KEY` and add `--llm-profile poe` to every harness command.
+The profile (in `config.yaml` → `llm.profiles.poe`) switches the endpoint, the key variable and the model
+names (Poe bot handles such as `claude-opus-5`, `claude-haiku-4.5`) and sends only the core Messages API
+surface (no prompt caching, thinking, effort or beta headers — the gateway does not document them).
+
+```bash
+export POE_API_KEY=...                                     # in the shell only; never in files or git
+python -m agent.harness --llm-profile poe --llm-check      # 1 tiny request per role model: validates key + model ids
+python -m agent.harness --llm-profile poe --max-iters 1 --label smoke   # one real iteration (~5 min)
+python -m agent.harness --llm-profile poe --label official              # the real run
+```
+`--llm-check` also works for the default Anthropic profile (`python -m agent.harness --llm-check`).
+
 ## Run
 ```bash
 # 1. self-check: Phase 0 only (rungs + organizers' FM + champion) — ~2 min, no API key needed

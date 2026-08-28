@@ -24,6 +24,21 @@ llm:
   max_retries: 3                   # transport/rate-limit retries per call (exponential backoff)
   prompt_caching: true             # cache_control on the static prefix (role prompt + knowledge library)
   scribe_narrative: true           # Scribe job (b): render logs/iter_NN.md from harness-supplied facts
+  # Alternative providers — select with `python -m agent.harness --llm-profile <name>` (deep-merged over the keys above).
+  profiles:
+    poe:                           # Poe's Anthropic-compatible gateway: one Poe key gives access to the Claude bots.
+      provider: poe                # -> base_url https://api.poe.com, key sent as x-api-key, core Messages API only
+      api_key_env: POE_API_KEY
+      base_url: https://api.poe.com
+      researcher_model: claude-opus-5     # Poe bot handles, lowercase (see https://poe.com/anthropic); HUMAN: verify with --llm-check
+      engineer_model: claude-opus-5
+      debugger_model: claude-opus-5
+      scribe_model: claude-haiku-4.5
+      refusal_fallbacks: false     # beta headers / fallbacks / thinking / effort / cache_control are not sent to gateways
+      prompt_caching: false
+      thinking: {researcher: none, engineer: none, debugger: none, scribe: none}
+      effort: {researcher: null, engineer: null, debugger: null, scribe: null}
+      max_output_tokens: {researcher: 3000, engineer: 12000, debugger: 12000, scribe: 300}
 
 run:
   EPSILON: 0.002                   # streak resets only on improvement > EPSILON over best-so-far

@@ -249,3 +249,36 @@ def test_kuairand_mock_plan_injects_bug_then_debugger_fixes_it():
     plan2 = parse_researcher(kuairand_researcher("researcher", [], [{"role": "user", "content": briefing2}]))
     files2 = parse_file_blocks(kuairand_engineer("engineer", [], [{"role": "user", "content": Roles.engineer_message(plan2, champ, "t", "c")}]))
     assert "L2_TYPO" not in files2["pipeline.py"]
+
+
+# ---------------- Poe / Anthropic-compatible gateway profile ----------------
+def test_poe_profile_builds_compat_client(base_cfg, monkeypatch):
+    import copy
+    from agent.harness import deep_update
+    from agent.llm_client import POE_BASE_URL, make_client
+    cfg = copy.deepcopy(base_cfg)
+    deep_update(cfg["llm"], copy.deepcopy(cfg["llm"]["profiles"]["poe"]))
+    monkeypatch.delenv("POE_API_KEY", raising=False)
+    with pytest.raises(Exception, match="POE_API_KEY"):
+        make_client(cfg)
+    monkeypatch.setenv("POE_API_KEY", "poe-test-key")
+    c = make_client(cfg)
+    assert isinstance(c, AnthropicClient) and c.provider == "poe" and c.compat
+    assert str(c._client.base_url).rstrip("/") == POE_BASE_URL
+    req = c.build_request(role="researcher", model="claude-opus-5", system_blocks=["ROLE", "KNOWLEDGE"],
+                          messages=[{"role": "user", "content": "hi"}], max_tokens=3000)
+    assert req["system"] == "ROLE\n\nKNOWLEDGE"                      # plain string, no cache_control
+    for k in ("thinking", "output_config", "betas", "fallbacks"):
+        assert k not in req
+    assert req["model"] == "claude-opus-5" and req["max_tokens"] == 3000
+    assert "poe-test-key" not in json.dumps(req)
+
+
+def test_llm_profile_cli_flag_applies_profile(base_cfg, monkeypatch, capsys):
+    from agent.harness import main
+    monkeypatch.delenv("POE_API_KEY", raising=False)
+    rc = main(["--config", os.path.join(ROOT, "config.yaml"), "--llm-profile", "poe", "--llm-check"])
+    out = capsys.readouterr().out
+    assert rc == 2 and "POE_API_KEY" in out and "LLM CHECK FAILED (provider=poe)" in out
+    rc = main(["--config", os.path.join(ROOT, "config.yaml"), "--llm-profile", "nope", "--llm-check"])
+    assert rc == 2

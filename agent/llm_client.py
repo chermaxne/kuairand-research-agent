@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
 from .schemas import TokenUsage
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+POE_BASE_URL = "https://api.poe.com"          # Poe's Anthropic-compatible gateway (key in x-api-key, models = Poe bot handles)
 
 
 @dataclass
@@ -84,17 +85,25 @@ class AnthropicClient:
                  "ServiceUnavailableError")
 
     def __init__(self, api_key: Optional[str], *, request_timeout_s: float = 300, max_retries: int = 3, prompt_caching: bool = True,
-                 refusal_fallbacks: bool = True, role_params: Optional[Dict[str, Dict[str, Any]]] = None):
+                 refusal_fallbacks: bool = True, role_params: Optional[Dict[str, Dict[str, Any]]] = None,
+                 base_url: Optional[str] = None, compat: bool = False, provider: str = "anthropic"):
+        """`base_url` + `compat=True` target an Anthropic-*compatible* gateway (e.g. Poe): plain-string system prompt,
+        no cache_control, no thinking/effort/beta parameters — only the core Messages API surface."""
         import anthropic  # imported lazily so tests never need the package configured
         self._anthropic = anthropic
         kwargs: Dict[str, Any] = {"timeout": request_timeout_s, "max_retries": 0}
         if api_key:
             kwargs["api_key"] = api_key
+        if base_url:
+            kwargs["base_url"] = base_url
         self._client = anthropic.Anthropic(**kwargs)
+        self.provider = provider
+        self.base_url = base_url
+        self.compat = bool(compat)
         self.max_retries = int(max_retries)
-        self.prompt_caching = bool(prompt_caching)
-        self.refusal_fallbacks = bool(refusal_fallbacks)
-        self.role_params = role_params or {}
+        self.prompt_caching = bool(prompt_caching) and not self.compat
+        self.refusal_fallbacks = bool(refusal_fallbacks) and not self.compat
+        self.role_params = {} if self.compat else (role_params or {})
 
     # -- request assembly (pure; unit-tested without network) --------------
     def build_request(self, *, role: str, model: str, system_blocks: Sequence[str], messages: Sequence[Dict[str, str]],
@@ -108,7 +117,9 @@ class AnthropicClient:
             system.append(b)
         req: Dict[str, Any] = {"model": model, "max_tokens": int(max_tokens),
                                "messages": [{"role": m["role"], "content": m["content"]} for m in messages]}
-        if system:
+        if system and self.compat:
+            req["system"] = "\n\n".join(b["text"] for b in system)     # gateways: plain string, no cache_control
+        elif system:
             req["system"] = system
         p = self.role_params.get(role_key(role), {})
         thinking = (p.get("thinking") or "none")
@@ -175,17 +186,22 @@ def make_client(cfg: Dict[str, Any], mock_handlers: Optional[Dict[str, Handler]]
             from .stub_roles import default_mock_handlers, kuairand_mock_handlers
             mock_handlers = kuairand_mock_handlers() if str(llm.get("mock_plan", "toy")) == "kuairand" else default_mock_handlers()
         return MockLLMClient(mock_handlers)
-    if provider == "anthropic":
-        key_env = llm.get("api_key_env", "ANTHROPIC_API_KEY")
+    if provider in ("anthropic", "poe", "anthropic-compatible"):
+        compat = provider != "anthropic"
+        key_env = llm.get("api_key_env", "ANTHROPIC_API_KEY" if not compat else "POE_API_KEY")
         key = os.environ.get(key_env, "")
-        if not key and not llm.get("allow_sdk_default_credentials", False):
-            raise LLMError(f"environment variable {key_env} is not set (run with --mock for the offline client, "
-                           f"or set llm.allow_sdk_default_credentials: true to let the SDK resolve a login profile)")
+        if not key and not (llm.get("allow_sdk_default_credentials", False) and not compat):
+            raise LLMError(f"environment variable {key_env} is not set (export it in the shell that runs the harness; run with "
+                           f"--mock for the offline client)")
         role_params = {k: {"effort": (llm.get("effort") or {}).get(k), "thinking": (llm.get("thinking") or {}).get(k)}
                        for k in ("researcher", "engineer", "debugger", "scribe")}
+        base_url = llm.get("base_url") or (POE_BASE_URL if provider == "poe" else None)
+        if compat and not base_url:
+            raise LLMError("llm.base_url is required for provider anthropic-compatible")
         return AnthropicClient(api_key=key or None, request_timeout_s=float(llm.get("request_timeout_s", 300)),
                                max_retries=int(llm.get("max_retries", 3)), prompt_caching=bool(llm.get("prompt_caching", True)),
-                               refusal_fallbacks=bool(llm.get("refusal_fallbacks", True)), role_params=role_params)
+                               refusal_fallbacks=bool(llm.get("refusal_fallbacks", True)), role_params=role_params,
+                               base_url=base_url, compat=compat, provider=provider)
     raise LLMError(f"unknown llm.provider {provider!r}")
 
 
@@ -201,3 +217,23 @@ class CallLog:
                "stop_reason": resp.stop_reason, "estimated_usage": resp.estimated_usage, **resp.usage.to_dict()}
         with open(self.path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")
+
+
+def connectivity_check(cfg: Dict[str, Any], roles: Sequence[str] = ("researcher", "engineer", "debugger", "scribe")) -> List[Dict[str, Any]]:
+    """Send one tiny request per configured role model and report text/usage/latency. Validates the key, the
+    endpoint and every model id BEFORE Phase 0 spends minutes. Never prints the key."""
+    try:
+        client = make_client(cfg)
+    except LLMError as e:
+        return [{"role": "*", "model": "*", "ok": False, "error": str(e)}]
+    out = []
+    for r in roles:
+        model = str(cfg["llm"][f"{r}_model"])
+        try:
+            resp = client.complete(role=r, model=model, system_blocks=["You are a connectivity probe."],
+                                   messages=[{"role": "user", "content": "Reply with the single word OK."}], max_tokens=64)
+            out.append({"role": r, "model": model, "ok": True, "reply": resp.text.strip()[:40], "served_by": resp.model,
+                        "usage": resp.usage.to_dict(), "latency_s": round(resp.latency_s, 2)})
+        except Exception as e:  # noqa: BLE001 - report every failure kind
+            out.append({"role": r, "model": model, "ok": False, "error": f"{type(e).__name__}: {str(e)[:300]}"})
+    return out
