@@ -336,6 +336,21 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Default now: Researcher `deepseek-v4-flash` (proven in the 0.6044 run), Engineer/Debugger `qwen/qwen3-coder`,
   Scribe `codestral-2508`; ≈ $0.01 and 4–5 min per iteration → 50 iterations in ~4 h. `--llm-profile fast` is the same set.
 
+### Leak incident and the flipped-label leak test (2026-08-29)
+* Run `20260829_011457_ten5` it01 scored **0.8484 = the validation oracle** (GAUC exactly 1.0) and the harness promoted
+  it: the Engineer (qwen3-coder) extended the row tuple and let the label reach the encoded fields, so validation rows
+  were scored with their own labels. Promotion logic is score-only by design, so nothing stopped it. The run was killed.
+* Fix — a harness-measured **leak test** gating every promotion (`run.leak_check: on_promotion`): the candidate pipeline
+  is re-run on a fingerprinted copy of the loop data whose validation-period feedback columns are inverted (binary) or
+  zeroed (continuous), and its predictions are scored against the TRUE labels. A legitimate pipeline (train-only fit,
+  validation used at most for early stopping) still scores well above random there; a pipeline whose scores depend on
+  the validation rows' labels ranks them inverted (GAUC ≈ 0). Below `leak_check_min_primary: 0.5` → the iteration is
+  recorded as `failed` with a LEAK diagnosis, BLOCKED, never promoted; the attempt's own score is kept in the JSON for
+  the record. Cost: one extra pipeline run per would-be promotion (~2 min). Library trap list and Engineer rule 4
+  updated (0.8484 is the oracle; anything above ~0.65 is a leak until proven otherwise).
+* Why flipped rather than hidden labels: hiding them would break legitimate validation-based early stopping (the official
+  baseline does it) and produce false positives; flipping keeps early stopping functional and makes a leak inverted.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

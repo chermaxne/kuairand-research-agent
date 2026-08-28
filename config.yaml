@@ -179,6 +179,9 @@ run:
   STALL_FAILURES: 3                # N consecutive failed iterations -> canned recovery directive in next briefing
   implausible_gauc_below: 0.5      # a scored GAUC below this = inverted ranking (random is 0.5): one Debugger pass for a
                                    # sign/logic fix before the result is accepted (set null to disable)
+  leak_check: on_promotion         # every would-be promotion is re-run with the validation rows' feedback columns
+  leak_check_min_primary: 0.5      # flipped; a score below this (random) on the flipped copy = the code reads the
+                                   # validation labels -> recorded as a LEAK, never promoted (set leak_check: off to disable)
   structural_first_until_iter: 3   # briefing directive for the first N iterations (the window in which three misses
                                    # end the run): aim for > +0.002, no hyperparameter-only proposals (0 disables)
   retry_timeouts_with_debugger: true    # a timeout usually IS a bug (a Python loop over users x rows): one Debugger pass

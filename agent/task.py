@@ -90,6 +90,27 @@ class Task:
             out.append(extra)
         return out
 
+    def leak_test(self, workspace: str, timeout_s: float, out_name: str = "preds_val_leaktest.csv") -> Dict[str, Any]:
+        """Re-run the workspace's pipeline against the flipped-label copy of the loop data and score its predictions
+        against the TRUE validation labels. Returns {'ran', 'primary', 'gauc', 'error'}; the harness decides."""
+        flipped_dir = self.loop_data_dir + "_flipped_labels"
+        train_end = int(self.kit.data.SPLITS["train"][1])
+        info = tools.ensure_flipped_labels_dir(self.loop_data_dir, flipped_dir, train_end)
+        deny = [self.data_dir] if self.mask_test else []
+        deny += self.secret_files()
+        res = tools.run_pipeline_in_sandbox(workspace, flipped_dir, "val", out_name, timeout_s, self.sandbox_cfg,
+                                            pythonpath=[self.sealed_dir], deny_read=deny, log_prefix="leaktest_")
+        out: Dict[str, Any] = {"ran": res.ok, "runtime_s": round(res.runtime_s, 1), "flipped_dir_rebuilt": info.get("rebuilt")}
+        if not res.ok:
+            out["error"] = res.error_excerpt(15)
+            return out
+        try:
+            sc = self.score_preds(os.path.join(workspace, out_name))
+            out.update({"primary": sc.primary, "gauc": sc.gauc, "ndcg5": sc.ndcg5})
+        except (ValueError, OSError) as e:
+            out["error"] = f"leak-test predictions rejected: {e}"
+        return out
+
     def check_submission(self, path: str, split: str = "test") -> Tuple[bool, str]:
         return tools.check_submission(self.sealed_dir, self.kit_dir, self.data_dir, path, split=split)
 

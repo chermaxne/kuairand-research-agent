@@ -141,6 +141,67 @@ def ensure_loop_data_dir(full_dir: str, loop_dir: str, max_date: int, filter_fil
 
 
 # ---------------------------------------------------------------------------
+# leak test: a copy of the loop data dir whose VALIDATION-period feedback columns are flipped/zeroed
+# ---------------------------------------------------------------------------
+FEEDBACK_COLUMNS = ("is_click", "is_like", "is_follow", "is_comment", "is_forward", "is_hate", "long_view", "play_time_ms",
+                    "profile_stay_time", "comment_stay_time", "is_profile_enter")
+
+
+def ensure_flipped_labels_dir(loop_dir: str, out_dir: str, train_end_date: int,
+                              log_files: Sequence[str] = ("log_standard_4_22_to_5_08_pure.csv", "log_random_4_22_to_5_08_pure.csv")) -> Dict[str, Any]:
+    """Build (once, fingerprinted) a copy of the loop data dir where every row dated AFTER the train period has its
+    binary feedback columns inverted (1 - y) and its continuous feedback columns zeroed. Non-feedback columns
+    (ids, date, hourmin, time_ms, duration_ms, tab, is_rand) are untouched, so row order and the §5.2 contract hold.
+
+    A legitimate pipeline (fits on train, uses validation labels at most for early stopping) still ranks the true
+    validation labels far better than random. A pipeline whose scores depend on the validation rows' own labels
+    ranks them INVERTED (sealed GAUC ≈ 0) — that is the signature the harness tests for."""
+    loop_dir, out_dir = os.path.realpath(loop_dir), os.path.realpath(out_dir)
+    fp = _fingerprint(loop_dir, train_end_date)
+    fp["kind"] = "flipped_labels"
+    fp_path = os.path.join(out_dir, ".fingerprint.json")
+    if os.path.exists(fp_path):
+        try:
+            if json.load(open(fp_path)) == fp:
+                return {"dir": out_dir, "rebuilt": False}
+        except (OSError, ValueError):
+            pass
+    tmp = out_dir + ".building"
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp)
+    stats: Dict[str, Any] = {}
+    for name in sorted(os.listdir(loop_dir)):
+        src, dst = os.path.join(loop_dir, name), os.path.join(tmp, name)
+        if not os.path.isfile(src) or name.startswith("."):
+            continue
+        if name in log_files:
+            flipped = 0
+            with open(src, newline="") as fi, open(dst, "w", newline="") as fo:
+                r, w = csv.reader(fi), csv.writer(fo)
+                header = next(r)
+                w.writerow(header)
+                di = header.index("date")
+                idx = {c: header.index(c) for c in FEEDBACK_COLUMNS if c in header}
+                for row in r:
+                    if int(row[di]) > train_end_date:
+                        for c, i in idx.items():
+                            row[i] = ("1" if row[i] == "0" else "0") if c.startswith("is_") or c == "long_view" else "0"
+                        flipped += 1
+                    w.writerow(row)
+            stats[name] = {"rows_flipped": flipped}
+        else:
+            shutil.copy2(src, dst)
+    with open(os.path.join(tmp, ".fingerprint.json"), "w") as fh:
+        json.dump(fp, fh)
+    with open(os.path.join(tmp, "README_LEAK_TEST.txt"), "w") as fh:
+        fh.write(f"Derived from {loop_dir}: feedback columns of rows dated > {train_end_date} inverted/zeroed.\n"
+                 f"Used only by the harness leak test; never for training or scoring.\n{json.dumps(stats, indent=1)}\n")
+    shutil.rmtree(out_dir, ignore_errors=True)
+    os.replace(tmp, out_dir)
+    return {"dir": out_dir, "rebuilt": True, "stats": stats}
+
+
+# ---------------------------------------------------------------------------
 # evaluation of prediction files (sealed)
 # ---------------------------------------------------------------------------
 def evaluate_preds(preds_path: str, rows: Sequence[tuple], sealed_eval, kit) -> Score:

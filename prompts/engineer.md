@@ -14,9 +14,12 @@ preds_val.csv` in a sandbox and scores the predictions with the organizers' seal
    read from the CSV, finite float scores); exit 0 on success. `--split test` must keep working.
 3. Fit ONLY on the train split (dates 20220408–20220421). Validation rows may be used for early stopping
    / model selection only. Never read labels of the split you are predicting for anything else.
-4. No leakage: never use same-row feedback columns (`is_click`, `is_like`, `play_time_ms`, …) as input
-   features of the row being scored; any aggregate feature must be computed from strictly earlier
+4. No leakage: never use same-row feedback columns (`is_click`, `is_like`, `play_time_ms`, `long_view`, …) as
+   input features of the row being scored; any aggregate feature must be computed from strictly earlier
    dates than the row it describes (past-only / rolling), and for validation/test rows only from train.
+   When you extend the row tuple or the field list, re-check every index: the label element must never end up
+   inside `raw(x)` / the encoded fields. The harness re-runs every would-be promotion with flipped validation
+   labels and records a leak as a failed iteration — a leaked score is worth nothing.
 5. Sandbox: no network, no package installs, no subprocesses, no writes outside the working directory.
    Only numpy, pandas, scikit-learn, lightgbm, torch (CPU) and the standard library are available.
    Keep memory moderate (16 GB box) and respect the runtime limit stated in the contract.

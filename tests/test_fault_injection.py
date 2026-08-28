@@ -387,3 +387,76 @@ def test_guard_disabled_when_config_is_null(tmp_path, base_cfg, mini_data):
     h.phase0()
     hist = h.run_iteration(1)
     assert calls == [] and hist["status"] == "scored" and hist["gauc"] < 0.5
+
+
+# ---------------------------------------------------------------- leak test (flipped validation labels gate every promotion)
+def test_flipped_labels_dir_flips_only_post_train_feedback(tmp_path, mini_data):
+    from agent import tools
+    kit = tools.import_kit(os.path.join(ROOT, "starter_kit"))
+    loop = str(tmp_path / "loop")
+    tools.ensure_loop_data_dir(mini_data, loop, int(kit.data.SPLITS["valid"][1]))
+    flipped = str(tmp_path / "flipped")
+    info = tools.ensure_flipped_labels_dir(loop, flipped, int(kit.data.SPLITS["train"][1]))
+    assert info["rebuilt"]
+    import csv
+    src = list(csv.DictReader(open(os.path.join(loop, "log_standard_4_22_to_5_08_pure.csv"))))
+    dst = list(csv.DictReader(open(os.path.join(flipped, "log_standard_4_22_to_5_08_pure.csv"))))
+    assert len(src) == len(dst) and all(a["long_view"] != b["long_view"] for a, b in zip(src, dst))       # all valid rows flipped
+    assert all(a["user_id"] == b["user_id"] and a["video_id"] == b["video_id"] and a["time_ms"] == b["time_ms"] and a["tab"] == b["tab"]
+               for a, b in zip(src, dst))                                                                # order and non-feedback columns intact
+    assert all(b["play_time_ms"] == "0" for b in dst)
+    tr_src = open(os.path.join(loop, "log_standard_4_08_to_4_21_pure.csv")).read()
+    assert open(os.path.join(flipped, "log_standard_4_08_to_4_21_pure.csv")).read() == tr_src                # train untouched
+    assert not tools.ensure_flipped_labels_dir(loop, flipped, int(kit.data.SPLITS["train"][1]))["rebuilt"]   # cached
+
+
+def test_label_leak_is_caught_and_never_promoted(tmp_path, base_cfg, mini_data):
+    """An Engineer that scores validation rows with their own label hits the oracle; the flipped-label re-run
+    inverts it, so the harness records a LEAK and keeps the champion."""
+    def leaky(role, system, messages):
+        files = _champion_files(messages[-1]["content"])
+        code = files["pipeline.py"]
+        code = code.replace('1 if r["long_view"] != "0" else 0))', '1 if r["long_view"] != "0" else 0))')  # keep label in the tuple
+        code = code.replace('f"{THETA * vr(x[2]) + (1 - THETA) * ar(x[3]):.6g}"', 'f"{x[4] + 0.001 * vr(x[2]):.6g}"')   # score = own label
+        files["pipeline.py"] = code
+        return render_file_blocks(files)
+    handlers = default_mock_handlers()
+    handlers["engineer"] = leaky
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
+    st = h.init_or_resume()
+    h.phase0()
+    before = sha256_tree(h.best_dir)
+    hist = h.run_iteration(1)
+    assert hist["status"] == "failed" and hist["decision"] == "failed" and st.best_iter == 0 and st.streak == 1
+    assert sha256_tree(h.best_dir) == before
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    assert "LEAK DETECTED" in log["result"]["error_excerpt"] and log["result"]["primary"] > 0.95   # the leaked score is on record
+    assert log["harness_extra"]["leak_test"]["verdict"] == "LEAK" and log["harness_extra"]["leak_test"]["primary"] < 0.5
+    assert any("leak detected" in b for b in st.blocked)
+    line = open(os.path.join(h.run_dir, "ledger.md")).read().splitlines()[-1]
+    assert "FAILED(LEAK DETECTED" in line
+
+
+def test_legitimate_improvement_passes_the_leak_test(tmp_path, base_cfg, mini_data):
+    from agent.stub_roles import default_mock_handlers as dmh
+    handlers = dmh()
+    handlers["engineer"] = _engineer_transform(lambda c: c.replace("THETA = 0.50", "THETA = 0.55"))
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
+    st = h.init_or_resume()
+    h.phase0()
+    hist = h.run_iteration(1)
+    assert hist["decision"] == "promoted" and st.best_iter == 1
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    assert log["harness_extra"]["leak_test"]["verdict"] == "clean" and log["harness_extra"]["leak_test"]["primary"] >= 0.5
+    assert os.path.exists(os.path.join(h.run_dir, "iterations", "it01", "leak_test.json"))
+
+
+def test_leak_check_default_and_off_switch(tmp_path, base_cfg, mini_data):
+    assert base_cfg["run"]["leak_check"] == "on_promotion" and base_cfg["run"]["leak_check_min_primary"] == 0.5
+    handlers = default_mock_handlers()
+    handlers["engineer"] = _engineer_transform(lambda c: c.replace("THETA = 0.50", "THETA = 0.55"))
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "leak_check": "off"}})
+    h.init_or_resume()
+    h.phase0()
+    h.run_iteration(1)
+    assert not os.path.exists(os.path.join(h.run_dir, "iterations", "it01", "leak_test.json"))

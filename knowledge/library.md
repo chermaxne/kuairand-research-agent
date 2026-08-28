@@ -156,7 +156,12 @@ The statistic feature file is not "flat" — it is forbidden (§3, §7).
 
 ## 7. Trap list
 - Same-row feedback columns (`is_click`, `play_time_ms`, `is_like`, …) as inputs = leakage. Session/time features
-  may come only from `time_ms`, `hourmin`, `date`.
+  may come only from `time_ms`, `hourmin`, `date`. **0.8484 is the validation oracle** (GAUC 1.0): a run in this
+  project scored exactly that after the Engineer let the label into the encoded fields. Anything above ~0.65 is a
+  leak until proven otherwise. The harness re-runs every would-be promotion on a copy of the data whose validation
+  feedback columns are flipped; a pipeline that reads them collapses below random there and is recorded as LEAK,
+  never promoted. Keep the label out of every feature path: the row tuple's label element must be used only as
+  the training target and for early stopping.
 - `video_features_statistic_pure.csv` = label aggregates over a window covering the test period: forbidden.
 - Whole-dataset aggregates leak the future; compute past-only (time-ordered) statistics. **Leave-one-out target
   encoding inverts the signal** (train features anti-correlate with their own label; validation features do not):

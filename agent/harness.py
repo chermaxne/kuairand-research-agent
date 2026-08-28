@@ -260,6 +260,34 @@ class Harness:
                                vs_best=vs_best_string(primary, best_at_start))
         atomic_write_json(os.path.join(ws, "result.json"), result.to_dict())
 
+        # --- leak test: a would-be promotion must survive flipped validation labels (harness-measured) ---
+        leak: Dict[str, Any] = {}
+        if status == "scored" and score is not None and self.run_cfg.get("leak_check", "on_promotion") != "off":
+            would_promote = best_at_start is None or score.primary > best_at_start + self.limits.promote_margin
+            if would_promote:
+                self.log(f"[leak-test] candidate {score.primary:.4f} would be promoted — re-running with flipped validation labels")
+                leak = self.task.leak_test(ws, float(self.run_cfg["EXPERIMENT_TIMEOUT_S"]))
+                floor = float(self.run_cfg.get("leak_check_min_primary", 0.5))
+                if leak.get("ran") and leak.get("primary") is not None:
+                    leak["verdict"] = "clean" if leak["primary"] >= floor else "LEAK"
+                else:
+                    leak["verdict"] = "LEAK (pipeline failed on flipped labels)"
+                if leak["verdict"] != "clean":
+                    diag = (f"LEAK DETECTED: sealed primary {score.primary:.4f} with real validation labels, but "
+                            f"{leak.get('primary', float('nan')):.4f} when the validation rows' feedback columns are flipped "
+                            f"(random = 0.5; a pipeline that never reads validation labels stays near its normal score). "
+                            f"The predictions depend on the validation rows' own labels — a training/feature leak, not a result. "
+                            f"{leak.get('error', '')}")
+                    self.log(f"[leak-test] {diag[:160]}")
+                    status, primary, error_reason, blocked_reason = "failed", None, diag, "leak detected"
+                    result = HarnessResult(status="failed", gauc=score.gauc, ndcg5=score.ndcg5, primary=score.primary,
+                                           runtime_s=runtime_s, error_excerpt=diag, vs_best=vs_best_string(None, best_at_start))
+                    atomic_write_json(os.path.join(ws, "result.json"), result.to_dict())
+                    score = None
+                else:
+                    self.log(f"[leak-test] clean: {leak['primary']:.4f} with flipped labels (>= {floor})")
+            atomic_write_json(os.path.join(ws, "leak_test.json"), leak) if leak else None
+
         # --- the two separate judgments (pure functions; no LLM involvement) ---
         dec = judge_iteration(status, primary, best_at_start, state.best_iter, state.streak, it, self.limits)
         if dec.promoted:
@@ -310,6 +338,7 @@ class Harness:
                                             "change_summary": change_summary, "tokens": usage.to_dict(),
                                             "llm_calls": self.roles.calls_this_iteration, "iteration_wall_s": round(self.clock() - t_iter, 1),
                                             "blocked_added": blocked_reason or None, "consecutive_failures": state.consecutive_failures,
+                                            "leak_test": leak or None,
                                             "workspace": os.path.relpath(ws, self.run_dir)})
         write_iteration_log(self.run_dir, entry)
 
