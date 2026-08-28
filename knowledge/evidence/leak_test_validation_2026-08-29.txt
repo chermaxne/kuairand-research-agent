@@ -1,0 +1,8 @@
+baseline FM champion (legit, 0.6015)                 verdict=clean        subset_primary=0.6028702752089528 subset_gauc=0.6703538108705905 full=0.601468756352959 frac=0.1 (30s)
+    attempts: [{'fraction': 0.1, 'ran': True, 'runtime_s': 29.4, 'n_flipped_users': 2469, 'subset_primary': 0.603, 'subset_gauc': 0.67, 'full_primary': 0.601}]
+ten6 it01 bundle (legit 0.6046, v1 FALSELY flagged)  verdict=clean        subset_primary=0.5881223947860132 subset_gauc=0.6719219484605145 full=0.6046070331191273 frac=0.02 (1065s)
+    attempts: [{'fraction': 0.1, 'ran': False, 'runtime_s': 396.5, 'n_flipped_users': 2469}, {'fraction': 0.02, 'ran': True, 'runtime_s': 667.2, 'n_flipped_users': 493, 'subset_primary': 0.588, 'subset_gauc': 0.672, 'full_primary': 0.605}]
+ten5 it01 (real leak, scored the 0.8484 oracle)      verdict=LEAK         subset_primary=0.1456286882255563 subset_gauc=0.00014988009592326138 full=0.7804322495146011 frac=0.1 (76s)
+    attempts: [{'fraction': 0.1, 'ran': True, 'runtime_s': 76.1, 'n_flipped_users': 2469, 'subset_primary': 0.146, 'subset_gauc': 0.0, 'full_primary': 0.78}]
+VALIDATION_DONE
+VALIDATION_DONE

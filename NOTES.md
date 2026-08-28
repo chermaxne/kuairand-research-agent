@@ -378,11 +378,16 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   Engineer had added the self-check the playbook recommends (`assert epoch-1 primary > 0.55`), which fires on a copy where
   ALL validation labels are flipped; v1 treated "crashed on flipped labels" as a leak. A streak step and a real gain lost.
 * v2: flip a deterministic **10% of validation users** (md5 bucket of user_id) and score only those users' TRUE labels
-  (sealed evaluate on the subset); a clean pipeline scores them like everyone else (validated on the real baseline),
-  a leaking one inverts them. If the pipeline crashes on the 10% copy, retry at 2% (a legit validation metric barely
-  moves; ~450 users still give a decisive signal); crashes on both = INCONCLUSIVE → not promoted (conservative: a leaky
-  champion is catastrophic, a lost iteration is not). Engineer prompt and playbook: assert on train-side quantities
-  only, never hard-assert on the validation metric.
+  (sealed evaluate on the subset); a clean pipeline scores them like everyone else, a leaking one inverts them. If the
+  pipeline crashes on the 10% copy, retry at 2%; crashes on both = INCONCLUSIVE → not promoted (conservative: a leaky
+  champion is catastrophic, a lost iteration is not). A free plausibility ceiling (`run.implausible_primary_above: 0.70`)
+  flags oracle-style leaks with no re-run at all. Engineer prompt and playbook: assert on TRAIN-side quantities only.
+* **Validated on real data** (`knowledge/evidence/leak_test_validation*`): baseline champion → clean, flipped users score
+  0.6029 on their true labels vs 0.6015 full-set (30 s); the falsely-flagged ten6 it01 bundle → crashed at 10% (that same
+  assert), retried at 2% → **clean**, 0.5881 / GAUC 0.672 on 493 users (18 min total); the real ten5 leaker → **LEAK**,
+  0.1456 / **GAUC 0.00015** — perfectly inverted. Honest 0.588–0.603 vs leak 0.146 around a 0.5 threshold: wide margin.
+* Cost: one extra experiment-length per would-be promotion (18 min in the crash+retry case; ~1 pass once pipelines stop
+  asserting on the validation metric). `run.leak_check: off` disables it.
 
 ## 5. What works, what is untested against real data, what the humans must verify next
 

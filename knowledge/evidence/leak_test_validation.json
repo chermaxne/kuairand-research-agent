@@ -1,0 +1,32 @@
+{
+ "clean_baseline": {
+  "fraction": 0.1,
+  "ran": true,
+  "runtime_s": 29.4,
+  "n_flipped_users": 2469,
+  "subset_primary": 0.6029,
+  "subset_gauc": 0.6704,
+  "full_primary": 0.6015,
+  "verdict": "clean"
+ },
+ "clean_it01": {
+  "fraction": 0.02,
+  "ran": true,
+  "runtime_s": 667.2,
+  "n_flipped_users": 493,
+  "subset_primary": 0.5881,
+  "subset_gauc": 0.6719,
+  "full_primary": 0.6046,
+  "verdict": "clean"
+ },
+ "real_leaker": {
+  "fraction": 0.1,
+  "ran": true,
+  "runtime_s": 76.1,
+  "n_flipped_users": 2469,
+  "subset_primary": 0.1456,
+  "subset_gauc": 0.0001,
+  "full_primary": 0.7804,
+  "verdict": "LEAK"
+ }
+}
