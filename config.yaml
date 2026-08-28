@@ -167,7 +167,8 @@ run:
                                    # sign/logic fix before the result is accepted (set null to disable)
   structural_first_until_iter: 3   # briefing directive for the first N iterations (the window in which three misses
                                    # end the run): aim for > +0.002, no hyperparameter-only proposals (0 disables)
-  retry_timeouts_with_debugger: false   # a timeout is terminal for the iteration (no traceback to fix)
+  retry_timeouts_with_debugger: true    # a timeout usually IS a bug (a Python loop over users x rows): one Debugger pass
+                                        # with the training-log tail before the iteration counts as lost
   mask_test_period_in_loop: true   # experiments see a derived data dir WITHOUT test-period rows
   categories: [feature, model, training, multitask, other]   # §5.1 category vocabulary
 

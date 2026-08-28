@@ -316,6 +316,16 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   seeds + one new signal, and converging at a genuine plateau is a correct outcome; Researcher rule 3 says the same;
   the harness now injects a LAST-SHOT DIRECTIVE into the briefing when the streak reaches N_FLAT − 1 (tested).
 
+### Timeout root cause and fix (2026-08-29)
+* Run `20260829_002855_ten3` iteration 1: the Engineer (DeepSeek V4 Pro, 393 s for 15.7k output tokens) wrote a 4-seed
+  bundle whose rank-averaging step looped over 22k users masking 125k rows each (quadratic Python) and rebuilt the pair
+  pool in Python every epoch (10 s wall-clock per epoch vs 1.8 s of training) — heading for the 900 s kill; the team
+  stopped it. Timeouts were terminal by default, so a one-line vectorisation bug would have cost a streak step.
+* Fixes: `run.retry_timeouts_with_debugger: true` — a timeout now gets one Debugger pass with a harness RUNTIME
+  DIAGNOSIS (limit, champion runtime, the usual quadratic-loop causes, the stdout tail before the kill); the knowledge
+  library §8 carries the runtime budget (≤ 400 s for a 4–5-seed pipeline), the vectorised rank one-liner and the
+  build-once/resample rule; Engineer rule 8 and Debugger rule 3b say the same. Tests updated.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

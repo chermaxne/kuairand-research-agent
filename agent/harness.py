@@ -361,7 +361,14 @@ class Harness:
                 res = self.task.sandbox_run(ws, "val", tools.PREDS_VAL, timeout)
                 total_runtime += res.runtime_s
                 if res.status == "timeout":
-                    status, err = "timeout", res.error_excerpt()
+                    status = "timeout"
+                    err = (res.error_excerpt() + "\n\nRUNTIME DIAGNOSIS (harness): the process was killed at the "
+                           f"{int(timeout)}s limit. The champion pipeline runs in ~130s, so this is almost always a "
+                           "performance bug, not a slow model: a Python loop over users x rows (per-user masks, "
+                           "per-user list comprehensions), pairs rebuilt from scratch every epoch, or an O(n^2) "
+                           "post-processing step. Vectorise per-user operations (pandas groupby + rank/transform, "
+                           "np.argsort/np.unique with return_inverse), build index structures once, keep the model "
+                           "and hypothesis unchanged.\nLast lines of stdout before the kill:\n" + self.training_log_tail(ws))
                 elif res.status == "failed":
                     status, err = "failed", res.error_excerpt()
                 else:

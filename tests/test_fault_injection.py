@@ -102,7 +102,7 @@ def test_sleeping_pipeline_is_killed_on_timeout(tmp_path, base_cfg, mini_data):
     handlers = default_mock_handlers()
     handlers["engineer"] = _engineer_transform(lambda c: c.replace(RAISE, "import time; time.sleep(60)\n    " + RAISE))
     h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
-                         overrides={"run": {"MAX_ITERS": 1, "EXPERIMENT_TIMEOUT_S": 2}})
+                         overrides={"run": {"MAX_ITERS": 1, "EXPERIMENT_TIMEOUT_S": 2, "retry_timeouts_with_debugger": False}})
     st = h.init_or_resume()
     h.phase0()
     t0 = time.time()
@@ -111,7 +111,8 @@ def test_sleeping_pipeline_is_killed_on_timeout(tmp_path, base_cfg, mini_data):
     assert hist["status"] == "timeout" and hist["decision"] == "failed" and st.streak == 1
     log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
     assert log["result"]["status"] == "timeout" and "TIMEOUT" in log["result"]["error_excerpt"]
-    assert log["errors_and_recovery"] == []                          # timeouts are terminal by default (no debugger)
+    assert "RUNTIME DIAGNOSIS" in log["result"]["error_excerpt"]      # the diagnosis is recorded even when terminal
+    assert log["errors_and_recovery"] == []                          # terminal when the retry is disabled
     assert st.blocked and "timeout 2s" in st.blocked[0]
     line = open(os.path.join(h.run_dir, "ledger.md")).read().splitlines()[-1]
     assert "RESULT: FAILED(timeout" in line
@@ -120,11 +121,16 @@ def test_sleeping_pipeline_is_killed_on_timeout(tmp_path, base_cfg, mini_data):
     assert ps.stdout.strip() == ""
 
 
+def test_timeout_retry_is_the_default_and_debugger_sees_the_diagnosis(base_cfg):
+    assert base_cfg["run"]["retry_timeouts_with_debugger"] is True
+
+
 def test_timeout_retry_with_debugger_when_configured(tmp_path, base_cfg, mini_data):
     calls = []
 
     def debugger(role, system, messages):
         calls.append(1)
+        assert "RUNTIME DIAGNOSIS" in messages[-1]["content"] and "Vectorise" in messages[-1]["content"]
         files = parse_file_blocks(messages[-1]["content"].split("# Failing files", 1)[-1].split("# Error", 1)[0])
         files["pipeline.py"] = files["pipeline.py"].replace("time.sleep(60)", "time.sleep(0)")
         return "FIX SUMMARY: removed the sleep\n" + render_file_blocks(files)

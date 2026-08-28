@@ -14,6 +14,10 @@ the smallest change that makes the code run correctly WITHOUT changing what the 
    torch(cpu).
 3. Read the traceback carefully; fix the root cause, not the symptom. Check the surrounding code for the
    same mistake elsewhere.
+3b. If the failure is a TIMEOUT (the harness says the process was killed at the limit), the cause is almost always
+   a performance bug: a Python loop over users that masks the rows, pairs rebuilt every epoch, an O(n²) post-processing
+   step. Vectorise it (pandas `groupby().rank(pct=True)`, `np.unique(return_inverse=True)`, `np.argsort`), keep the
+   model, the loss and the hypothesis exactly as they are, and make the code print per-epoch timing.
 4. Output COMPLETE files, never snippets.
 
 ## Output format (strict)

@@ -109,8 +109,11 @@ UNK, same encoding as the others). Computed identically for train and validation
 Variants to try one at a time (never two new fields in one run): impressions-in-day count, log minutes since the
 user's previous impression (30-min gap = new session), hour-of-day bucket.
 **R3. Seed rank-average (+0.0010 pointwise, +0.0003 on R1+R2; near-certain).** Train the same pipeline with
-3–5 seeds inside one run (each ≈ 30 s), rank-normalise each model's scores *within user* (percentile rank), average
+3–5 seeds inside one run (each ≈ 30–45 s), rank-normalise each model's scores *within user* (percentile rank), average
 the ranks. Logit-averaging is slightly worse (0.6021 vs 0.6026). Always the finisher; combine with R1+R2.
+Vectorised, the whole rank step is one line — `pd.Series(scores).groupby(np.asarray(users)).rank(pct=True).values`
+(≈ 0.1 s). A Python loop over users that masks the rows (`for u in unique(users): mask = [x == u for x in users]`)
+is 22k × 125k comparisons ≈ tens of minutes and **killed the 2026-08-29 run at the 900 s limit**.
 **R4. Past-only history fields — demoted: flat on top of R1–R3 (+0.0002 / −0.0012 measured).** Bucketed
 user × author / user × tab rates duplicate interactions the FM already learns from its id fields, so as extra FM
 fields they add nothing. They only make sense for an entity the FM does NOT have as a field (user × tag,
@@ -164,14 +167,22 @@ The statistic feature file is not "flat" — it is forbidden (§3, §7).
 - A weak ensemble member makes the ensemble worse; rank-average only members within ~0.01 of the champion.
 - Adding several new fields at once can lower the score; one field per run.
 - Seed std 0.0003; validation bootstrap SE 0.0022; do not read a single +0.001 as proof.
+- A per-user Python loop over the rows (per-user masks, per-user list comprehensions) takes tens of minutes and hits
+  the 900 s kill; vectorise (§8). Pairs rebuilt in Python every epoch quintuple the epoch time.
 - The pipeline contract: fit on the train split only (validation only for early stopping); write every row of the
   requested split in file order; `--split test` must keep working; no network, no installs.
 
-## 8. Engineering facts
-Data load 3–4 s (pure-Python CSV); FM epoch ≈ 2 s pointwise (1.14M rows) / ≈ 1.5 s pairwise (≈ 380k pairs);
-sealed `evaluate` on valid 0.2 s; the champion run ≈ 30 s end to end; a 5-seed R1+R2+R3 pipeline ≈ 3–4 min;
-wall-clock limit 900 s per experiment. Memory: the encoded train matrix is 1.14M × F int32 — trivial. Libraries:
-numpy, pandas, scikit-learn, lightgbm, torch (CPU). IDs are strings in the CSVs; echo them as read.
+## 8. Engineering facts — runtime is a budget, and Python loops are how it gets blown
+- Data load 3–4 s (pure-Python CSV); FM epoch ≈ 2 s pointwise (1.14M rows) / ≈ 1.5 s pairwise (≈ 380k pairs);
+  sealed `evaluate` on valid 0.2 s; the pointwise champion ≈ 30 s end to end; the 3-seed R1+R2+R3 champion ≈ 130 s.
+  **Hard limit 900 s per experiment** — a timeout is a lost iteration. Budget: ≤ 400 s for a 4–5-seed pipeline.
+- Vectorise every per-user operation: `groupby(...).rank/transform/size` in pandas, or `np.unique(..., return_inverse)`
+  + `np.argsort` / `np.add.at` in numpy. Never write `for u in users: mask = (users == u)` over the rows — quadratic.
+- Build pair pools and index structures ONCE (per-user positive/negative index arrays), then resample per epoch with
+  array indexing; rebuilding them in Python each epoch costs ~8 s per epoch on top of 1.8 s of training.
+- Print progress that a reader can budget from: per-epoch time, pair count, seed number.
+- Memory: the encoded train matrix is 1.14M × F int32 — trivial. Libraries: numpy, pandas, scikit-learn, lightgbm,
+  torch (CPU). IDs are strings in the CSVs; echo them as read.
 
 ## 9. Literature notes (what transfers, what does not)
 - Watch-time prediction & duration bias — D2Q (KDD'22), TPM (KDD'23), CWM (KDD'24; evaluated on KuaiRand-Pure

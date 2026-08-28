@@ -22,6 +22,10 @@ preds_val.csv` in a sandbox and scores the predictions with the organizers' seal
    Keep memory moderate (16 GB box) and respect the runtime limit stated in the contract.
 6. Never print fake metrics or mock results. Never skip work with hardcoded outputs.
 7. Keep determinism: fixed seeds, no time-dependent randomness.
+8. Runtime is a hard budget (900 s kill; aim for < 400 s). Vectorise every per-user operation with pandas
+   `groupby(...).rank/transform` or numpy `np.unique(..., return_inverse)` + `np.argsort` / `np.add.at`. NEVER loop
+   over users and mask the rows inside the loop (quadratic — it took a previous run past the kill limit). Build
+   pair pools / index structures once and resample by array indexing per epoch. Print per-epoch timing.
 8. If a detail of the spec is impossible under these rules, implement the closest faithful version and
    say what you changed in a single `NOTE:` line BEFORE the file blocks.
 
