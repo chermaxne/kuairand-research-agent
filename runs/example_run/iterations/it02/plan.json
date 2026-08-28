@@ -1,0 +1,8 @@
+{
+  "hypothesis": "Double the FM embedding dimension (K 16 -> 32) to capture richer user x item interactions",
+  "category": "model",
+  "change_spec": "In pipeline.py apply exactly these line substitutions (leave everything else untouched): [[EDIT]] K = 16 ==> K = 32. Keep the CLI, the train-only rule and the output format. [mock it02]",
+  "expected_risk": "low",
+  "builds_on": "champion",
+  "rationale": "Mock plan step 2 (organizers report capacity is flat; this measures it on validation). (mock, it02)"
+}

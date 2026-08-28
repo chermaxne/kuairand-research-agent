@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/Users/ckwang/Documents/TechJam/kuairand-starter-kit/runs/20260828_181352_phase5_dryrun/iterations/it01/pipeline.py", line 213, in <module>
+    main()
+  File "/Users/ckwang/Documents/TechJam/kuairand-starter-kit/runs/20260828_181352_phase5_dryrun/iterations/it01/pipeline.py", line 204, in main
+    model = train(enc, dim)
+            ^^^^^^^^^^^^^^^
+  File "/Users/ckwang/Documents/TechJam/kuairand-starter-kit/runs/20260828_181352_phase5_dryrun/iterations/it01/pipeline.py", line 162, in train
+    m = FM(dim, l2=L2_TYPO)
+                   ^^^^^^^
+NameError: name 'L2_TYPO' is not defined

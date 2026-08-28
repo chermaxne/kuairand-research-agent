@@ -1,0 +1,8 @@
+{'train': 1141112, 'valid': 124909, 'test': 0} fields=['user_id', 'video_id', 'author_id', 'tab', 'dur_bucket'] load 2.9s
+epoch  1 | loss 0.6931 | valid GAUC 0.5103 nDCG@5 0.4714 primary 0.4909 | 1.9s
+epoch  2 | loss 0.6931 | valid GAUC 0.5103 nDCG@5 0.4714 primary 0.4909 | 1.8s
+epoch  3 | loss 0.6931 | valid GAUC 0.5103 nDCG@5 0.4714 primary 0.4909 | 1.9s
+epoch  4 | loss 0.6931 | valid GAUC 0.5103 nDCG@5 0.4714 primary 0.4909 | 1.9s
+epoch  5 | loss 0.6931 | valid GAUC 0.5103 nDCG@5 0.4714 primary 0.4909 | 1.8s
+early stop at epoch 5
+wrote preds_val.csv: 124909 rows for split=valid in 17s

@@ -1,0 +1,8 @@
+{
+  "hypothesis": "Stronger L2 (1e-6 -> 1e-5) to regularise sparse id embeddings under temporal shift",
+  "category": "training",
+  "change_spec": "In pipeline.py apply exactly these line substitutions (leave everything else untouched): [[EDIT]] L2 = 1e-6 ==> L2 = 1e-5. Keep the CLI, the train-only rule and the output format. [mock it01]",
+  "expected_risk": "low",
+  "builds_on": "champion",
+  "rationale": "Mock plan step 1 (the Engineer output deliberately contains a NameError to exercise the Debugger path). (mock, it01)"
+}

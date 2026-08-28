@@ -1,0 +1,5 @@
+# Ledger (tier-1 memory, append-only; one line per iteration, harness-written except LESSON)
+# it00 champion installed from baseline_repro: val primary 0.6015 (GAUC 0.6671 / nDCG5 0.5358); published baseline 0.6016; rungs random 0.4827 pop 0.5807
+[it01] HYP: Stronger L2 (1e-6 -> 1e-5) to regularise sparse id embeddings under temporal shift | CHANGE: pipeline.py (+1/-1) | RESULT: 0.6025 (best 0.6025) -> PROMOTED | LESSON: Stronger L2 (1e-6 -> 1e-5) to regularise sparse: scored +0.0010 -> promoted
+[it02] HYP: Double the FM embedding dimension (K 16 -> 32) to capture richer user x item interactions | CHANGE: pipeline.py (+1/-1) | RESULT: 0.6022 (best 0.6025) -> kept | LESSON: Double the FM embedding dimension (K 16 ->: scored -0.0003 -> kept_champion
+[it03] HYP: Raise the learning rate (0.001 -> 0.002) so Adam converges before early stopping triggers | CHANGE: pipeline.py (+1/-1) | RESULT: 0.4909 (best 0.6025) -> kept | LESSON: Raise the learning rate (0.001 -> 0.002) so: scored -0.1116 -> kept_champion

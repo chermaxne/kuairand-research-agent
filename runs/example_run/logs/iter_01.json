@@ -1,0 +1,51 @@
+{
+  "iteration": 1,
+  "timestamp": "2026-08-28T10:15:41Z",
+  "hypothesis": "Stronger L2 (1e-6 -> 1e-5) to regularise sparse id embeddings under temporal shift",
+  "rationale": "Mock plan step 1 (the Engineer output deliberately contains a NameError to exercise the Debugger path). (mock, it01)",
+  "category": "training",
+  "code_diff": "--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -28,7 +28,7 @@\n FIELDS = [\"user_id\", \"video_id\", \"author_id\", \"tab\", \"dur_bucket\"]   # 5 categorical fields of the baseline\n K = 16            # embedding dim\n LR = 0.001\n-L2 = 1e-6\n+L2 = 1e-5\n EPOCHS = 40\n BATCH = 8192\n PATIENCE = 4",
+  "result": {
+    "status": "scored",
+    "gauc": 0.6684909342470425,
+    "ndcg5": 0.536514481883144,
+    "primary": 0.6025027080650933,
+    "runtime_s": 45.9,
+    "error_excerpt": "",
+    "vs_best": "+0.0010"
+  },
+  "errors_and_recovery": [
+    {
+      "attempt": 1,
+      "error": "NameError: name 'L2_TYPO' is not defined",
+      "fix_summary": "NameError — L2_TYPO was never defined; restored the FM(dim) constructor call.",
+      "status_after": "scored"
+    }
+  ],
+  "decision": "promoted",
+  "streak_after": 1,
+  "tokens_this_iteration": 17528,
+  "runtime_s": 45.9,
+  "lesson": "Stronger L2 (1e-6 -> 1e-5) to regularise sparse: scored +0.0010 -> promoted",
+  "harness_extra": {
+    "run_id": "20260828_181352_phase5_dryrun",
+    "best_primary_after": 0.6025027080650933,
+    "best_iter_after": 1,
+    "best_at_iteration_start": 0.601468756352959,
+    "promoted": true,
+    "expected_risk": "low",
+    "change_summary": "pipeline.py (+1/-1)",
+    "tokens": {
+      "input_tokens": 12698,
+      "output_tokens": 4830,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "total": 17528
+    },
+    "llm_calls": 5,
+    "iteration_wall_s": 46.2,
+    "blocked_added": null,
+    "consecutive_failures": 0,
+    "workspace": "iterations/it01"
+  }
+}

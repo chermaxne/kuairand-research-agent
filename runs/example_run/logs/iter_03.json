@@ -1,0 +1,44 @@
+{
+  "iteration": 3,
+  "timestamp": "2026-08-28T10:16:42Z",
+  "hypothesis": "Raise the learning rate (0.001 -> 0.002) so Adam converges before early stopping triggers",
+  "rationale": "Mock plan step 3: cheaper convergence check. (mock, it03)",
+  "category": "training",
+  "code_diff": "--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -27,7 +27,7 @@\n SPLITS = {\"train\": (20220408, 20220421), \"valid\": (20220422, 20220428), \"test\": (20220429, 20220508)}\n FIELDS = [\"user_id\", \"video_id\", \"author_id\", \"tab\", \"dur_bucket\"]   # 5 categorical fields of the baseline\n K = 16            # embedding dim\n-LR = 0.001\n+LR = 0\n L2 = 1e-5\n EPOCHS = 40\n BATCH = 8192",
+  "result": {
+    "status": "scored",
+    "gauc": 0.5102709901061859,
+    "ndcg5": 0.4714384943201776,
+    "primary": 0.49085474221318176,
+    "runtime_s": 17.2,
+    "error_excerpt": "",
+    "vs_best": "-0.1116"
+  },
+  "errors_and_recovery": [],
+  "decision": "kept_champion",
+  "streak_after": 3,
+  "tokens_this_iteration": 12495,
+  "runtime_s": 17.2,
+  "lesson": "Raise the learning rate (0.001 -> 0.002) so: scored -0.1116 -> kept_champion",
+  "harness_extra": {
+    "run_id": "20260828_181352_phase5_dryrun",
+    "best_primary_after": 0.6025027080650933,
+    "best_iter_after": 1,
+    "best_at_iteration_start": 0.6025027080650933,
+    "promoted": false,
+    "expected_risk": "low",
+    "change_summary": "pipeline.py (+1/-1)",
+    "tokens": {
+      "input_tokens": 9978,
+      "output_tokens": 2517,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "total": 12495
+    },
+    "llm_calls": 4,
+    "iteration_wall_s": 17.4,
+    "blocked_added": null,
+    "consecutive_failures": 0,
+    "workspace": "iterations/it03"
+  }
+}

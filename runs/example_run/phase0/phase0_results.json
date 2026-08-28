@@ -1,0 +1,80 @@
+{
+  "started": "2026-08-28T10:13:55Z",
+  "checks": [
+    {
+      "name": "random_valid_primary",
+      "value": 0.482659838170463,
+      "expected": 0.4834,
+      "tolerance": 0.01,
+      "ok": true
+    },
+    {
+      "name": "pop_valid_primary",
+      "value": 0.5807219293342882,
+      "expected": 0.5807,
+      "tolerance": 0.01,
+      "ok": true
+    },
+    {
+      "name": "official_fm_valid_primary",
+      "value": 0.601468756352959,
+      "expected": 0.6016,
+      "tolerance": 0.005,
+      "ok": true
+    },
+    {
+      "name": "champion_valid_primary",
+      "value": 0.601468756352959,
+      "expected": 0.6016,
+      "tolerance": 0.005,
+      "ok": true
+    }
+  ],
+  "expected": {
+    "random": 0.4834,
+    "pop": 0.5807,
+    "fm": 0.6016,
+    "fm_gauc": 0.6674,
+    "fm_ndcg5": 0.5357,
+    "oracle": 0.8484,
+    "epsilon": 0.002,
+    "N": 3
+  },
+  "random": {
+    "gauc": 0.499030806084518,
+    "ndcg5": 0.46628887025640803,
+    "primary": 0.482659838170463,
+    "users": 22377,
+    "rows": 124909
+  },
+  "pop": {
+    "gauc": 0.6387257648986705,
+    "ndcg5": 0.522718093769906,
+    "primary": 0.5807219293342882,
+    "users": 22377,
+    "rows": 124909
+  },
+  "official_fm": {
+    "gauc": 0.6671326321610643,
+    "ndcg5": 0.5358048805448538,
+    "primary": 0.601468756352959,
+    "users": 22377,
+    "rows": 124909,
+    "runtime_s": 29.0
+  },
+  "champion_run": {
+    "status": "ok",
+    "runtime_s": 29.6,
+    "isolation": "sandbox-exec"
+  },
+  "champion": {
+    "gauc": 0.6671326321610643,
+    "ndcg5": 0.5358048805448538,
+    "primary": 0.601468756352959,
+    "users": 22377,
+    "rows": 124909
+  },
+  "champion_vs_official": 0.0,
+  "passed": true,
+  "finished": "2026-08-28T10:14:55Z"
+}
