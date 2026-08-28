@@ -52,12 +52,17 @@ names (Poe bot handles such as `claude-opus-5`, `claude-haiku-4.5`) and sends on
 surface (no prompt caching, thinking, effort or beta headers — the gateway does not document them).
 
 ```bash
-export POE_API_KEY=...                                     # in the shell only; never in files or git
+export POE_API_KEY=...                                     # or put it in .env (see below)
 python -m agent.harness --llm-profile poe --llm-check      # 1 tiny request per role model: validates key + model ids
 python -m agent.harness --llm-profile poe --max-iters 1 --label smoke   # one real iteration (~5 min)
 python -m agent.harness --llm-profile poe --label official              # the real run
 ```
 `--llm-check` also works for the default Anthropic profile (`python -m agent.harness --llm-check`).
+
+**Keys in a `.env` file:** `cp .env.example .env` and fill in `POE_API_KEY=` or `ANTHROPIC_API_KEY=`. The harness
+loads `<repo>/.env` automatically (or `--env-file PATH`); variables already exported in the shell take precedence.
+`.env*` is gitignored, values are never printed or logged, the sandbox strips them from every experiment's
+environment, and (on macOS) experiments are denied read access to the file itself.
 
 ## Run
 ```bash

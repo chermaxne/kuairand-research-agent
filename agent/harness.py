@@ -477,11 +477,19 @@ def main(argv=None) -> int:
     ap.add_argument("--session-iters", type=int, default=None, help="stop this process after N iterations (resumable)")
     ap.add_argument("--set", action="append", default=[], help="override config: a.b.c=value")
     ap.add_argument("--phase0-only", action="store_true", help="run Phase 0 (baseline reproduction + self-checks) and exit")
+    ap.add_argument("--env-file", default=None, help="KEY=VALUE file to load into the environment (default: <repo>/.env if present)")
     ap.add_argument("--llm-profile", default=None, help="apply llm.profiles.<name> from config (e.g. poe)")
     ap.add_argument("--llm-check", action="store_true", help="ping every configured role model with a tiny request and exit")
     a = ap.parse_args(argv)
 
     root = os.path.dirname(os.path.abspath(a.config))
+    from .llm_client import load_dotenv
+    env_file = a.env_file or os.path.join(root, ".env")
+    loaded = load_dotenv(env_file)
+    if os.path.isfile(env_file):
+        os.environ["HARNESS_ENV_FILE"] = os.path.abspath(env_file)   # the sandbox denies reads of this file
+    if loaded:
+        print(f"[env] loaded {', '.join(loaded)} from {os.path.relpath(env_file, root)} (values never logged)")
     cfg = load_config(a.config)
     if a.toy:
         deep_update(cfg, cfg.get("toy", {}).get("overrides", {}))

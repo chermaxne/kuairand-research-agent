@@ -75,7 +75,9 @@ def sandbox_profile(workspace: str, allow_write: Sequence[str] = (), deny_read: 
     write_ok += [os.path.realpath(p) for p in allow_write]
     parts = ["(version 1)", "(allow default)", "(deny network*)", "(deny file-write*)"]
     parts += [f"(allow file-write* (subpath {_q(p)}))" for p in write_ok]
-    parts += [f"(deny file-read* (subpath {_q(os.path.realpath(p))}))" for p in deny_read]
+    for p in deny_read:
+        rp = os.path.realpath(p)
+        parts.append(f"(deny file-read* ({'literal' if os.path.isfile(rp) else 'subpath'} {_q(rp)}))")
     return "".join(parts)
 
 

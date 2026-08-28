@@ -74,8 +74,21 @@ class Task:
         read-denied (sandbox-exec); finalize passes full_data=True."""
         data_dir = self.data_dir if full_data else self.loop_data_dir
         deny = [] if (full_data or not self.mask_test) else [self.data_dir]
+        deny += self.secret_files()
         return tools.run_pipeline_in_sandbox(workspace, data_dir, split, out_name, timeout_s, self.sandbox_cfg,
                                              pythonpath=[self.sealed_dir], deny_read=deny, log_prefix=log_prefix)
+
+    def secret_files(self) -> List[str]:
+        """Files experiments must never read (API keys): the repo's .env variants and the harness's own env file."""
+        out = []
+        for name in (".env", ".env.local", ".env.poe", ".env.anthropic"):
+            p = os.path.join(self.root, name)
+            if os.path.isfile(p):
+                out.append(p)
+        extra = os.environ.get("HARNESS_ENV_FILE")
+        if extra and os.path.isfile(extra):
+            out.append(extra)
+        return out
 
     def check_submission(self, path: str, split: str = "test") -> Tuple[bool, str]:
         return tools.check_submission(self.sealed_dir, self.kit_dir, self.data_dir, path, split=split)

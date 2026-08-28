@@ -265,3 +265,44 @@ print(json.dumps(r))
     finally:
         if outside.exists():
             outside.unlink()
+
+
+# ---------------------------------------------------------------- .env handling
+def test_load_dotenv_parses_and_never_overrides(tmp_path, monkeypatch):
+    from agent.llm_client import load_dotenv
+    f = tmp_path / ".env"
+    f.write_text("# comment\nPOE_API_KEY='poe-secret'\nexport OTHER=\"x y\"\nBAD LINE\nEXISTING=new\n\n")
+    monkeypatch.delenv("POE_API_KEY", raising=False)
+    monkeypatch.delenv("OTHER", raising=False)
+    monkeypatch.setenv("EXISTING", "old")
+    assert load_dotenv(str(f)) == ["POE_API_KEY", "OTHER"]
+    assert os.environ["POE_API_KEY"] == "poe-secret" and os.environ["OTHER"] == "x y" and os.environ["EXISTING"] == "old"
+    assert load_dotenv(str(tmp_path / "missing.env")) == []
+
+
+def test_env_file_is_denied_to_the_sandbox(tmp_path, base_cfg, mini_data, monkeypatch):
+    """The key file must be invisible to LLM-written pipelines (macOS sandbox) and stripped from their env."""
+    secret = tmp_path / ".env"
+    secret.write_text("POE_API_KEY=poe-secret\n")
+    monkeypatch.setenv("HARNESS_ENV_FILE", str(secret))
+    monkeypatch.setenv("POE_API_KEY", "poe-secret")
+    h = make_toy_harness(tmp_path, base_cfg, mini_data)
+    h.init_or_resume()
+    assert str(secret) in h.task.secret_files()
+    ws = tmp_path / "probe_ws"
+    ws.mkdir()
+    (ws / "pipeline.py").write_text(f"""
+import os, json
+r = {{"env_has_key": "POE_API_KEY" in os.environ}}
+try:
+    open({str(secret)!r}).read(); r["read"] = "ok"
+except Exception as e:
+    r["read"] = type(e).__name__
+print(json.dumps(r))
+""")
+    res = h.task.sandbox_run(str(ws), "val", "preds_val.csv", 30)
+    assert res.ok, res.stderr_tail
+    r = json.loads(res.stdout_tail.strip().splitlines()[-1])
+    assert r["env_has_key"] is False
+    if detect_isolation("auto") == "sandbox-exec":
+        assert r["read"] == "PermissionError"

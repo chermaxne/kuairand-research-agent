@@ -176,6 +176,31 @@ class AnthropicClient:
         raise LLMError(f"LLM call failed after {self.max_retries + 1} attempts: {type(last_err).__name__}: {last_err}")
 
 
+def load_dotenv(path: str, override: bool = False) -> List[str]:
+    """Load KEY=VALUE lines from a .env file into os.environ (comments/blank lines ignored, optional quotes and a
+    leading `export ` stripped). Existing variables win unless override=True. Returns the names loaded — never values."""
+    loaded: List[str] = []
+    if not path or not os.path.isfile(path):
+        return loaded
+    with open(path, encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            if line.startswith("export "):
+                line = line[len("export "):].strip()
+            key, _, val = line.partition("=")
+            key, val = key.strip(), val.strip()
+            if not key or not key.replace("_", "").isalnum():
+                continue
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+                val = val[1:-1]
+            if override or key not in os.environ:
+                os.environ[key] = val
+                loaded.append(key)
+    return loaded
+
+
 def make_client(cfg: Dict[str, Any], mock_handlers: Optional[Dict[str, Handler]] = None, force_mock: bool = False) -> LLMClient:
     """Build the client from config. The API key is read from the env var named in config and is never
     written anywhere (not to logs, run dirs, or git)."""
