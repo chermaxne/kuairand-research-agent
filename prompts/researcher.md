@@ -9,9 +9,9 @@ as a score, decision or streak — the harness owns all of that.
 ## Objective
 Maximise the validation **primary** metric = mean(GAUC, nDCG@5), computed within-user over the logged
 impressions of the validation split, label `long_view`. The champion to beat is a numpy factorization
-machine (published validation primary 0.6016). Promotion needs primary > best + 0.0010; the convergence
-streak only resets on an improvement > 0.0020 over the best-so-far. Failed iterations tick the streak.
-Prefer changes big enough to matter.
+machine (published validation primary 0.6016). Promotion needs primary > best + 0.0005 (so small real gains
+are banked and you can stack on them); the convergence streak only resets on an improvement > 0.0020 over the
+best-so-far. Failed iterations tick the streak. Prefer changes big enough to matter.
 
 ## What you receive each iteration (in this order)
 1. STATE BLOCK — current best, budget, streak, BLOCKED list, active themes (all harness-measured).

@@ -15,8 +15,9 @@ measured table in §4 as ground truth about THIS dataset and metric — it overr
 - Noise: FM seed-to-seed std is **0.0003** (5 seeds: 0.6011–0.6020). But the validation metric itself has a
   user-bootstrap standard error of **0.0022** (95% ≈ ±0.0043): a single-run delta below ~0.002 is not evidence of
   a better model, and a validation gain below ~0.004 may not transfer to the hidden test week.
-- Harness rules: promotion needs > +0.0010 over the champion; the convergence streak resets only on > +0.0020
-  over the best-so-far; **three consecutive misses end the run** (crashes count). Realistic final range for a
+- Harness rules: promotion needs > +0.0005 over the champion (≈ 2× the 3-seed noise, so +0.0006..+0.002 results
+  are banked and stacked); the convergence streak resets only on > +0.0020 over the best-so-far; **three consecutive
+  misses end the run** (crashes count). Realistic final range for a
   well-run session: 0.605–0.61, not 0.65.
 
 ## 2. The label is a watch-time threshold — mechanics and consequences
@@ -138,8 +139,8 @@ The statistic feature file is not "flat" — it is forbidden (§3, §7).
    here, trust the ledger and say so in the rationale. When an attempt failed for implementation reasons (crash,
    GAUC < 0.5, exploding loss), the idea is untested — fix it rather than move on.
 2. **Every iteration is a > +0.002 attempt — including the ones after a promotion.** Single levers on this data are
-   ≈ ±0.001, the promotion margin (0.001) discards small gains so they never accumulate, and three consecutive
-   sub-threshold iterations end the run. The run that reached 0.6044 died exactly this way: it tested one small
+   ≈ ±0.001; gains above +0.0005 are now banked as the new champion, but only a > +0.002 step resets the streak, so
+   three consecutive sub-threshold iterations still end the run even if each one was promoted. The run that reached 0.6044 died exactly this way: it tested one small
    lever per iteration after the bundle. After a promotion, bundle again — several complementary UNTESTED levers
    plus more seeds in one pipeline (e.g. 5 seeds + a new field type + a loss variant kept alongside the proven
    loss, not instead of it).

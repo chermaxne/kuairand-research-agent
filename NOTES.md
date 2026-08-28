@@ -362,6 +362,17 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   it can also reason for 30k characters per call). Researcher on GLM-5.2 (effort medium, ~$0.02/call), Engineer/Debugger
   stay on V4 Flash (correctness), fallback Researcher V4 Flash. ≈ $0.03 and ~6 min per iteration.
 
+### PROMOTE_MARGIN 0.0010 → 0.0005 (2026-08-29, team decision)
+* Rationale: promotion is a paired comparison on the same validation rows, where the relevant noise is the seed spread
+  (0.0003 for the FM; less with 3-seed averaging). 0.0010 (~3σ) discarded real +0.0008-class gains that later iterations
+  could have stacked on; 0.0005 (~2σ) banks them. Spec §2.6 makes the margin configurable; ε (0.002) and N (3) are the
+  organizers' convergence rule and are unchanged.
+* Open reading of the convergence rule, for the humans to raise with the organizers: we implement "no single iteration
+  beats best-at-iteration-start by > ε for N iterations" (spec §6 pseudocode). The kit README's wording ("3 consecutive
+  rounds without an improvement above 0.002") could also mean the cumulative improvement over the window — under which
+  three stacked +0.0008 promotions would NOT converge. A `streak_mode: window` option can be added if the organizers
+  confirm the cumulative reading; the conservative per-iteration reading stays the default.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)
