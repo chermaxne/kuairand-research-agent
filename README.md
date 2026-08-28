@@ -51,20 +51,24 @@ OPENROUTER_API_KEY=sk-or-...               # the default provider — key from h
 The roles are text-in/text-out, so any capable model works; only the Engineer is demanding (it emits a complete
 ~250-line `pipeline.py`, so it needs a large output budget and real coding ability).
 
-Shipped model choice (picked from OpenRouter's live catalogue on 2026-08-28):
+Shipped model choice (settled after the first live test on 2026-08-28 — see NOTES.md for the incident):
 
 | role | model | why |
 |---|---|---|
-| Researcher / Engineer / Debugger | `z-ai/glm-5.2:free` | #1 open-weight on the Artificial Analysis index (51), LiveBench coding 79.65, 256k context / 230k max output — free |
-| Scribe | `google/gemma-4-31b-it:free` | a ≤20-word job that is 2 of the 4 calls per iteration; a small model keeps the strong model's daily quota |
-| automatic fallbacks | `minimax/minimax-m3:free` → `nvidia/nemotron-3-super-120b-a12b:free` | 80.5% / 60.5% SWE-bench Verified; used when the primary returns 429 or disappears |
+| Researcher | `z-ai/glm-5.2` | reasoning model; wrote an excellent BPR plan in 8.8 s (#1 open-weight on the Artificial Analysis index) |
+| Engineer / Debugger | `qwen/qwen3-coder` | **non-reasoning** instruct coder, 262k ctx / 65k out — its whole output budget goes to the file |
+| Scribe | `deepseek/deepseek-v4-flash` | a ≤20-word job |
+| automatic fallbacks | `minimax/minimax-m3` → `deepseek-v4-flash` | used when the primary stalls, returns 429 or disappears |
 
-Free-tier arithmetic: OpenRouter allows **20 req/min and 50 req/day** until the account has spent $10 once, then
-**1,000/day**. The loop makes ~4 calls per iteration, so 50/day ≈ **12 iterations/day** — enough for a demo, not
-for a 50-iteration run. Two ways past it, same key:
+Why a non-reasoning Engineer: reasoning models' thinking tokens count against `max_tokens`, and an exhausted budget
+returns *empty* content while the provider still bills the generation. `llm.reasoning` caps thinking per role.
+
+Every call is **streamed**: a stalled generation is abandoned after `inactivity_timeout_s` (120 s) without a
+token, capped at `call_timeout_s` (900 s), retried once, then the next fallback model is used — and the console
+shows a heartbeat (`[llm] engineer: qwen/qwen3-coder streaming — 6,120 chars, 30s`) plus one line per completed
+call, so you always know what the agent is doing. Cost ≈ $0.03 per iteration (~$1.50 for a full 50-iteration run).
 
 ```bash
-.venv/bin/python -m agent.harness --llm-profile openrouter_paid    # z-ai/glm-5.2 + minimax-m3, ~$1-2 for a full run
 .venv/bin/python -m agent.harness --llm-profile openrouter_claude  # anthropic/claude-opus-4.8 + haiku-4.5, ~$10-20
 ```
 

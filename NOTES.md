@@ -186,6 +186,23 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Untested live (the key was not in `.env` when this was wired): whether the free variants honour a 16k-token output
   request, their real latency, and Engineer output quality. `--llm-check` then a 1-iteration smoke run answer all three.
 
+### Incident — first live test run stalled in the Engineer call (2026-08-28) → streaming client
+* Run `20260828_213917_test`: Phase 0 passed in 59 s; the Researcher (served by fallback `z-ai/glm-5.2`, 8.8 s) produced a
+  precise BPR-loss plan; then the Engineer's `complete()` never returned — 1,111 s in flight, process idle, until killed.
+  OpenRouter billed **$0.11** during the run, ≈ $0.10 of it for Engineer generations we never saw.
+* Root causes (both in our client): (1) non-streaming requests with `request_timeout_s: 600` × `max_retries: 5` before
+  falling back = up to 60 min of silence per model; (2) both strong models were *reasoning* models whose thinking counts
+  against `max_tokens` (16k for the Engineer) — an exhausted budget yields empty/truncated content (observed directly:
+  `z-ai/glm-5.2` capped at 64 tokens → `finish_reason='length'`, empty content) and the client discarded it and started
+  another multi-minute generation.
+* Fix: `OpenAICompatClient` now streams every call (`stream_options.include_usage`), aborts on 120 s inactivity or a
+  900 s hard cap, retries a timeout once then falls back, records every fallback reason in `llm_calls.jsonl` and the
+  transcript header, prints a heartbeat every 30 s and one console line per completed call; OpenRouter's unified
+  `reasoning` parameter caps thinking per role; the Engineer/Debugger moved to the non-reasoning `qwen/qwen3-coder`
+  (24k output budget); the Researcher stays on `z-ai/glm-5.2`.
+* Tests: stalled stream → one retry → fallback; hard cap aborts an endless stream; heartbeat; reasoning param placement;
+  usage from the final streamed chunk, honest `estimated_usage` when a gateway omits it.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

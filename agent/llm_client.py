@@ -13,7 +13,7 @@ import json
 import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
 
 from .schemas import TokenUsage
@@ -39,6 +39,7 @@ class LLMResponse:
     latency_s: float
     stop_reason: str = ""
     estimated_usage: bool = False     # True when the client had no API usage field (mock)
+    fallback_notes: List[str] = field(default_factory=list)   # why earlier candidate models were skipped
 
 
 class LLMClient(Protocol):
@@ -194,19 +195,24 @@ class AnthropicClient:
 
 
 class OpenAICompatClient:
-    """Chat-Completions client for any OpenAI-compatible gateway (Google Gemini, Groq, OpenRouter,
-    Cerebras, DeepSeek, ...). The four roles only need text in / text out, so the compat surface is enough.
+    """Chat-Completions client for any OpenAI-compatible gateway (OpenRouter, Google Gemini, Groq, Cerebras,
+    DeepSeek, ...). The four roles only need text in / text out, so the compat surface is enough.
 
-    Usage is read from the response `usage` object (`prompt_tokens` / `completion_tokens`, plus
-    `prompt_tokens_details.cached_tokens` when the gateway reports it) — never estimated.
+    Every call is STREAMED so that a stalled generation is detected by an inactivity timeout (no chunk for
+    `inactivity_timeout_s`) instead of a blind request timeout, a hard per-call cap (`call_timeout_s`) bounds the
+    worst case, and a heartbeat reports progress. Timeouts fall back to the next model after `timeout_retries`
+    (default 1) — a slow model must never silently eat an hour. Usage is read from the final streamed chunk
+    (`stream_options.include_usage`); when a gateway omits it the usage is estimated and flagged as such.
     """
     provider = "openai-compatible"
-    TRANSIENT = ("RateLimitError", "APIConnectionError", "APITimeoutError", "InternalServerError")
+    TRANSIENT = ("RateLimitError", "APIConnectionError", "InternalServerError")
 
     def __init__(self, api_key: Optional[str], base_url: str, *, request_timeout_s: float = 300, max_retries: int = 3,
                  provider_name: str = "openai-compatible", max_tokens_field: str = "max_tokens",
                  extra_body: Optional[Dict[str, Any]] = None, extra_headers: Optional[Dict[str, str]] = None,
-                 fallback_models: Optional[Dict[str, List[str]]] = None):
+                 fallback_models: Optional[Dict[str, List[str]]] = None, inactivity_timeout_s: float = 120,
+                 call_timeout_s: float = 900, timeout_retries: int = 1, reasoning: Optional[Dict[str, Any]] = None,
+                 heartbeat_s: float = 30):
         try:
             import openai  # imported lazily so the Anthropic path never needs this package
         except ImportError as e:
@@ -216,15 +222,23 @@ class OpenAICompatClient:
                 "(or `source .venv/bin/activate` first), or install it with `pip install -r requirements.txt`."
             ) from e
         self._openai = openai
-        self._client = openai.OpenAI(api_key=api_key or "missing", base_url=base_url, timeout=request_timeout_s, max_retries=0)
+        # The SDK timeout is applied to every socket read: with streaming that is exactly an inactivity timeout.
+        self._client = openai.OpenAI(api_key=api_key or "missing", base_url=base_url, timeout=float(inactivity_timeout_s), max_retries=0)
         self.provider = provider_name
         self.base_url = base_url
         self.max_retries = int(max_retries)
+        self.timeout_retries = int(timeout_retries)
+        self.inactivity_timeout_s = float(inactivity_timeout_s)
+        self.call_timeout_s = float(call_timeout_s)
+        self.heartbeat_s = float(heartbeat_s)
         self.max_tokens_field = max_tokens_field
         self.extra_body = dict(extra_body or {})
         self.extra_headers = dict(extra_headers or {})
         # role -> ordered alternates tried when the primary model is rate-limited or unavailable (free tiers are flaky)
         self.fallback_models = {k: list(v) for k, v in (fallback_models or {}).items() if v}
+        # role -> OpenRouter-style unified `reasoning` object (e.g. {"max_tokens": 4000} or {"effort": "none"})
+        self.reasoning = {k: dict(v) for k, v in (reasoning or {}).items() if v}
+        self.progress: Optional[Callable[[str], None]] = None      # heartbeat sink (the harness sets its logger)
 
     # -- request assembly (pure; unit-tested without network) --------------
     def build_request(self, *, role: str, model: str, system_blocks: Sequence[str], messages: Sequence[Dict[str, str]],
@@ -235,24 +249,88 @@ class OpenAICompatClient:
             msgs.append({"role": "system", "content": "\n\n".join(blocks)})
         msgs += [{"role": m["role"], "content": m["content"]} for m in messages]
         req: Dict[str, Any] = {"model": model, "messages": msgs, self.max_tokens_field: int(max_tokens)}
-        req.update(self.extra_body)
+        body = dict(self.extra_body)
+        r = self.reasoning.get(role_key(role))
+        if r:
+            body["reasoning"] = dict(r)
+        if body:
+            req["extra_body"] = body
         return req
 
     @staticmethod
     def parse_response(resp: Any) -> Dict[str, Any]:
+        """Non-streaming response object -> parsed dict (kept for gateways/tests that answer in one piece)."""
         choice = resp.choices[0] if getattr(resp, "choices", None) else None
         text = (getattr(getattr(choice, "message", None), "content", "") or "") if choice else ""
         finish = str(getattr(choice, "finish_reason", "") or "") if choice else ""
-        u = getattr(resp, "usage", None)
+        return {"text": text, "finish_reason": finish, "usage": OpenAICompatClient._usage_from(getattr(resp, "usage", None), text),
+                "model": str(getattr(resp, "model", "")), "estimated": getattr(resp, "usage", None) is None}
+
+    @staticmethod
+    def _usage_from(u: Any, text: str) -> TokenUsage:
+        if u is None:
+            return TokenUsage(output_tokens=_approx_tokens(text))
         cached = 0
-        details = getattr(u, "prompt_tokens_details", None) if u else None
+        details = getattr(u, "prompt_tokens_details", None)
         if details is not None:
             cached = int(getattr(details, "cached_tokens", 0) or 0)
-        usage = TokenUsage(input_tokens=int(getattr(u, "prompt_tokens", 0) or 0) - cached if u else 0,
-                           output_tokens=int(getattr(u, "completion_tokens", 0) or 0) if u else 0,
-                           cache_read_input_tokens=cached)
-        stop = {"stop": "end_turn", "length": "max_tokens", "content_filter": "refusal", "tool_calls": "tool_use"}.get(finish, finish)
-        return {"text": text, "usage": usage, "model": str(getattr(resp, "model", "")), "stop_reason": stop, "finish_reason": finish}
+        return TokenUsage(input_tokens=int(getattr(u, "prompt_tokens", 0) or 0) - cached,
+                          output_tokens=int(getattr(u, "completion_tokens", 0) or 0), cache_read_input_tokens=cached)
+
+    @staticmethod
+    def _stop_reason(finish: str) -> str:
+        return {"stop": "end_turn", "length": "max_tokens", "content_filter": "refusal", "tool_calls": "tool_use"}.get(finish, finish)
+
+    class _CallTimeout(Exception):
+        pass
+
+    def _stream_call(self, req: Dict[str, Any], role: str, candidate: str) -> Dict[str, Any]:
+        """One streamed generation. Raises openai errors, or _CallTimeout when the hard cap is exceeded."""
+        t0 = time.time()
+        last_beat = t0
+        parts: List[str] = []
+        finish, usage_obj, served, reasoning_chars = "", None, "", 0
+        kwargs = dict(req)
+        kwargs["stream"] = True
+        kwargs["stream_options"] = {"include_usage": True}
+        if self.extra_headers:
+            kwargs["extra_headers"] = self.extra_headers
+        stream = self._client.chat.completions.create(**kwargs)
+        try:
+            for chunk in stream:
+                now = time.time()
+                if now - t0 > self.call_timeout_s:
+                    raise self._CallTimeout(f"hard cap {self.call_timeout_s:.0f}s exceeded after {sum(len(x) for x in parts)} chars")
+                served = served or str(getattr(chunk, "model", "") or "")
+                if getattr(chunk, "usage", None) is not None:
+                    usage_obj = chunk.usage
+                choices = getattr(chunk, "choices", None) or []
+                if choices:
+                    delta = getattr(choices[0], "delta", None)
+                    if delta is not None:
+                        piece = getattr(delta, "content", None)
+                        if piece:
+                            parts.append(piece)
+                        rd = getattr(delta, "reasoning", None)
+                        if rd:
+                            reasoning_chars += len(rd)
+                    fr = getattr(choices[0], "finish_reason", None)
+                    if fr:
+                        finish = str(fr)
+                if self.progress and now - last_beat >= self.heartbeat_s:
+                    last_beat = now
+                    self.progress(f"[llm] {role}: {candidate} streaming — {sum(len(x) for x in parts):,} chars"
+                                  f"{f' (+{reasoning_chars:,} reasoning chars)' if reasoning_chars else ''}, {now - t0:.0f}s")
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:  # noqa: BLE001
+                    pass
+        text = "".join(parts)
+        return {"text": text, "finish_reason": finish, "usage": self._usage_from(usage_obj, text), "model": served or candidate,
+                "estimated": usage_obj is None, "latency_s": time.time() - t0, "reasoning_chars": reasoning_chars}
 
     def candidates(self, role: str, model: str) -> List[str]:
         """Primary model first, then the role's configured alternates (deduplicated, order preserved)."""
@@ -265,42 +343,60 @@ class OpenAICompatClient:
     def complete(self, *, role: str, model: str, system_blocks: Sequence[str], messages: Sequence[Dict[str, str]],
                  max_tokens: int) -> LLMResponse:
         last_err: Optional[Exception] = None
+        notes: List[str] = []
         models = self.candidates(role, model)
         for m_i, candidate in enumerate(models):
-            req = self.build_request(role=role, model=candidate, system_blocks=system_blocks, messages=messages,
-                                     max_tokens=max_tokens)
-            if self.extra_headers:
-                req["extra_headers"] = self.extra_headers
-            for attempt in range(self.max_retries + 1):
-                t0 = time.time()
+            req = self.build_request(role=role, model=candidate, system_blocks=system_blocks, messages=messages, max_tokens=max_tokens)
+            timeouts = 0
+            attempt = 0
+            while True:
                 try:
-                    resp = self._client.chat.completions.create(**req)
+                    parsed = self._stream_call(req, role, candidate)
+                except (self._openai.APITimeoutError, self._CallTimeout) as e:      # stalled or over the hard cap
+                    last_err = e
+                    timeouts += 1
+                    if timeouts <= self.timeout_retries:
+                        if self.progress:
+                            self.progress(f"[llm] {role}: {candidate} timed out ({type(e).__name__}); retrying once")
+                        continue
+                    notes.append(f"{candidate}: {type(e).__name__} x{timeouts} (inactivity {self.inactivity_timeout_s:.0f}s / cap {self.call_timeout_s:.0f}s)")
+                    break                                                            # -> next model
                 except self._openai.APIStatusError as e:
                     status = int(getattr(e, "status_code", 0) or 0)
                     if type(e).__name__ in self.TRANSIENT or status >= 500 or status == 429:
                         last_err = e
                         if attempt < self.max_retries:
-                            time.sleep(min(90, 2 ** attempt * 3))   # free tiers are strict: back off generously
+                            attempt += 1
+                            time.sleep(min(90, 2 ** attempt * 3))                    # rate limits: back off generously
                             continue
-                        break                                        # retries spent -> fall back to the next model
+                        notes.append(f"{candidate}: {type(e).__name__} {status} after {attempt + 1} attempts")
+                        break
                     if status in (400, 402, 403, 404) and m_i < len(models) - 1:
-                        last_err = e                                 # unknown/forbidden/unfunded model -> next candidate
+                        last_err = e                                                 # unknown/forbidden/unfunded model -> next
+                        notes.append(f"{candidate}: HTTP {status} {str(getattr(e, 'message', e))[:120]}")
                         break
                     raise LLMError(f"{type(e).__name__} on {candidate}: {getattr(e, 'message', e)}") from e
-                except (self._openai.APIConnectionError, self._openai.APITimeoutError) as e:
+                except self._openai.APIConnectionError as e:
                     last_err = e
                     if attempt < self.max_retries:
+                        attempt += 1
                         time.sleep(min(90, 2 ** attempt * 3))
                         continue
+                    notes.append(f"{candidate}: {type(e).__name__} after {attempt + 1} attempts")
                     break
-                parsed = self.parse_response(resp)
-                if parsed["stop_reason"] == "refusal":
+                stop = self._stop_reason(parsed["finish_reason"])
+                if stop == "refusal":
                     raise LLMError(f"content filter refused the {role} call ({candidate})")
                 if not parsed["text"].strip():
                     last_err = LLMError(f"empty response from {candidate} (finish_reason={parsed['finish_reason']!r})")
-                    break                                            # a mute model is a dead model: try the next one
+                    notes.append(f"{candidate}: empty response (finish_reason={parsed['finish_reason']!r}, "
+                                 f"{parsed['usage'].output_tokens} output tokens, {parsed.get('reasoning_chars', 0)} reasoning chars)")
+                    break                                                            # a mute model is a dead model
+                if self.progress and notes:
+                    self.progress(f"[llm] {role}: served by fallback {candidate} after: " + "; ".join(notes))
                 return LLMResponse(text=parsed["text"], usage=parsed["usage"], model=parsed["model"] or candidate,
-                                   latency_s=time.time() - t0, stop_reason=parsed["stop_reason"])
+                                   latency_s=parsed.get("latency_s", 0.0), stop_reason=stop, estimated_usage=bool(parsed.get("estimated")),
+                                   fallback_notes=notes)
         raise LLMError(f"all models failed for role {role} ({', '.join(models)}): "
                        f"{type(last_err).__name__}: {str(last_err)[:300]}")
 
@@ -372,7 +468,11 @@ def make_client(cfg: Dict[str, Any], mock_handlers: Optional[Dict[str, Handler]]
                                   max_retries=int(llm.get("max_retries", 3)), provider_name=provider,
                                   max_tokens_field=str(llm.get("max_tokens_field", "max_tokens")),
                                   extra_body=llm.get("extra_body") or {}, extra_headers=llm.get("extra_headers") or {},
-                                  fallback_models=llm.get("fallback_models") or {})
+                                  fallback_models=llm.get("fallback_models") or {},
+                                  inactivity_timeout_s=float(llm.get("inactivity_timeout_s", 120)),
+                                  call_timeout_s=float(llm.get("call_timeout_s", 900)),
+                                  timeout_retries=int(llm.get("timeout_retries", 1)),
+                                  reasoning=llm.get("reasoning") or {}, heartbeat_s=float(llm.get("heartbeat_s", 30)))
     raise LLMError(f"unknown llm.provider {provider!r}")
 
 
@@ -385,7 +485,8 @@ class CallLog:
     def record(self, iteration: int, role: str, resp: LLMResponse, attempt: int = 1, purpose: str = "") -> None:
         rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "iteration": iteration, "role": role,
                "purpose": purpose, "attempt": attempt, "model": resp.model, "latency_s": round(resp.latency_s, 2),
-               "stop_reason": resp.stop_reason, "estimated_usage": resp.estimated_usage, **resp.usage.to_dict()}
+               "stop_reason": resp.stop_reason, "estimated_usage": resp.estimated_usage,
+               "fallback_notes": list(getattr(resp, "fallback_notes", []) or []), **resp.usage.to_dict()}
         with open(self.path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")
 

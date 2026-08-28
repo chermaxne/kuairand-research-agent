@@ -186,6 +186,7 @@ class Roles:
         self.prompts_dir = prompts_dir
         self.knowledge = open(knowledge_path, encoding="utf-8").read() if knowledge_path and os.path.exists(knowledge_path) else ""
         self.call_log = call_log
+        self.log = None                                   # optional console logger (set by the harness)
         self.transcript_dir: Optional[str] = None
         self.iteration = 0
         self.iteration_usage = TokenUsage()
@@ -219,12 +220,17 @@ class Roles:
         self.role_usage[role] = self.role_usage.get(role, 0) + resp.usage.total
         self.iteration_role_usage[role] = self.iteration_role_usage.get(role, 0) + resp.usage.total
         self.calls_this_iteration += 1
+        if self.log:
+            self.log(f"[llm] {purpose}: {resp.model} answered in {resp.latency_s:.0f}s "
+                     f"({resp.usage.input_tokens + resp.usage.cache_read_input_tokens} in / {resp.usage.output_tokens} out, stop={resp.stop_reason or '?'})")
         if self.call_log:
             self.call_log.record(self.iteration, role, resp, attempt=attempt, purpose=purpose)
         if self.transcript_dir:
             fn = os.path.join(self.transcript_dir, f"{purpose}.md")
             with open(fn, "w", encoding="utf-8") as fh:
                 fh.write(f"# {role} — {purpose} (model {resp.model}, {resp.usage.total} tokens{', estimated' if resp.estimated_usage else ''})\n\n")
+                for note in getattr(resp, "fallback_notes", []) or []:
+                    fh.write(f"> FALLBACK: {note}\n\n")
                 for i, b in enumerate(system_blocks):
                     fh.write(f"## system block {i + 1}\n\n{b}\n\n")
                 for m in messages:

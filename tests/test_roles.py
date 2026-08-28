@@ -286,22 +286,35 @@ def test_llm_profile_cli_flag_applies_profile(base_cfg, monkeypatch, capsys):
 
 
 # ---------------- OpenAI-compatible gateways (Gemini / Groq / OpenRouter / Cerebras / DeepSeek) ----------------
-class _OAIMsg:
-    def __init__(self, content):
-        self.content = content
+def _chunks(text, finish="stop", usage=True, cached=7, model="served-model", reasoning=""):
+    """A fake streamed completion: content deltas, optional reasoning delta, a finish chunk, then a usage chunk."""
+    out = []
+    if reasoning:
+        out.append(types.SimpleNamespace(model=model, usage=None, choices=[types.SimpleNamespace(
+            delta=types.SimpleNamespace(content=None, reasoning=reasoning), finish_reason=None)]))
+    for i in range(0, len(text), 5):
+        out.append(types.SimpleNamespace(model=model, usage=None, choices=[types.SimpleNamespace(
+            delta=types.SimpleNamespace(content=text[i:i + 5], reasoning=None), finish_reason=None)]))
+    out.append(types.SimpleNamespace(model=model, usage=None, choices=[types.SimpleNamespace(
+        delta=types.SimpleNamespace(content=None, reasoning=None), finish_reason=finish)]))
+    if usage:
+        out.append(types.SimpleNamespace(model=model, choices=[], usage=types.SimpleNamespace(
+            prompt_tokens=100, completion_tokens=25, prompt_tokens_details=types.SimpleNamespace(cached_tokens=cached))))
+    return out
 
 
-class _OAIChoice:
-    def __init__(self, content, finish="stop"):
-        self.message, self.finish_reason = _OAIMsg(content), finish
+class _FakeStream:
+    def __init__(self, chunks, delays=None):
+        self.chunks, self.delays, self.closed = list(chunks), list(delays or []), False
 
+    def __iter__(self):
+        for i, c in enumerate(self.chunks):
+            if i < len(self.delays) and self.delays[i]:
+                self.delays[i]()
+            yield c
 
-class _OAIResp:
-    def __init__(self, content='{"ok": true}', finish="stop", cached=7):
-        self.choices = [_OAIChoice(content, finish)]
-        self.model = "served-model"
-        self.usage = types.SimpleNamespace(prompt_tokens=100, completion_tokens=25,
-                                           prompt_tokens_details=types.SimpleNamespace(cached_tokens=cached))
+    def close(self):
+        self.closed = True
 
 
 def _oai_client(**kw):
@@ -312,7 +325,7 @@ def _oai_client(**kw):
     def create(**req):
         captured.clear()
         captured.update(req)
-        return _OAIResp()
+        return _FakeStream(_chunks('{"ok": true}'))
     c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)),
                                       models=types.SimpleNamespace(list=lambda: [types.SimpleNamespace(id="m-b"), types.SimpleNamespace(id="m-a")]))
     return c, captured
@@ -323,33 +336,99 @@ def test_openai_compat_request_shape_and_usage():
     resp = c.complete(role="researcher", model="gemini-3.7-flash", system_blocks=["ROLE", "KNOWLEDGE"],
                       messages=[{"role": "user", "content": "hi"}], max_tokens=3000)
     assert cap["model"] == "gemini-3.7-flash" and cap["max_tokens"] == 3000
+    assert cap["stream"] is True and cap["stream_options"] == {"include_usage": True}
     assert cap["messages"] == [{"role": "system", "content": "ROLE\n\nKNOWLEDGE"}, {"role": "user", "content": "hi"}]
+    assert "extra_body" not in cap                                                # no reasoning / extra body configured
     assert resp.text == '{"ok": true}' and resp.model == "served-model" and not resp.estimated_usage
     assert resp.usage.input_tokens == 93 and resp.usage.cache_read_input_tokens == 7 and resp.usage.output_tokens == 25
     assert resp.usage.total == 125 and resp.stop_reason == "end_turn"
     assert "gw-secret" not in json.dumps(cap)
 
 
-def test_openai_compat_truncation_and_empty_and_filter():
-    from agent.llm_client import LLMError, OpenAICompatClient
+def test_openai_compat_truncation_empty_filter_and_missing_usage():
+    from agent.llm_client import LLMError
     c, _ = _oai_client()
-    c._client.chat.completions.create = lambda **kw: _OAIResp("partial file...", finish="length")
+    c._client.chat.completions.create = lambda **kw: _FakeStream(_chunks("partial file...", finish="length"))
     assert c.complete(role="engineer", model="m", system_blocks=[], messages=[{"role": "user", "content": "x"}],
                       max_tokens=10).stop_reason == "max_tokens"          # drives the Engineer's "you were cut off" re-ask
-    c._client.chat.completions.create = lambda **kw: _OAIResp("", finish="content_filter")
+    c._client.chat.completions.create = lambda **kw: _FakeStream(_chunks("", finish="content_filter"))
     with pytest.raises(LLMError, match="content filter"):
         c.complete(role="engineer", model="m", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
-    c._client.chat.completions.create = lambda **kw: _OAIResp("   ", finish="stop")
+    c._client.chat.completions.create = lambda **kw: _FakeStream(_chunks("   ", finish="stop"))
     with pytest.raises(LLMError, match="empty response"):
         c.complete(role="engineer", model="m", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
+    c._client.chat.completions.create = lambda **kw: _FakeStream(_chunks("no usage chunk", usage=False))
+    r = c.complete(role="engineer", model="m", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
+    assert r.estimated_usage and r.usage.output_tokens > 0                # honest flag when the gateway omits usage
 
 
-def test_openai_compat_extra_headers_and_body():
+def test_openai_compat_extra_headers_body_and_reasoning():
     c, cap = _oai_client(extra_headers={"HTTP-Referer": "https://x"}, extra_body={"provider": {"sort": "throughput"}},
-                         max_tokens_field="max_completion_tokens")
+                         max_tokens_field="max_completion_tokens",
+                         reasoning={"engineer": {"max_tokens": 4000}, "scribe": {"effort": "none"}})
     c.complete(role="scribe_lesson", model="m", system_blocks=["S"], messages=[{"role": "user", "content": "x"}], max_tokens=300)
-    assert cap["extra_headers"] == {"HTTP-Referer": "https://x"} and cap["provider"] == {"sort": "throughput"}
+    assert cap["extra_headers"] == {"HTTP-Referer": "https://x"}
+    assert cap["extra_body"] == {"provider": {"sort": "throughput"}, "reasoning": {"effort": "none"}}
     assert cap["max_completion_tokens"] == 300 and "max_tokens" not in cap
+    c.complete(role="engineer", model="m", system_blocks=["S"], messages=[{"role": "user", "content": "x"}], max_tokens=300)
+    assert cap["extra_body"]["reasoning"] == {"max_tokens": 4000}
+    c.complete(role="researcher", model="m", system_blocks=["S"], messages=[{"role": "user", "content": "x"}], max_tokens=300)
+    assert "reasoning" not in cap["extra_body"]                            # roles without a cap send none
+
+
+def test_stalled_stream_times_out_once_then_falls_back(monkeypatch):
+    """No token for inactivity_timeout_s -> APITimeoutError -> one retry -> next model. Never an hour of silence."""
+    import openai
+    from agent.llm_client import OpenAICompatClient
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    c = OpenAICompatClient(api_key="k", base_url="https://x/v1", timeout_retries=1, fallback_models={"engineer": ["fast"]})
+    beats = []
+    c.progress = beats.append
+    tried = []
+
+    def create(**req):
+        tried.append(req["model"])
+        if req["model"] == "slow":
+            raise openai.APITimeoutError(request=types.SimpleNamespace(method="POST", url="https://x"))
+        return _FakeStream(_chunks("the file"))
+    c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+    resp = c.complete(role="engineer", model="slow", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
+    assert resp.text == "the file" and tried == ["slow", "slow", "fast"]
+    assert resp.fallback_notes and "APITimeoutError x2" in resp.fallback_notes[0]
+    assert any("timed out" in b for b in beats) and any("served by fallback fast" in b for b in beats)
+
+
+def test_hard_call_cap_aborts_a_never_ending_stream(monkeypatch):
+    from agent.llm_client import OpenAICompatClient
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    c = OpenAICompatClient(api_key="k", base_url="https://x/v1", call_timeout_s=5, timeout_retries=0, fallback_models={"engineer": ["ok"]})
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(time, "time", lambda: clock["t"])
+
+    def endless(**req):
+        if req["model"] == "ok":
+            return _FakeStream(_chunks("done"))
+        def tick():
+            clock["t"] += 3.0                                       # each chunk takes 3 "seconds"
+        return _FakeStream(_chunks("x" * 50), delays=[tick] * 12)
+    c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=endless)))
+    resp = c.complete(role="engineer", model="endless", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
+    assert resp.text == "done" and "_CallTimeout" in resp.fallback_notes[0] and "cap 5s" in resp.fallback_notes[0]
+
+
+def test_heartbeat_reports_progress(monkeypatch):
+    from agent.llm_client import OpenAICompatClient
+    c = OpenAICompatClient(api_key="k", base_url="https://x/v1", heartbeat_s=10)
+    clock = {"t": 0.0}
+    monkeypatch.setattr(time, "time", lambda: clock["t"])
+    beats = []
+    c.progress = beats.append
+    def tick():
+        clock["t"] += 6.0
+    c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(
+        create=lambda **kw: _FakeStream(_chunks("y" * 40, reasoning="thinking..."), delays=[tick] * 12))))
+    c.complete(role="engineer", model="m", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
+    assert beats and "engineer: m streaming" in beats[0] and "reasoning chars" in beats[0]
 
 
 @pytest.mark.parametrize("name", ["gemini", "groq", "openrouter", "cerebras", "deepseek"])
@@ -404,7 +483,7 @@ def test_fallback_moves_to_the_next_model_on_rate_limit(monkeypatch):
         tried.append(req["model"])
         if req["model"] != "model-c":
             raise _status_error(429)
-        return _OAIResp("done")
+        return _FakeStream(_chunks("done"))
     c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
     resp = c.complete(role="researcher", model="model-a", system_blocks=["S"], messages=[{"role": "user", "content": "x"}], max_tokens=10)
     assert resp.text == "done"
@@ -421,7 +500,7 @@ def test_fallback_on_unknown_model_and_on_mute_model(monkeypatch):
         tried.append(req["model"])
         if req["model"] == "gone":
             raise _status_error(404)                     # unknown model id -> straight to the fallback, no retries
-        return _OAIResp("file")
+        return _FakeStream(_chunks("file"))
     c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
     assert c.complete(role="engineer", model="gone", system_blocks=[], messages=[{"role": "user", "content": "x"}],
                       max_tokens=10).text == "file"
@@ -430,7 +509,7 @@ def test_fallback_on_unknown_model_and_on_mute_model(monkeypatch):
 
     def create_mute(**req):
         tried.append(req["model"])
-        return _OAIResp("" if req["model"] == "mute" else "ok")
+        return _FakeStream(_chunks("" if req["model"] == "mute" else "ok"))
     c._client.chat.completions.create = create_mute
     c.fallback_models = {"engineer": ["good"]}
     assert c.complete(role="engineer", model="mute", system_blocks=[], messages=[{"role": "user", "content": "x"}],
@@ -473,3 +552,20 @@ def test_default_config_is_openrouter_and_complete(base_cfg, monkeypatch):
     for name in ("anthropic", "openrouter", "openrouter_free", "openrouter_glm", "openrouter_claude", "gemini", "poe"):
         assert name in llm["profiles"]
     assert not llm["researcher_model"].endswith(":free")     # the default is the paid tier (free variants are contended)
+
+
+def test_fallback_reasons_are_recorded(monkeypatch, tmp_path):
+    from agent.llm_client import CallLog, OpenAICompatClient
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    c = OpenAICompatClient(api_key="k", base_url="https://x/v1", max_retries=0, fallback_models={"researcher": ["mute", "good"]})
+    def create(**req):
+        if req["model"] == "a":
+            raise _status_error(429)
+        return _FakeStream(_chunks("" if req["model"] == "mute" else "fine"))
+    c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+    resp = c.complete(role="researcher", model="a", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
+    assert resp.text == "fine"
+    assert resp.fallback_notes == ["a: APIStatusError 429 after 1 attempts", "mute: empty response (finish_reason='stop', 25 output tokens, 0 reasoning chars)"]
+    log = CallLog(str(tmp_path / "calls.jsonl"))
+    log.record(1, "researcher", resp)
+    assert json.loads(open(log.path).read())["fallback_notes"] == resp.fallback_notes

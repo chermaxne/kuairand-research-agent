@@ -77,6 +77,7 @@ class Harness:
         self.roles = roles
         self.clock = clock
         self.log = log
+        self.roles.log = log
         self.limits = RunLimits.from_config(cfg)
         self.run_cfg = cfg["run"]
         self.state: Optional[RunState] = None
@@ -470,6 +471,8 @@ def build(cfg: Dict[str, Any], root: str, run_dir: str, *, toy: bool = False, mo
         cfg.setdefault("llm", {})["mock_plan"] = "kuairand"      # offline plan of real FM edits for real-data dry runs
     client = make_client(cfg, mock_handlers=mock_handlers, force_mock=mock)
     os.makedirs(run_dir, exist_ok=True)
+    if hasattr(client, "progress"):
+        client.progress = log                                     # streaming heartbeat + fallback notices in the console
     roles = Roles(client, cfg, os.path.join(root, cfg["paths"]["prompts"]), os.path.join(root, cfg["paths"]["knowledge"]),
                   call_log=CallLog(os.path.join(run_dir, "llm_calls.jsonl")))
     return Harness(cfg, root, run_dir, task, roles, clock=clock, log=log)

@@ -7,27 +7,39 @@ llm:
   # DEFAULT PROVIDER: OpenRouter (one key, every model). Switch with --llm-profile <anthropic|gemini|groq|...>.
   provider: openrouter             # -> https://openrouter.ai/api/v1 (OpenAI-compatible Chat Completions)
   api_key_env: OPENROUTER_API_KEY  # key from https://openrouter.ai/keys — put it in .env, never in git
-  # Model choice — PAID models on OpenRouter (the account is not free-tier, and the `:free` variants are heavily
-  # contended: several returned 429 or "no endpoints available" when probed on 2026-08-28).
-  #   minimax/minimax-m3   $0.30/$1.20 per MTok — 80.5% SWE-bench Verified, 1M context, 512k max output
-  #   deepseek/deepseek-v4-flash $0.09/$0.18 — the Scribe's ≤20-word job does not need more
-  #   z-ai/glm-5.2 $1.19/$3.74 — #1 open-weight on the Artificial Analysis index; fallback / quality upgrade
-  # Cost: ~$0.013 per iteration, so a full 50-iteration run is well under $1.
-  # Free models instead: --llm-profile openrouter_free   |   Claude: --llm-profile openrouter_claude
-  researcher_model: minimax/minimax-m3
-  engineer_model: minimax/minimax-m3
-  debugger_model: minimax/minimax-m3
+  # Model choice — PAID models on OpenRouter, chosen after the first live test (2026-08-28, see NOTES.md):
+  #   Researcher  z-ai/glm-5.2            reasoning model; delivered an excellent plan in 8.8 s ($1.19/$3.74 per MTok)
+  #   Engineer /  qwen/qwen3-coder        NON-reasoning instruct coder, 262k ctx / 65k out ($0.30/$1.00): its whole
+  #   Debugger                            output budget goes to the file, so "think + write 250 lines" cannot truncate
+  #   Scribe      deepseek/deepseek-v4-flash  ≤20-word job ($0.09/$0.18)
+  # Reasoning models' thinking tokens count against max_tokens: an exhausted budget returns EMPTY content while
+  # OpenRouter still bills the generation. `reasoning` below caps thinking per role (OpenRouter unified parameter).
+  # Cost: ~$0.03 per iteration -> a full 50-iteration run is ~$1.50. Claude instead: --llm-profile openrouter_claude
+  researcher_model: z-ai/glm-5.2
+  engineer_model: qwen/qwen3-coder
+  debugger_model: qwen/qwen3-coder
   scribe_model: deepseek/deepseek-v4-flash
-  fallback_models:                 # tried in order when the primary is rate-limited (429) or unavailable
-    researcher: [z-ai/glm-5.2, deepseek/deepseek-v4-flash]
-    engineer:   [z-ai/glm-5.2, deepseek/deepseek-v4-flash]
-    debugger:   [z-ai/glm-5.2, deepseek/deepseek-v4-flash]
-    scribe:     [minimax/minimax-m3]
-  max_output_tokens: {researcher: 4000, engineer: 16000, debugger: 16000, scribe: 400}
+  fallback_models:                 # tried in order when the primary stalls, is rate-limited (429) or unavailable
+    researcher: [minimax/minimax-m3, qwen/qwen3-coder]
+    engineer:   [minimax/minimax-m3, deepseek/deepseek-v4-flash]
+    debugger:   [minimax/minimax-m3, deepseek/deepseek-v4-flash]
+    scribe:     [qwen/qwen3-coder]
+  reasoning:                       # per-role thinking cap; models that cannot disable reasoning ignore "none"
+    researcher: {max_tokens: 6000}
+    engineer: {max_tokens: 4000}
+    debugger: {max_tokens: 4000}
+    scribe: {effort: none}
+  max_output_tokens: {researcher: 12000, engineer: 24000, debugger: 24000, scribe: 600}   # includes any thinking
+  # Streaming timeouts (OpenAI-compatible providers): a stalled generation is abandoned after inactivity_timeout_s
+  # without a token, every call is capped at call_timeout_s, one retry, then the next fallback model.
+  inactivity_timeout_s: 120
+  call_timeout_s: 900
+  timeout_retries: 1
+  heartbeat_s: 30                  # progress line while a long generation streams
   extra_headers: {HTTP-Referer: "https://github.com/", X-Title: "kuairand-research-agent"}
   max_total_tokens: 4000000        # spend guard: stop the run (finalize from best/) past this many total tokens
   request_timeout_s: 600
-  max_retries: 5                   # per model, then the next fallback model (free tiers are 20 rpm and flaky)
+  max_retries: 3                   # rate-limit / 5xx retries per model, then the next fallback model
   scribe_narrative: true           # Scribe job (b): render logs/iter_NN.md from harness-supplied facts
   # --- the settings below are only read by the native Anthropic client (provider: anthropic) ---
   allow_sdk_default_credentials: false
