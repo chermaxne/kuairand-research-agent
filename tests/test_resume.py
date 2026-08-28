@@ -90,3 +90,22 @@ def test_resume_after_sigkill_subprocess(tmp_path, base_cfg, mini_data):
     assert st.finalize["ok"]
     leftovers = [d for d in os.listdir(os.path.join(run_dir, "iterations")) if "_partial_" in d]
     assert len(leftovers) <= 1                                   # the interrupted workspace was set aside, never reused
+
+
+def test_ctrl_c_exits_cleanly_with_resume_hint(tmp_path, base_cfg, mini_data, monkeypatch, capsys):
+    """Ctrl-C mid-run must not traceback: it names the run dir and the resume command (exit 130)."""
+    import agent.harness as H
+    from agent import toy as toymod
+    champ = tmp_path / "champ"
+    toymod.write_dummy_champion(str(champ))
+    run_dir = tmp_path / "run_int"
+
+    def boom(self, session_iteration_limit=None):
+        self.init_or_resume()
+        raise KeyboardInterrupt
+    monkeypatch.setattr(H.Harness, "run", boom)
+    rc = H.main(["--config", os.path.join(ROOT, "config.yaml"), "--toy", "--mock", "--run-dir", str(run_dir),
+                 "--set", f"toy.data_dir={mini_data}", "--set", f"toy.loop_data={tmp_path / 'loop'}", "--set", f"toy.champion_src={champ}"])
+    err = capsys.readouterr().err
+    assert rc == 130 and "INTERRUPTED" in err and f"--run-dir {run_dir}" in err and "Traceback" not in err
+    assert load_run_state(str(run_dir)) is not None                    # the state file survived

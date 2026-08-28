@@ -566,6 +566,14 @@ def main(argv=None) -> int:
     except (Phase0Error, FinalizeError) as e:
         print(f"\nFATAL: {e}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        st = load_run_state(run_dir)
+        done = st.iteration if st else 0
+        print(f"\nINTERRUPTED — {done} iteration(s) are safely on disk in {run_dir}.\n"
+              f"  resume (keeps Phase 0 and all iterations; the restart is logged as an intervention):\n"
+              f"    {os.path.basename(sys.executable)} -m agent.harness --run-dir {run_dir}\n"
+              f"  or discard it:  rm -rf {run_dir}", file=sys.stderr)
+        return 130
     return 0
 
 
