@@ -635,7 +635,7 @@ def test_structural_directive_in_early_briefings_only(tmp_path, base_cfg, mini_d
 def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
     run, llm = base_cfg["run"], base_cfg["llm"]
     assert 1 <= run["structural_first_until_iter"] <= 5 and run["implausible_gauc_below"] == 0.5
-    assert all(llm[f"{r}_model"] == "deepseek/deepseek-v4-pro" for r in ("researcher", "engineer", "debugger", "scribe"))
+    assert all(llm[f"{r}_model"] == "minimax/minimax-m3" for r in ("researcher", "engineer", "debugger", "scribe"))
     for role in ("researcher", "engineer", "debugger", "scribe"):          # initial phase: no Claude-priced model anywhere
         assert not any("claude" in m for m in [llm[f"{role}_model"]] + llm["fallback_models"][role])
     lib = open(os.path.join(ROOT, "knowledge", "library.md")).read()

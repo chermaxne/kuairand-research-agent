@@ -8,21 +8,23 @@ llm:
   provider: openrouter             # -> https://openrouter.ai/api/v1 (OpenAI-compatible Chat Completions)
   api_key_env: OPENROUTER_API_KEY  # key from https://openrouter.ai/keys — put it in .env, never in git
   # Model choice (2026-08-28): quality where it matters, cost where it does not.
-  #   ALL ROLES   deepseek/deepseek-v4-pro   $0.78/$1.56 per MTok, 1M ctx, 384k out (team decision 2026-08-29).
-  #               Fallbacks are cheap open-weight models (no Claude anywhere in this default).
-  # Cost: ~$0.03-0.04 per iteration -> a full 50-iteration run is ~$2.
-  researcher_model: deepseek/deepseek-v4-pro
-  engineer_model: deepseek/deepseek-v4-pro
-  debugger_model: deepseek/deepseek-v4-pro
-  scribe_model: deepseek/deepseek-v4-pro
+  #   ALL ROLES   minimax/minimax-m3   $0.30/$1.20 per MTok, 1M ctx, 512k out (team decision 2026-08-29; V4 Pro was too
+  #               slow for the 6 h clock: ~6.5 min per Engineer call). MiniMax stalled once in a NON-streaming client
+  #               with a 16k output cap; the streaming client, the reasoning caps below and the inactivity timeout
+  #               address that. Fallbacks: deepseek-v4-flash (fast, cheap) then qwen3-coder.
+  # Cost: ~$0.02 per iteration -> a full 50-iteration run is ~$1.
+  researcher_model: minimax/minimax-m3
+  engineer_model: minimax/minimax-m3
+  debugger_model: minimax/minimax-m3
+  scribe_model: minimax/minimax-m3
   fallback_models:                 # tried in order when the primary stalls, is rate-limited (429) or unavailable
-    researcher: [deepseek/deepseek-v4-flash, z-ai/glm-5.2]
+    researcher: [deepseek/deepseek-v4-flash, qwen/qwen3-coder]
     engineer:   [deepseek/deepseek-v4-flash, qwen/qwen3-coder]
     debugger:   [deepseek/deepseek-v4-flash, qwen/qwen3-coder]
     scribe:     [deepseek/deepseek-v4-flash]
   reasoning:                       # OpenRouter unified parameter (`effort` works on every model here; Claude 5 rejects
     researcher: {effort: medium}   # token budgets). Models that cannot disable reasoning ignore "none".
-    engineer: {effort: medium}
+    engineer: {effort: low}        # speed: the Engineer's output is the long pole of every iteration
     debugger: {effort: low}
     scribe: {effort: none}
   max_output_tokens: {researcher: 12000, engineer: 24000, debugger: 24000, scribe: 600}   # includes any thinking
