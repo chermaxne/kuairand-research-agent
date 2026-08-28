@@ -203,6 +203,18 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Tests: stalled stream → one retry → fallback; hard cap aborts an endless stream; heartbeat; reasoning param placement;
   usage from the final streamed chunk, honest `estimated_usage` when a gateway omits it.
 
+### First real iteration (run `20260828_221430_test`, 2026-08-28) → two reflect-step fixes
+* Everything the judges grade worked in one iteration: BPR hypothesis with a precise spec → Engineer change (+93/−5) →
+  crash (numpy broadcast in the pairwise gradient) → Debugger fixed it in 2 attempts, both logged → scored 0.5973 →
+  kept_champion, streak 1 → valid submission. 4 min, $0.043, 6 LLM calls.
+* The training trace showed the BPR run was compute-starved (0.5 s/epoch = ~4× fewer samples because of the 32-pairs/user
+  cap; still improving at epoch 40, never early-stopped) — but the Scribe wrote "suggesting misalignment with ranking
+  metric", a causal inference the facts do not support, and that sentence is what the Researcher reads in the ledger.
+* Fixes: (1) `prompts/scribe_lesson.md` is now outcome-only (what happened, never why; literal training-log observations
+  welcome); (2) the harness captures the last 12 lines of each experiment's stdout (`training_log_tail`) and gives it to
+  the Scribe (facts block), the Researcher (RECENT ITERATION DETAILS in the briefing), `run_state.history` and the
+  narrative facts — the reflect step now sees the epoch curve, not just the final score. Tests cover both.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

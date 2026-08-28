@@ -569,3 +569,44 @@ def test_fallback_reasons_are_recorded(monkeypatch, tmp_path):
     log = CallLog(str(tmp_path / "calls.jsonl"))
     log.record(1, "researcher", resp)
     assert json.loads(open(log.path).read())["fallback_notes"] == resp.fallback_notes
+
+
+# ---------------- reflect step: the training-log tail reaches the Scribe and the next Researcher briefing ----------------
+def test_training_log_tail_reaches_scribe_and_next_briefing(tmp_path, base_cfg, mini_data):
+    seen = {"scribe": None, "briefings": []}
+
+    def scribe(role, system, messages):
+        seen["scribe"] = messages[-1]["content"]
+        return "Outcome only: scored, kept."
+
+    def researcher(role, system, messages):
+        seen["briefings"].append(messages[-1]["content"])
+        return default_mock_handlers()["researcher"](role, system, messages)
+    handlers = default_mock_handlers()
+    handlers["scribe_lesson"] = scribe
+    handlers["researcher"] = researcher
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 2, "N_FLAT": 99}})
+    h.init_or_resume()
+    h.phase0()
+    h.run_iteration(1)
+    assert "TRAINING LOG TAIL" in seen["scribe"] and "wrote preds_val.csv" in seen["scribe"]     # the dummy pipeline's stdout
+    h.run_iteration(2)
+    b = seen["briefings"][1]
+    assert "training log tail:" in b and "wrote preds_val.csv" in b
+    d = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    assert "wrote preds_val.csv" in h.state.history[0]["training_log_tail"]
+
+
+def test_training_log_tail_is_bounded_and_absent_when_nothing_ran(tmp_path, base_cfg, mini_data):
+    h = make_toy_harness(tmp_path, base_cfg, mini_data)
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    assert h.training_log_tail(str(ws)) == ""
+    (ws / "stdout.txt").write_text("\n".join(f"epoch {i} | loss {1/(i+1):.3f}" for i in range(200)) + "\n")
+    tail = h.training_log_tail(str(ws))
+    assert tail.startswith("epoch 188") and tail.count("\n") == 11 and len(tail) <= 1500
+
+
+def test_scribe_prompt_forbids_causal_claims():
+    sys_p, task = load_prompt(os.path.join(ROOT, "prompts"), "scribe_lesson")
+    assert "never WHY" in sys_p and "causal" in sys_p and "training log" in sys_p.lower()

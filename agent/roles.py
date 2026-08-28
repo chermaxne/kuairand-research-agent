@@ -325,11 +325,14 @@ class Roles:
             return DebugOutcome(action="abandon", reason=f"debugger_malformed: {e}")
 
     # -- scribe --------------------------------------------------------------
-    def scribe_lesson(self, plan: ResearcherPlan, result: HarnessResult, decision: str, best_primary: Optional[float]) -> str:
+    def scribe_lesson(self, plan: ResearcherPlan, result: HarnessResult, decision: str, best_primary: Optional[float],
+                      training_log_tail: str = "") -> str:
         """≤ 20 words, single line; the harness truncates whatever comes back and never lets it be empty."""
         _, task = load_prompt(self.prompts_dir, "scribe_lesson")
         facts = (f"HYPOTHESIS: {plan.hypothesis}\nCATEGORY: {plan.category}\nRESULT: {json.dumps(result.to_dict())}\n"
                  f"DECISION (harness): {decision}\nBEST PRIMARY AFTER: {best_primary}\n")
+        if training_log_tail:
+            facts += f"TRAINING LOG TAIL (experiment stdout, verbatim):\n{training_log_tail}\n"
         messages = [{"role": "user", "content": f"# Facts (measured by the harness)\n{facts}\n# TASK\n{task}"}]
         try:
             resp = self._call("scribe_lesson", self._system_blocks("scribe_lesson"), messages, "scribe_lesson")

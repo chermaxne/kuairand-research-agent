@@ -180,12 +180,14 @@ class Harness:
         parts.append("# LEDGER (full history, oldest first)\n" + (read_ledger(self.run_dir) or "(empty)"))
         recent = [h for h in state.history[-3:]]
         if recent:
-            lines = ["# RECENT ITERATION DETAILS"]
+            lines = ["# RECENT ITERATION DETAILS (harness-measured; the training-log tail is the experiment's own stdout)"]
             for h in recent:
                 lines.append(f"- it{h['iteration']:02d} [{h['category']}] {h['hypothesis']}\n  result: {h['status']} primary={h.get('primary')} "
                              f"decision={h['decision']} runtime={h.get('runtime_s')}s\n  lesson: {h.get('lesson', '')}")
                 if h.get("error_short"):
                     lines.append(f"  error: {h['error_short']}")
+                if h.get("training_log_tail"):
+                    lines.append("  training log tail:\n" + "\n".join("    " + l for l in h["training_log_tail"].splitlines()))
             parts.append("\n".join(lines))
         if state.consecutive_failures >= int(self.run_cfg.get("STALL_FAILURES", 3)):
             parts.append(STALL_DIRECTIVE.format(n=state.consecutive_failures))
@@ -249,7 +251,8 @@ class Harness:
 
         plan_for_scribe = plan or ResearcherPlan(hypothesis=f"(no valid plan: {one_line(error_reason, 120)})", category="other",
                                                  change_spec="n/a", expected_risk="high", rationale="n/a")
-        lesson = self.roles.scribe_lesson(plan_for_scribe, result, dec.decision, dec.best_primary_after)
+        train_tail = self.training_log_tail(ws)
+        lesson = self.roles.scribe_lesson(plan_for_scribe, result, dec.decision, dec.best_primary_after, train_tail)
         diff_text, change_summary = tools.unified_diff(champion_files, files)
         if plan is None:
             change_summary = "none (no valid plan)"
@@ -260,7 +263,8 @@ class Harness:
         facts = {"iteration": it, "hypothesis": plan_for_scribe.hypothesis, "category": plan_for_scribe.category,
                  "result": result.to_dict(), "decision": dec.decision, "streak_after": dec.streak_after,
                  "best_primary_after": dec.best_primary_after, "best_iter_after": dec.best_iter_after,
-                 "debug_attempts": [a.to_dict() for a in attempts], "change_summary": change_summary, "lesson": lesson}
+                 "debug_attempts": [a.to_dict() for a in attempts], "change_summary": change_summary, "lesson": lesson,
+                 "training_log_tail": train_tail}
         if self.cfg["llm"].get("scribe_narrative", True):
             write_iteration_narrative(self.run_dir, it, self.roles.scribe_logentry(facts))
 
@@ -286,6 +290,7 @@ class Harness:
         write_iteration_log(self.run_dir, entry)
 
         hist = {"iteration": it, "hypothesis": one_line(plan_for_scribe.hypothesis, 160), "category": plan_for_scribe.category,
+                "training_log_tail": train_tail,
                 "status": status, "primary": primary, "gauc": score.gauc if (score and status == "scored") else None,
                 "ndcg5": score.ndcg5 if (score and status == "scored") else None, "decision": dec.decision, "promoted": dec.promoted,
                 "streak_after": dec.streak_after, "tokens": usage.total, "runtime_s": round(runtime_s, 1), "lesson": lesson,
@@ -297,6 +302,20 @@ class Harness:
         self.log(f"[it{it:02d}] {status} primary={primary} -> {dec.decision} | best {dec.best_primary_after} (it{dec.best_iter_after:02d}) "
                  f"| streak {dec.streak_after}/{self.limits.n_flat} | tokens {usage.total} | {runtime_s:.0f}s")
         return hist
+
+    def training_log_tail(self, ws: str, n_lines: int = 12, max_chars: int = 1500) -> str:
+        """Last lines of the experiment's stdout (epoch curve, early-stop message) — lets the Scribe and the
+        Researcher see HOW a run behaved, not just its final score. Empty when nothing ran."""
+        p = os.path.join(ws, "stdout.txt")
+        if not os.path.exists(p):
+            return ""
+        try:
+            with open(p, encoding="utf-8", errors="replace") as fh:
+                lines = [l.rstrip() for l in fh.read().splitlines() if l.strip()]
+        except OSError:
+            return ""
+        tail = "\n".join(lines[-n_lines:])
+        return tail[-max_chars:]
 
     # ------------------------------------------------------------------ run + debug loop
     def execute_with_debugging(self, ws: str, plan: ResearcherPlan, files: Dict[str, str]):
