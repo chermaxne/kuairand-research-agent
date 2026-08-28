@@ -401,10 +401,15 @@ def test_flipped_labels_dir_flips_only_post_train_feedback(tmp_path, mini_data):
     import csv
     src = list(csv.DictReader(open(os.path.join(loop, "log_standard_4_22_to_5_08_pure.csv"))))
     dst = list(csv.DictReader(open(os.path.join(flipped, "log_standard_4_22_to_5_08_pure.csv"))))
-    assert len(src) == len(dst) and all(a["long_view"] != b["long_view"] for a, b in zip(src, dst))       # all valid rows flipped
-    assert all(a["user_id"] == b["user_id"] and a["video_id"] == b["video_id"] and a["time_ms"] == b["time_ms"] and a["tab"] == b["tab"]
-               for a, b in zip(src, dst))                                                                # order and non-feedback columns intact
-    assert all(b["play_time_ms"] == "0" for b in dst)
+    flipped_users = set(info["flipped_users"])
+    assert len(src) == len(dst) and 0 < len(flipped_users) < len({a["user_id"] for a in src})
+    for a, b in zip(src, dst):
+        assert a["user_id"] == b["user_id"] and a["video_id"] == b["video_id"] and a["time_ms"] == b["time_ms"] and a["tab"] == b["tab"]
+        if a["user_id"] in flipped_users:
+            assert a["long_view"] != b["long_view"] and b["play_time_ms"] == "0"                           # flipped users: inverted / zeroed
+        else:
+            assert a["long_view"] == b["long_view"] and a["play_time_ms"] == b["play_time_ms"]              # everyone else untouched
+    assert json.load(open(os.path.join(flipped, "flipped_users.json"))) == sorted(flipped_users)
     tr_src = open(os.path.join(loop, "log_standard_4_08_to_4_21_pure.csv")).read()
     assert open(os.path.join(flipped, "log_standard_4_08_to_4_21_pure.csv")).read() == tr_src                # train untouched
     assert not tools.ensure_flipped_labels_dir(loop, flipped, int(kit.data.SPLITS["train"][1]))["rebuilt"]   # cached
@@ -422,7 +427,9 @@ def test_label_leak_is_caught_and_never_promoted(tmp_path, base_cfg, mini_data):
         return render_file_blocks(files)
     handlers = default_mock_handlers()
     handlers["engineer"] = leaky
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
+    # ceiling disabled here so the expensive flipped-label path is the thing under test
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 1, "implausible_primary_above": None}})
     st = h.init_or_resume()
     h.phase0()
     before = sha256_tree(h.best_dir)
@@ -431,7 +438,7 @@ def test_label_leak_is_caught_and_never_promoted(tmp_path, base_cfg, mini_data):
     assert sha256_tree(h.best_dir) == before
     log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
     assert "LEAK DETECTED" in log["result"]["error_excerpt"] and log["result"]["primary"] > 0.95   # the leaked score is on record
-    assert log["harness_extra"]["leak_test"]["verdict"] == "LEAK" and log["harness_extra"]["leak_test"]["primary"] < 0.5
+    assert log["harness_extra"]["leak_test"]["verdict"] == "LEAK" and log["harness_extra"]["leak_test"]["subset_primary"] < 0.5
     assert any("leak detected" in b for b in st.blocked)
     line = open(os.path.join(h.run_dir, "ledger.md")).read().splitlines()[-1]
     assert "FAILED(LEAK DETECTED" in line
@@ -447,8 +454,52 @@ def test_legitimate_improvement_passes_the_leak_test(tmp_path, base_cfg, mini_da
     hist = h.run_iteration(1)
     assert hist["decision"] == "promoted" and st.best_iter == 1
     log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
-    assert log["harness_extra"]["leak_test"]["verdict"] == "clean" and log["harness_extra"]["leak_test"]["primary"] >= 0.5
+    assert log["harness_extra"]["leak_test"]["verdict"] == "clean" and log["harness_extra"]["leak_test"]["subset_primary"] >= 0.5
     assert os.path.exists(os.path.join(h.run_dir, "iterations", "it01", "leak_test.json"))
+
+
+def test_strict_validation_assertion_does_not_cause_a_false_leak(tmp_path, base_cfg, mini_data):
+    """A legitimate pipeline that hard-asserts on its validation labels crashes on the 10% copy; the 2% retry must
+    still verify it and the promotion must go through (the 2026-08-29 false positive)."""
+    def engineer(role, system, messages):
+        files = _champion_files(messages[-1]["content"])
+        code = files["pipeline.py"].replace("THETA = 0.50", "THETA = 0.55")
+        code = code.replace('    with open(a.out, "w", newline="") as fh:',
+                            "    _rate = sum(x[4] for x in S[split]) / max(1, len(S[split]))\n"
+                            "    _ref = sum(x[4] for x in S['train']) / max(1, len(S['train']))\n"
+                            "    assert abs(_rate - _ref) < 0.03, f'label rate looks corrupted: {_rate:.3f} vs {_ref:.3f}'\n"
+                            '    with open(a.out, "w", newline="") as fh:')
+        files["pipeline.py"] = code
+        return render_file_blocks(files)
+    handlers = default_mock_handlers()
+    handlers["engineer"] = engineer
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
+    st = h.init_or_resume()
+    h.phase0()
+    hist = h.run_iteration(1)
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    lt = log["harness_extra"]["leak_test"]
+    assert lt["verdict"] == "clean", lt
+    assert hist["decision"] == "promoted" and st.best_iter == 1
+
+
+def test_crash_on_both_flipped_copies_is_inconclusive_and_not_promoted(tmp_path, base_cfg, mini_data):
+    def engineer(role, system, messages):
+        files = _champion_files(messages[-1]["content"])
+        code = files["pipeline.py"].replace("THETA = 0.50", "THETA = 0.55")
+        code = code.replace("    S = load(a.data)", "    import os as _o\n    assert not _o.path.exists(_o.path.join(a.data, 'flipped_users.json')), 'refusing corrupted data'\n    S = load(a.data)")
+        files["pipeline.py"] = code
+        return render_file_blocks(files)
+    handlers = default_mock_handlers()
+    handlers["engineer"] = engineer
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
+    st = h.init_or_resume()
+    h.phase0()
+    hist = h.run_iteration(1)
+    assert hist["status"] == "failed" and st.best_iter == 0
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    assert log["harness_extra"]["leak_test"]["verdict"].startswith("INCONCLUSIVE") and "INCONCLUSIVE" in log["result"]["error_excerpt"]
+    assert any("inconclusive" in b for b in st.blocked)
 
 
 def test_leak_check_default_and_off_switch(tmp_path, base_cfg, mini_data):
@@ -460,3 +511,27 @@ def test_leak_check_default_and_off_switch(tmp_path, base_cfg, mini_data):
     h.phase0()
     h.run_iteration(1)
     assert not os.path.exists(os.path.join(h.run_dir, "iterations", "it01", "leak_test.json"))
+
+
+def test_implausible_score_is_flagged_without_a_rerun(tmp_path, base_cfg, mini_data):
+    """The oracle-style leak (score far above anything honest) is caught for free, before the expensive re-run."""
+    def oracle(role, system, messages):
+        files = _champion_files(messages[-1]["content"])
+        files["pipeline.py"] = files["pipeline.py"].replace(
+            'f"{THETA * vr(x[2]) + (1 - THETA) * ar(x[3]):.6g}"', 'f"{x[4] + 0.001 * vr(x[2]):.6g}"')   # score = own label
+        return render_file_blocks(files)
+    handlers = default_mock_handlers()
+    handlers["engineer"] = oracle
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 1, "implausible_primary_above": 0.70}})
+    st = h.init_or_resume()
+    h.phase0()
+    before = sha256_tree(h.best_dir)
+    t0 = time.time()
+    hist = h.run_iteration(1)
+    assert hist["status"] == "failed" and st.best_iter == 0 and sha256_tree(h.best_dir) == before
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    lt = log["harness_extra"]["leak_test"]
+    assert lt["verdict"] == "LEAK" and lt["reason"] == "implausible score ceiling" and lt["ran"] is False   # no re-run spent
+    assert "implausible score" in log["result"]["error_excerpt"] and "0.8484" in log["result"]["error_excerpt"]
+    assert any("implausible" in b for b in st.blocked)

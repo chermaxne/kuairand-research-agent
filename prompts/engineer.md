@@ -18,8 +18,11 @@ preds_val.csv` in a sandbox and scores the predictions with the organizers' seal
    input features of the row being scored; any aggregate feature must be computed from strictly earlier
    dates than the row it describes (past-only / rolling), and for validation/test rows only from train.
    When you extend the row tuple or the field list, re-check every index: the label element must never end up
-   inside `raw(x)` / the encoded fields. The harness re-runs every would-be promotion with flipped validation
-   labels and records a leak as a failed iteration — a leaked score is worth nothing.
+   inside `raw(x)` / the encoded fields. The harness re-runs every would-be promotion on a copy where ~10% of the
+   validation users have corrupted labels and checks that those users are still ranked well — a leaked score is
+   worth nothing. Consequence for self-checks: print validation sanity numbers, but do NOT hard-assert on the
+   validation metric (an `assert primary > 0.55` crashed that re-run once); assert on train-side quantities
+   (train GAUC after epoch 1, pair count, vocabulary sizes) instead.
 5. Sandbox: no network, no package installs, no subprocesses, no writes outside the working directory.
    Only numpy, pandas, scikit-learn, lightgbm, torch (CPU) and the standard library are available.
    Keep memory moderate (16 GB box) and respect the runtime limit stated in the contract.

@@ -264,28 +264,52 @@ class Harness:
         leak: Dict[str, Any] = {}
         if status == "scored" and score is not None and self.run_cfg.get("leak_check", "on_promotion") != "off":
             would_promote = best_at_start is None or score.primary > best_at_start + self.limits.promote_margin
-            if would_promote:
-                self.log(f"[leak-test] candidate {score.primary:.4f} would be promoted — re-running with flipped validation labels")
+            ceiling = self.run_cfg.get("implausible_primary_above")
+            if would_promote and ceiling is not None and score.primary > float(ceiling):
+                # Free first line of defence: no honest model on this task reaches here (oracle 0.8484, baseline 0.6015,
+                # best known lever +0.003). Flag without spending a re-run.
+                leak = {"ran": False, "verdict": "LEAK", "reason": "implausible score ceiling",
+                        "ceiling": float(ceiling), "primary": score.primary, "gauc": score.gauc}
+            elif would_promote:
+                self.log(f"[leak-test] candidate {score.primary:.4f} would be promoted — re-running with 10% of validation users' labels flipped")
                 leak = self.task.leak_test(ws, float(self.run_cfg["EXPERIMENT_TIMEOUT_S"]))
+            if leak:
                 floor = float(self.run_cfg.get("leak_check_min_primary", 0.5))
-                if leak.get("ran") and leak.get("primary") is not None:
-                    leak["verdict"] = "clean" if leak["primary"] >= floor else "LEAK"
+                if leak.get("reason") == "implausible score ceiling":
+                    pass                                             # verdict already set
+                elif leak.get("ran") and leak.get("subset_primary") is not None:
+                    leak["verdict"] = "clean" if leak["subset_primary"] >= floor else "LEAK"
                 else:
-                    leak["verdict"] = "LEAK (pipeline failed on flipped labels)"
+                    leak["verdict"] = "INCONCLUSIVE (pipeline failed on the flipped-label copies)"
+                if leak.get("reason") == "implausible score ceiling":
+                    diag = (f"LEAK DETECTED (implausible score): sealed primary {score.primary:.4f} / GAUC {score.gauc:.4f} exceeds the "
+                            f"plausibility ceiling {leak['ceiling']} for this task — the validation oracle (perfect ranking) is 0.8484, the "
+                            f"baseline 0.6015 and the best known single lever +0.003. A score this high means the predictions are derived "
+                            f"from the rows' own labels. Check every tuple index and feature path for the label.")
+                    blocked_reason = "leak detected (implausible score)"
+                elif leak["verdict"] == "LEAK":
+                    diag = (f"LEAK DETECTED: sealed primary {score.primary:.4f} with real validation labels, but for the "
+                            f"{int(round(leak['fraction'] * 100))}% of validation users whose feedback columns were flipped the "
+                            f"predictions rank their TRUE labels at primary {leak['subset_primary']:.4f} (GAUC {leak['subset_gauc']:.4f}; "
+                            f"random = 0.5, a clean pipeline scores them like everyone else). The predictions depend on the validation "
+                            f"rows' own labels — a training/feature leak, not a result.")
+                    blocked_reason = "leak detected"
+                elif leak["verdict"] != "clean":
+                    diag = (f"LEAK TEST INCONCLUSIVE: sealed primary {score.primary:.4f}, but the pipeline crashed on both flipped-label "
+                            f"copies (10% and 2% of validation users), so the harness cannot verify that its predictions are independent "
+                            f"of the validation labels; not promoted. Make the pipeline robust to partially corrupted validation labels "
+                            f"(no strict assertions on the validation metric).\n{leak.get('error', '')}")
+                    blocked_reason = "leak test inconclusive"
                 if leak["verdict"] != "clean":
-                    diag = (f"LEAK DETECTED: sealed primary {score.primary:.4f} with real validation labels, but "
-                            f"{leak.get('primary', float('nan')):.4f} when the validation rows' feedback columns are flipped "
-                            f"(random = 0.5; a pipeline that never reads validation labels stays near its normal score). "
-                            f"The predictions depend on the validation rows' own labels — a training/feature leak, not a result. "
-                            f"{leak.get('error', '')}")
-                    self.log(f"[leak-test] {diag[:160]}")
-                    status, primary, error_reason, blocked_reason = "failed", None, diag, "leak detected"
+                    self.log(f"[leak-test] {diag[:200]}")
+                    status, primary, error_reason = "failed", None, diag
                     result = HarnessResult(status="failed", gauc=score.gauc, ndcg5=score.ndcg5, primary=score.primary,
                                            runtime_s=runtime_s, error_excerpt=diag, vs_best=vs_best_string(None, best_at_start))
                     atomic_write_json(os.path.join(ws, "result.json"), result.to_dict())
                     score = None
                 else:
-                    self.log(f"[leak-test] clean: {leak['primary']:.4f} with flipped labels (>= {floor})")
+                    self.log(f"[leak-test] clean: flipped users score {leak['subset_primary']:.4f} on their true labels "
+                             f"(>= {floor}); full-set {leak['full_primary']:.4f}")
             atomic_write_json(os.path.join(ws, "leak_test.json"), leak) if leak else None
 
         # --- the two separate judgments (pure functions; no LLM involvement) ---

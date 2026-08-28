@@ -90,26 +90,37 @@ class Task:
             out.append(extra)
         return out
 
-    def leak_test(self, workspace: str, timeout_s: float, out_name: str = "preds_val_leaktest.csv") -> Dict[str, Any]:
-        """Re-run the workspace's pipeline against the flipped-label copy of the loop data and score its predictions
-        against the TRUE validation labels. Returns {'ran', 'primary', 'gauc', 'error'}; the harness decides."""
-        flipped_dir = self.loop_data_dir + "_flipped_labels"
+    def leak_test(self, workspace: str, timeout_s: float, fractions: Sequence[float] = (0.10, 0.02),
+                  out_name: str = "preds_val_leaktest.csv") -> Dict[str, Any]:
+        """Re-run the workspace's pipeline against a copy of the loop data in which a deterministic fraction of the
+        validation users have their feedback columns flipped, then score its predictions for THOSE users against their
+        TRUE labels. A clean pipeline scores them like any other users; a leaking one ranks them inverted.
+        If the pipeline crashes on the 10% copy (e.g. a strict validation sanity assertion), retry with 2% flipped —
+        a legitimate pipeline's own validation metric barely moves at 2%, while the leak signal on ~450 users is still
+        decisive. Returns {'ran', 'fraction', 'subset_primary', 'subset_gauc', 'full_primary', 'error', 'attempts'}."""
         train_end = int(self.kit.data.SPLITS["train"][1])
-        info = tools.ensure_flipped_labels_dir(self.loop_data_dir, flipped_dir, train_end)
-        deny = [self.data_dir] if self.mask_test else []
-        deny += self.secret_files()
-        res = tools.run_pipeline_in_sandbox(workspace, flipped_dir, "val", out_name, timeout_s, self.sandbox_cfg,
-                                            pythonpath=[self.sealed_dir], deny_read=deny, log_prefix="leaktest_")
-        out: Dict[str, Any] = {"ran": res.ok, "runtime_s": round(res.runtime_s, 1), "flipped_dir_rebuilt": info.get("rebuilt")}
-        if not res.ok:
-            out["error"] = res.error_excerpt(15)
-            return out
-        try:
-            sc = self.score_preds(os.path.join(workspace, out_name))
-            out.update({"primary": sc.primary, "gauc": sc.gauc, "ndcg5": sc.ndcg5})
-        except (ValueError, OSError) as e:
-            out["error"] = f"leak-test predictions rejected: {e}"
-        return out
+        deny = ([self.data_dir] if self.mask_test else []) + self.secret_files()
+        attempts = []
+        for frac in fractions:
+            flipped_dir = f"{self.loop_data_dir}_flipped_{int(round(frac * 100)):02d}pct"
+            info = tools.ensure_flipped_labels_dir(self.loop_data_dir, flipped_dir, train_end, flip_fraction=frac)
+            res = tools.run_pipeline_in_sandbox(workspace, flipped_dir, "val", out_name, timeout_s, self.sandbox_cfg,
+                                                pythonpath=[self.sealed_dir], deny_read=deny, log_prefix=f"leaktest_{int(round(frac * 100)):02d}pct_")
+            att: Dict[str, Any] = {"fraction": frac, "ran": res.ok, "runtime_s": round(res.runtime_s, 1), "n_flipped_users": len(info["flipped_users"])}
+            if not res.ok:
+                att["error"] = res.error_excerpt(12)
+                attempts.append(att)
+                continue
+            try:
+                sub = tools.evaluate_preds_subset(os.path.join(workspace, out_name), self.rows_valid, info["flipped_users"], self.sealed_eval, self.kit)
+                full = self.score_preds(os.path.join(workspace, out_name))
+                att.update({"subset_primary": sub.primary, "subset_gauc": sub.gauc, "full_primary": full.primary})
+                attempts.append(att)
+                return {**att, "attempts": attempts}
+            except (ValueError, OSError) as e:
+                att["error"] = f"leak-test predictions rejected: {e}"
+                attempts.append(att)
+        return {"ran": False, "attempts": attempts, "error": attempts[-1].get("error", "") if attempts else "no attempt"}
 
     def check_submission(self, path: str, split: str = "test") -> Tuple[bool, str]:
         return tools.check_submission(self.sealed_dir, self.kit_dir, self.data_dir, path, split=split)

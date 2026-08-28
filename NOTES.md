@@ -373,6 +373,17 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   three stacked +0.0008 promotions would NOT converge. A `streak_mode: window` option can be added if the organizers
   confirm the cumulative reading; the conservative per-iteration reading stays the default.
 
+### Leak test v2 after a false positive (2026-08-29)
+* Run `20260829_015947_ten6` it01: a legitimate R1+R2+R3 bundle (0.6046, +0.0031) was recorded as LEAK because the
+  Engineer had added the self-check the playbook recommends (`assert epoch-1 primary > 0.55`), which fires on a copy where
+  ALL validation labels are flipped; v1 treated "crashed on flipped labels" as a leak. A streak step and a real gain lost.
+* v2: flip a deterministic **10% of validation users** (md5 bucket of user_id) and score only those users' TRUE labels
+  (sealed evaluate on the subset); a clean pipeline scores them like everyone else (validated on the real baseline),
+  a leaking one inverts them. If the pipeline crashes on the 10% copy, retry at 2% (a legit validation metric barely
+  moves; ~450 users still give a decisive signal); crashes on both = INCONCLUSIVE → not promoted (conservative: a leaky
+  champion is catastrophic, a lost iteration is not). Engineer prompt and playbook: assert on train-side quantities
+  only, never hard-assert on the validation metric.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

@@ -147,29 +147,39 @@ FEEDBACK_COLUMNS = ("is_click", "is_like", "is_follow", "is_comment", "is_forwar
                     "profile_stay_time", "comment_stay_time", "is_profile_enter")
 
 
-def ensure_flipped_labels_dir(loop_dir: str, out_dir: str, train_end_date: int,
-                              log_files: Sequence[str] = ("log_standard_4_22_to_5_08_pure.csv", "log_random_4_22_to_5_08_pure.csv")) -> Dict[str, Any]:
-    """Build (once, fingerprinted) a copy of the loop data dir where every row dated AFTER the train period has its
-    binary feedback columns inverted (1 - y) and its continuous feedback columns zeroed. Non-feedback columns
-    (ids, date, hourmin, time_ms, duration_ms, tab, is_rand) are untouched, so row order and the §5.2 contract hold.
+def _flip_bucket(user_id: str) -> int:
+    """Deterministic 0..999 bucket per user (stable across processes; no dependence on PYTHONHASHSEED)."""
+    import hashlib
+    return int(hashlib.md5(str(user_id).encode()).hexdigest()[:8], 16) % 1000
 
-    A legitimate pipeline (fits on train, uses validation labels at most for early stopping) still ranks the true
-    validation labels far better than random. A pipeline whose scores depend on the validation rows' own labels
-    ranks them INVERTED (sealed GAUC ≈ 0) — that is the signature the harness tests for."""
+
+def ensure_flipped_labels_dir(loop_dir: str, out_dir: str, train_end_date: int, flip_fraction: float = 0.10,
+                              log_files: Sequence[str] = ("log_standard_4_22_to_5_08_pure.csv", "log_random_4_22_to_5_08_pure.csv")) -> Dict[str, Any]:
+    """Build (once, fingerprinted) a copy of the loop data dir where, for a deterministic `flip_fraction` of the users,
+    every row dated AFTER the train period has its binary feedback columns inverted (1 - y) and its continuous feedback
+    columns zeroed. Non-feedback columns (ids, date, hourmin, time_ms, duration_ms, tab, is_rand) are untouched, so row
+    order and the §5.2 contract hold; the other 90% of validation users keep their real labels, so a pipeline's own
+    validation-based early stopping and sanity assertions keep working.
+
+    A legitimate pipeline scores the flipped users' TRUE labels as well as anyone else's; a pipeline whose scores
+    depend on the validation rows' own labels ranks those users INVERTED (GAUC ≈ 0). The flipped user ids are written
+    to flipped_users.json so the harness can score exactly that subset."""
     loop_dir, out_dir = os.path.realpath(loop_dir), os.path.realpath(out_dir)
     fp = _fingerprint(loop_dir, train_end_date)
-    fp["kind"] = "flipped_labels"
+    fp["kind"] = "flipped_labels"; fp["flip_fraction"] = flip_fraction
     fp_path = os.path.join(out_dir, ".fingerprint.json")
     if os.path.exists(fp_path):
         try:
             if json.load(open(fp_path)) == fp:
-                return {"dir": out_dir, "rebuilt": False}
+                return {"dir": out_dir, "rebuilt": False, "flipped_users": json.load(open(os.path.join(out_dir, "flipped_users.json")))}
         except (OSError, ValueError):
             pass
     tmp = out_dir + ".building"
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
     stats: Dict[str, Any] = {}
+    flipped_users: set = set()
+    cutoff = int(round(flip_fraction * 1000))
     for name in sorted(os.listdir(loop_dir)):
         src, dst = os.path.join(loop_dir, name), os.path.join(tmp, name)
         if not os.path.isfile(src) or name.startswith("."):
@@ -180,25 +190,38 @@ def ensure_flipped_labels_dir(loop_dir: str, out_dir: str, train_end_date: int,
                 r, w = csv.reader(fi), csv.writer(fo)
                 header = next(r)
                 w.writerow(header)
-                di = header.index("date")
+                di, ui = header.index("date"), header.index("user_id")
                 idx = {c: header.index(c) for c in FEEDBACK_COLUMNS if c in header}
                 for row in r:
-                    if int(row[di]) > train_end_date:
+                    if int(row[di]) > train_end_date and _flip_bucket(row[ui]) < cutoff:
                         for c, i in idx.items():
                             row[i] = ("1" if row[i] == "0" else "0") if c.startswith("is_") or c == "long_view" else "0"
                         flipped += 1
+                        flipped_users.add(row[ui])
                     w.writerow(row)
             stats[name] = {"rows_flipped": flipped}
         else:
             shutil.copy2(src, dst)
+    users = sorted(flipped_users)
+    with open(os.path.join(tmp, "flipped_users.json"), "w") as fh:
+        json.dump(users, fh)
     with open(os.path.join(tmp, ".fingerprint.json"), "w") as fh:
         json.dump(fp, fh)
     with open(os.path.join(tmp, "README_LEAK_TEST.txt"), "w") as fh:
-        fh.write(f"Derived from {loop_dir}: feedback columns of rows dated > {train_end_date} inverted/zeroed.\n"
-                 f"Used only by the harness leak test; never for training or scoring.\n{json.dumps(stats, indent=1)}\n")
+        fh.write(f"Derived from {loop_dir}: for {len(users)} users ({flip_fraction:.0%} deterministic subset), feedback columns of rows dated "
+                 f"> {train_end_date} inverted/zeroed. Used only by the harness leak test; never for training or scoring.\n{json.dumps(stats, indent=1)}\n")
     shutil.rmtree(out_dir, ignore_errors=True)
     os.replace(tmp, out_dir)
-    return {"dir": out_dir, "rebuilt": True, "stats": stats}
+    return {"dir": out_dir, "rebuilt": True, "stats": stats, "flipped_users": users}
+
+
+def evaluate_preds_subset(preds_path: str, rows: Sequence[tuple], users: Sequence[str], sealed_eval, kit) -> Score:
+    """Sealed score restricted to the rows of `users` (diagnostic use: the leak test)."""
+    scores = kit.submit.read_submission(preds_path, rows)
+    keep = set(users)
+    sel = [(x, s) for x, s in zip(rows, scores) if x[1] in keep]
+    res = sealed_eval([x[1] for x, _ in sel], [x[6] for x, _ in sel], [s for _, s in sel])
+    return Score.from_evaluate(res)
 
 
 # ---------------------------------------------------------------------------

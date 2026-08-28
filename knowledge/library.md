@@ -150,7 +150,9 @@ The statistic feature file is not "flat" — it is forbidden (§3, §7).
    (the 0.6044 run swapped its working pairwise loss for sampled-softmax at streak 2 and lost 0.004). Re-using
    what works plus more seeds plus one genuinely new signal is the reliable move.
 5. Put a self-check in every change spec that the code must print (train GAUC after epoch 1, pair count, a new
-   field's vocabulary size) — a wasted iteration costs a third of the run.
+   field's vocabulary size) — a wasted iteration costs a third of the run. Assert only on TRAIN-side quantities:
+   the harness re-runs every would-be promotion with ~10% of validation users' labels corrupted (leak test), so a
+   hard assertion on the validation metric crashes that re-run and forfeits the promotion.
 6. A result below the popularity rung (0.581) or a GAUC < 0.5 is an implementation bug, not a research outcome.
 7. If the reachable levers are genuinely exhausted, converging at the plateau is the correct outcome — the rule is
    the organizers' definition of "done". Do not manufacture risky swaps to avoid it.
@@ -159,9 +161,9 @@ The statistic feature file is not "flat" — it is forbidden (§3, §7).
 - Same-row feedback columns (`is_click`, `play_time_ms`, `is_like`, …) as inputs = leakage. Session/time features
   may come only from `time_ms`, `hourmin`, `date`. **0.8484 is the validation oracle** (GAUC 1.0): a run in this
   project scored exactly that after the Engineer let the label into the encoded fields. Anything above ~0.65 is a
-  leak until proven otherwise. The harness re-runs every would-be promotion on a copy of the data whose validation
-  feedback columns are flipped; a pipeline that reads them collapses below random there and is recorded as LEAK,
-  never promoted. Keep the label out of every feature path: the row tuple's label element must be used only as
+  leak until proven otherwise. The harness re-runs every would-be promotion on a copy of the data where 10% of the
+  validation users' feedback columns are flipped, and scores those users' true labels; a pipeline that reads the
+  labels ranks them inverted and is recorded as LEAK, never promoted. Keep the label out of every feature path: the row tuple's label element must be used only as
   the training target and for early stopping.
 - `video_features_statistic_pure.csv` = label aggregates over a window covering the test period: forbidden.
 - Whole-dataset aggregates leak the future; compute past-only (time-ordered) statistics. **Leave-one-out target
