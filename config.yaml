@@ -8,17 +8,16 @@ llm:
   provider: openrouter             # -> https://openrouter.ai/api/v1 (OpenAI-compatible Chat Completions)
   api_key_env: OPENROUTER_API_KEY  # key from https://openrouter.ai/keys — put it in .env, never in git
   # Model choice (2026-08-28): quality where it matters, cost where it does not.
-  #   Researcher  z-ai/glm-5.2              reasoning model; precise plans, cheap ($1.19/$3.74 per MTok)
-  #   Engineer /  deepseek/deepseek-v4-flash the main model for the initial phase: $0.09/$0.17 per MTok, 1M ctx, 384k out;
-  #   Debugger                              fallbacks are cheap open-weight coders (no Claude anywhere in this default)
-  #   Scribe      deepseek/deepseek-v4-flash ≤20-word job
-  # Cost: ~$0.02 per iteration (the Researcher is most of it) -> a full 50-iteration run is ~$1.
-  researcher_model: z-ai/glm-5.2
+  #   ALL ROLES   deepseek/deepseek-v4-flash the main model for the initial phase: $0.09/$0.17 per MTok, 1M ctx, 384k out.
+  #               Fallbacks are cheap open-weight models (no Claude anywhere in this default; GLM-5.2 only as a
+  #               Researcher fallback — it reasons for tens of thousands of characters per call, slow and pricier).
+  # Cost: well under $0.01 per iteration -> a full 50-iteration run is a few tens of cents.
+  researcher_model: deepseek/deepseek-v4-flash
   engineer_model: deepseek/deepseek-v4-flash
   debugger_model: deepseek/deepseek-v4-flash
   scribe_model: deepseek/deepseek-v4-flash
   fallback_models:                 # tried in order when the primary stalls, is rate-limited (429) or unavailable
-    researcher: [deepseek/deepseek-v4-flash, minimax/minimax-m3]
+    researcher: [qwen/qwen3-coder, z-ai/glm-5.2]
     engineer:   [qwen/qwen3-coder, deepseek/deepseek-v4-pro]
     debugger:   [qwen/qwen3-coder, deepseek/deepseek-v4-pro]
     scribe:     [qwen/qwen3-coder]
