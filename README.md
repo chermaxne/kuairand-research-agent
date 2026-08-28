@@ -55,10 +55,10 @@ Shipped model choice (settled after the first live test on 2026-08-28 — see NO
 
 | role | model | why |
 |---|---|---|
-| Researcher | `minimax/minimax-m3` | one model for every role: $0.30/$1.20 per MTok, 1M context, 512k output |
-| Engineer / Debugger | `minimax/minimax-m3` | same (reasoning effort low for speed) |
-| Scribe | `minimax/minimax-m3` | same (a ≤20-word job; `deepseek-v4-flash` is the fallback) |
-| automatic fallbacks | `deepseek/deepseek-v4-flash` → `qwen/qwen3-coder` | used when the primary stalls, returns 429 or disappears (all cheap open-weight models) |
+| Researcher | `deepseek/deepseek-v4-flash` | reasoning planner, once per iteration (~60–90 s, ~$0.002); wrote the plan that reached 0.6044 |
+| Engineer / Debugger | `qwen/qwen3-coder` | non-reasoning coder: 21 s / 160 tok/s / $0.0045 per full-pipeline rewrite (measured) |
+| Scribe | `mistralai/codestral-2508` | 0.4 s per call |
+| automatic fallbacks | `codestral-2508` → `qwen3-coder-next` (Engineer); `qwen3-coder` → `glm-5.3-flash` (Researcher) | used when the primary stalls, returns 429 or disappears |
 
 Why a non-reasoning Engineer: reasoning models' thinking tokens count against `max_tokens`, and an exhausted budget
 returns *empty* content while the provider still bills the generation. `llm.reasoning` caps thinking per role.
@@ -66,7 +66,7 @@ returns *empty* content while the provider still bills the generation. `llm.reas
 Every call is **streamed**: a stalled generation is abandoned after `inactivity_timeout_s` (120 s) without a
 token, capped at `call_timeout_s` (900 s), retried once, then the next fallback model is used — and the console
 shows a heartbeat (`[llm] engineer: qwen/qwen3-coder streaming — 6,120 chars, 30s`) plus one line per completed
-call, so you always know what the agent is doing. Cost ≈ $0.02 per iteration (~$1 for a full 50-iteration run).
+call, so you always know what the agent is doing. Cost ≈ $0.01 per iteration (~$0.50 for a full 50-iteration run); ~4–5 min per iteration.
 
 ```bash
 .venv/bin/python -m agent.harness --llm-profile openrouter_claude  # anthropic/claude-opus-4.8 + haiku-4.5, ~$10-20

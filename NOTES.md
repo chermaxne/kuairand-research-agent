@@ -326,6 +326,16 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   library §8 carries the runtime budget (≤ 400 s for a 4–5-seed pipeline), the vectorised rank one-liner and the
   build-once/resample rule; Engineer rule 8 and Debugger rule 3b say the same. Tests updated.
 
+### Model benchmark and final choice (2026-08-29)
+* A 6 h wall clock makes speed binding: DeepSeek V4 Pro took 393 s per Engineer call. Measured a realistic Engineer job
+  (rewrite the 230-line champion pipeline adding one field) on the cheap tier only (≤ $0.30/M in, ≤ $1.20/M out; $0.03
+  total; the expensive tier was deliberately not run): codestral-2508 16 s, qwen3-coder 21 s, qwen3-coder-next 44 s,
+  glm-5.3-flash 57 s, deepseek-v4-flash 146 s (9.6k tokens, mostly reasoning) — all parsed and compiled; **minimax-m3
+  failed** (empty output after 14k reasoning tokens, the same failure as the first live run; `reasoning.effort` does not
+  cap it). Output in `knowledge/evidence/engineer_speed_benchmark_2026-08-29.txt`.
+* Default now: Researcher `deepseek-v4-flash` (proven in the 0.6044 run), Engineer/Debugger `qwen/qwen3-coder`,
+  Scribe `codestral-2508`; ≈ $0.01 and 4–5 min per iteration → 50 iterations in ~4 h. `--llm-profile fast` is the same set.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)
