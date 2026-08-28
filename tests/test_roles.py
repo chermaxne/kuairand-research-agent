@@ -643,3 +643,24 @@ def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
     for must in ("0.6042", "Leave-one-out target", "1.9% of valid users", "bootstrap standard error",
                  "train GAUC after epoch 1", "video_features_statistic_pure.csv"):
         assert must in lib, must
+
+
+def test_last_shot_directive_appears_at_streak_n_minus_1(tmp_path, base_cfg, mini_data):
+    briefings = []
+
+    def researcher(role, system, messages):
+        briefings.append(messages[-1]["content"])
+        return default_mock_handlers()["researcher"](role, system, messages)
+    handlers = default_mock_handlers()
+    handlers["researcher"] = researcher
+    handlers["engineer"] = lambda r, s, m: render_file_blocks(parse_file_blocks(m[-1]["content"].split("# Current champion files", 1)[-1].split("# Pipeline contract", 1)[0]))  # identical code -> flat
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 4, "N_FLAT": 3, "structural_first_until_iter": 0}})
+    st = h.init_or_resume()
+    h.phase0()
+    h.run_iteration(1); h.run_iteration(2)                      # two flat iterations -> streak 2
+    assert st.streak == 2
+    h.run_iteration(3)
+    assert "LAST-SHOT DIRECTIVE" not in briefings[0] and "LAST-SHOT DIRECTIVE" not in briefings[1]
+    assert "LAST-SHOT DIRECTIVE (harness policy: flat streak 2 of 3)" in briefings[2]
+    assert "ENDS THE RUN" in briefings[2] and "do NOT replace" in briefings[2].lower() or "Do NOT replace" in briefings[2]

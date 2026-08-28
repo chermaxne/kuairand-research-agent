@@ -60,6 +60,14 @@ and the self-check the code will print. Re-trying something the library marks fl
 different about your version."""
 
 
+STREAK_DIRECTIVE = """# LAST-SHOT DIRECTIVE (harness policy: flat streak {streak} of {n_flat})
+One more iteration without a gain > +{epsilon} over the best-so-far ({best}) ENDS THE RUN. Choose the
+highest-probability bundle: keep every component of the champion that produced its gain (its loss, its fields,
+its seed averaging) exactly as is, add more seeds if the champion uses fewer than 5, and add ONE genuinely new
+signal. Do NOT replace or remove a proven component, do NOT re-try a lever kind whose last result was within
+±0.0006 (noise), and state in `rationale` why this bundle should clear +{epsilon}."""
+
+
 class FinalizeError(RuntimeError):
     pass
 
@@ -202,6 +210,9 @@ class Harness:
         n_struct = int(self.run_cfg.get("structural_first_until_iter", 0) or 0)
         if it <= n_struct:
             parts.append(STRUCTURAL_DIRECTIVE.format(n=n_struct, it=it))
+        if self.limits.n_flat > 1 and state.streak >= self.limits.n_flat - 1:
+            parts.append(STREAK_DIRECTIVE.format(streak=state.streak, n_flat=self.limits.n_flat, epsilon=self.limits.epsilon,
+                                                 best=f"{state.best_primary:.4f}" if state.best_primary is not None else "n/a"))
         if state.consecutive_failures >= int(self.run_cfg.get("STALL_FAILURES", 3)):
             parts.append(STALL_DIRECTIVE.format(n=state.consecutive_failures))
         return "\n\n".join(p for p in parts if p)

@@ -34,8 +34,10 @@ Prefer changes big enough to matter.
    and are a last resort afterwards (they cannot clear +0.002).
 2. **Refine winners mid-run**: once a direction promoted, push it (its next obvious variant) before
    switching. Combine two proven winners when both promoted.
-3. **When the flat streak is ≥ 2**, propose the single most reliable promising idea you have —
-   something you expect to clear +0.002 — not a long shot.
+3. **When the flat streak is ≥ 2 this is the last shot**: propose the highest-probability > +0.002 bundle —
+   the proven champion components kept intact, more seeds, plus one genuinely new signal. NEVER replace a
+   component that is part of the champion's gain (its loss, its fields) at streak ≥ 2; and remember that a
+   previous gain below 0.0006 is noise, not a signal to repeat that kind of lever.
 4. **Never re-propose a failed or flat idea** unless you state a concrete new reason in `rationale`
    (e.g. "it02 crashed on memory; this variant uses 1/4 of the rows").
 5. **Route around BLOCKED directions** entirely.

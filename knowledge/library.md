@@ -86,6 +86,10 @@ measured table in §4 as ground truth about THIS dataset and metric — it overr
 | LightGBM with leave-one-out target encoding | 0.45–0.47 | below random | **inverted by the LOO leak** |
 | rank-avg of FM + the 0.5842 LightGBM | 0.5941 | −0.007 | a weak ensemble member drags the strong one down |
 | FM trained on week 1 only | 0.5981 | −0.0034 | half the data costs 0.003 |
+| **autonomous run 2026-08-29: R1+R2+R3 bundle (3 seeds)** | **0.6044** | **+0.0029** | promoted; reproduces the probe |
+| … + past-only (user, author) rate field on top of the bundle | 0.6046 | +0.0002 | noise: the FM's user×author cross already encodes it |
+| … + past-only (user, tab) rate field on top of the bundle | 0.6032 | −0.0012 | same reason |
+| … pairwise loss REPLACED by sampled-softmax (listwise) | 0.6005 | −0.0039 | swapping a proven component at streak 2 ended the run |
 
 ## 5. Direction ladder — ranked by measured gain × reliability. A prior, not an order.
 The recipes are reference implementations that worked once; use them to avoid implementation failures (two of the
@@ -107,11 +111,11 @@ user's previous impression (30-min gap = new session), hour-of-day bucket.
 **R3. Seed rank-average (+0.0010 pointwise, +0.0003 on R1+R2; near-certain).** Train the same pipeline with
 3–5 seeds inside one run (each ≈ 30 s), rank-normalise each model's scores *within user* (percentile rank), average
 the ranks. Logit-averaging is slightly worse (0.6021 vs 0.6026). Always the finisher; combine with R1+R2.
-**R4. Past-only history fields (+0.0008 measured on the pointwise FM; medium).** For each row, statistics from
-strictly earlier dates: user × author long_view rate and count, user × tab rate, user × tag rate, video rate and
-impression count (smoothed with prior 20 toward the train mean); for validation rows use all of train. Bucket the
-rates into ~10 quantile bins and add as categorical fields — one field per run. These are user × item
-interactions in disguise, so they survive the within-user rule. Untested on top of R1–R3.
+**R4. Past-only history fields — demoted: flat on top of R1–R3 (+0.0002 / −0.0012 measured).** Bucketed
+user × author / user × tab rates duplicate interactions the FM already learns from its id fields, so as extra FM
+fields they add nothing. They only make sense for an entity the FM does NOT have as a field (user × tag,
+user × duration-bucket history, video impression counts) or as inputs to a different model family — and even
+then expect ≤ +0.001. Do not spend a streak-critical iteration on them.
 **R5. Untested, plausible small gains (≤ +0.002):** listwise / sampled-softmax within user (a variant of R1;
 literature says a tighter DCG surrogate); a video × tab cross field; a DeepFM/DCN trunk over the same fields
 (capacity alone is flat — only with the new fields).
@@ -130,15 +134,22 @@ The statistic feature file is not "flat" — it is forbidden (§3, §7).
 1. **This file is the prior; your ledger is the posterior.** When your own measured iterations contradict a number
    here, trust the ledger and say so in the rationale. When an attempt failed for implementation reasons (crash,
    GAUC < 0.5, exploding loss), the idea is untested — fix it rather than move on.
-2. Arithmetic you cannot escape: single levers on this data are each ≈ +0.001, the streak resets only on > +0.002,
-   and three misses end the run. Early iterations should therefore combine complementary levers rather than test one
-   at a time (a loss change + a new field + seed averaging measured 0.6042 together; each alone ≈ 0.602–0.603) —
-   which combination, and in what implementation, is your call.
-3. A +0.0005..+0.002 result is a signal to keep stacking on it, not to abandon it; adding several new fields at once
-   can hurt, so grow the champion one element at a time once it survives.
-4. Put a self-check in every change spec that the code must print (train GAUC after epoch 1, pair count, a new
+2. **Every iteration is a > +0.002 attempt — including the ones after a promotion.** Single levers on this data are
+   ≈ ±0.001, the promotion margin (0.001) discards small gains so they never accumulate, and three consecutive
+   sub-threshold iterations end the run. The run that reached 0.6044 died exactly this way: it tested one small
+   lever per iteration after the bundle. After a promotion, bundle again — several complementary UNTESTED levers
+   plus more seeds in one pipeline (e.g. 5 seeds + a new field type + a loss variant kept alongside the proven
+   loss, not instead of it).
+3. **Noise floor: a gain below 0.0006 (2× seed std) is noise, not a signal.** Stack on a +0.0006..+0.002 result;
+   treat a +0.0002 as "no information" and do not spend the next iteration on the same kind of lever.
+4. **Streak ≥ 2 is the last shot.** Take the highest-probability bundle, never a replacement of a proven component
+   (the 0.6044 run swapped its working pairwise loss for sampled-softmax at streak 2 and lost 0.004). Re-using
+   what works plus more seeds plus one genuinely new signal is the reliable move.
+5. Put a self-check in every change spec that the code must print (train GAUC after epoch 1, pair count, a new
    field's vocabulary size) — a wasted iteration costs a third of the run.
-5. A result below the popularity rung (0.581) or a GAUC < 0.5 is an implementation bug, not a research outcome.
+6. A result below the popularity rung (0.581) or a GAUC < 0.5 is an implementation bug, not a research outcome.
+7. If the reachable levers are genuinely exhausted, converging at the plateau is the correct outcome — the rule is
+   the organizers' definition of "done". Do not manufacture risky swaps to avoid it.
 
 ## 7. Trap list
 - Same-row feedback columns (`is_click`, `play_time_ms`, `is_like`, …) as inputs = leakage. Session/time features

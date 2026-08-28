@@ -302,6 +302,20 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Every role on V4 Pro ($0.78/$1.56 per MTok; ≈ $0.03–0.04 per iteration, ~$2 per 50 iterations); fallbacks
   `deepseek-v4-flash` then `qwen/qwen3-coder` (Researcher: flash then GLM-5.2). Verified live with `--llm-check`.
 
+### Run `20260829_000307_ten3` post-mortem (2026-08-29) — plateau after a real gain
+* it01 bundled pairwise loss + within-day position field + 3-seed rank-average → **0.6044 (+0.0029), promoted** (matches the
+  probe's 0.6042). it02 (+ user×author rate field) 0.6046 (+0.0002, below margin), it03 (+ user×tab field) 0.6032, it04
+  (pairwise loss REPLACED by sampled-softmax; a SyntaxError fixed by the Debugger) 0.6005 → converged. ~$0.16.
+* Causes: (1) the library's R4 (history rate fields) was measured on the pointwise FM and did not transfer — the FM's id
+  fields already learn user×author / user×tab; (2) my "grow the champion one element at a time" advice is wrong under
+  N = 3 with a 0.001 promotion margin (small gains are discarded singly and three of them end the run); (3) no noise
+  floor — a +0.0002 was read as a stacking signal; (4) at streak 2 the agent swapped its proven loss (the prompt's rule
+  said otherwise; the model ignored it).
+* Fixes: library §4 gains the four posteriors and R4 is demoted with the reason; §6 rewritten — every iteration is a
+  > +0.002 attempt, bundle again after a promotion, noise floor 0.0006, streak ≥ 2 = keep proven components + more
+  seeds + one new signal, and converging at a genuine plateau is a correct outcome; Researcher rule 3 says the same;
+  the harness now injects a LAST-SHOT DIRECTIVE into the briefing when the streak reaches N_FLAT − 1 (tested).
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)
