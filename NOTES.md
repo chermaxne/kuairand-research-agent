@@ -298,6 +298,10 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   iteration 3 — and multi-task stays low-ranked on five flat measurements plus the nested-label structure, not on
   anyone's preference.
 
+### All roles → `deepseek/deepseek-v4-pro` (2026-08-29, team decision)
+* Every role on V4 Pro ($0.78/$1.56 per MTok; ≈ $0.03–0.04 per iteration, ~$2 per 50 iterations); fallbacks
+  `deepseek-v4-flash` then `qwen/qwen3-coder` (Researcher: flash then GLM-5.2). Verified live with `--llm-check`.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)
