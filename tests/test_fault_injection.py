@@ -316,3 +316,13 @@ def test_load_dotenv_strips_inline_comments(tmp_path, monkeypatch):
         monkeypatch.delenv(k, raising=False)
     load_dotenv(str(f))
     assert os.environ["KEY_A"] == "abc123" and os.environ["KEY_B"] == "quoted # not a comment" and os.environ["KEY_C"] == "x#y"
+
+
+def test_load_dotenv_ignores_empty_placeholders(tmp_path, monkeypatch):
+    from agent.llm_client import load_dotenv
+    f = tmp_path / ".env"
+    f.write_text("OPENROUTER_API_KEY=\nPOE_API_KEY=real\n")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("POE_API_KEY", raising=False)
+    assert load_dotenv(str(f)) == ["POE_API_KEY"]          # the empty slot is not reported as loaded
+    assert "OPENROUTER_API_KEY" not in os.environ

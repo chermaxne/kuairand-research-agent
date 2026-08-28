@@ -312,6 +312,8 @@ def load_dotenv(path: str, override: bool = False) -> List[str]:
                 val = val[1:-1]
             else:
                 val = re.split(r"\s+#", val, maxsplit=1)[0].strip()      # drop an inline comment
+            if not val:                                   # an empty placeholder is not a value
+                continue
             if override or key not in os.environ:
                 os.environ[key] = val
                 loaded.append(key)
