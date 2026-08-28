@@ -254,6 +254,12 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   The single is_click head's flat result (it03 of the ten-run) is recorded in the library so the agent tries the strong
   form rather than repeating it.
 
+### Main model → `deepseek/deepseek-v4-flash` (2026-08-28, team decision)
+* Engineer and Debugger now run on DeepSeek V4 Flash ($0.09/$0.17) for the initial phase; fallbacks `qwen/qwen3-coder`
+  then `deepseek/deepseek-v4-pro`. Researcher stays on `z-ai/glm-5.2` (planning quality; ~$0.018 per call). ≈ $1 per
+  50 iterations. Trade-off accepted knowingly: the cheaper coder may need the Debugger more often; the plausibility guard
+  and the 3 debug attempts per iteration are the safety net.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)
