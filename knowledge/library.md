@@ -41,30 +41,31 @@
   the bottleneck); (6) time features and drift (hourmin, date); (7) the random-exposure log as an
   unbiased validation check.
 
-## 3. Direction ladder (with reasons) — climb it, do not skip rungs blindly
-a. **Loss / objective aligned with the metric** (cheapest structural swing, top organizer pick):
-   sample within-user (positive, negative) pairs from the same user in train and optimise BPR
-   (log-sigmoid of score difference), or a within-user softmax over the user's impressions of a
-   day/session. Keep the FM scorer; change only the loss and the batch construction. Expect the
-   largest single gain; watch runtime (pair sampling per epoch is O(rows)).
-b. **Multi-task heads**: start with long_view + is_click (shared embeddings, one auxiliary loss weight
-   ≈ 0.3–0.5), then + is_like, then play_time (regression head, log1p, or censored at duration).
-   Escalate to MMoE/PLE-style partial sharing only on seesaw symptoms (aux improves, primary stalls).
-c. **History features, PAST-DATES-ONLY**: per row, the user's historical long_view rate, per-author /
-   per-tab engagement rates, the item's rolling long_view rate and impression count, recency (days
-   since the user's last impression / since the video first appeared), computed strictly from earlier
-   dates (train rows: earlier train dates; validation rows: all train dates). Smooth with a prior.
-   These are user × item interactions in disguise, so they survive the within-user no-op rule.
-d. **Sequence / interest models**: the user's last N (20–50) train interactions (video, author, tab,
-   label) attended against the candidate item (DIN-style). Costly; do it after a–c produced a champion
-   worth attending on top of, and budget the runtime.
-e. **Model ladder**: FM (champion) → FM with the new loss → DeepFM-style / wider embeddings (only with
-   a new signal, capacity alone is flat) → LightGBM on engineered past-only features (fast, strong on
-   count features; needs the history features from c) → small ensemble (rank-average) of the champion
-   family — an ensemble of two decorrelated scorers is a reliable, low-risk final gain.
-f. **Training tweaks**: class weighting for the sparse positive, LR schedule / warm restarts,
-   early-stopping patience, more epochs with a smaller LR. Small, reliable, good streak-≥2 material
-   only when the champion has not been tuned yet; gains are usually < 0.002.
+## 3. Direction ladder — biggest plausible upside first; knob-tuning last
+The convergence rule gives you only three consecutive misses, so spend them on changes that can move primary by
++0.005 or more, not on ±0.001 knobs. Order of attack (the harness also enforces "structural first" for the
+opening iterations):
+a. **Multi-task learning, in its STRONG form.** The single is_click auxiliary head was flat here (−0.0005), so
+   do not repeat it alone. The strong form is: shared FM/embedding trunk + several heads — long_view (main),
+   is_click, is_like, and a **watch-time head** (play_time_ms, log1p, regressed with a censored/one-sided loss
+   because play time is truncated at video duration — the CWM idea), each with its own weight (e.g. 1.0 / 0.3 /
+   0.2 / 0.3); escalate to gated partial sharing (MMoE / PLE-style: 2–4 experts, per-task gates) when the
+   auxiliaries improve but the main task stalls (seesaw). Watch time carries much more signal per row than the
+   binary label and is available on every train row. Score with the long_view head only.
+b. **User history / sequence features, PAST-DATES-ONLY.** The user's last N (20–50) train interactions
+   (video, author, tab, label, play-time ratio) attended against the candidate item (DIN-style target attention),
+   or, cheaper, per-user × per-author / per-tab / per-duration-bucket historical long_view rates and recency
+   (days since the user's last impression, since the video first appeared). These are user × item interactions,
+   so they survive the within-user no-op rule. Nothing about the user's history has been used so far.
+c. **GBDT stacking on engineered past-only features** (see §6.1): LightGBM over rolling rates/counts + the FM
+   score. Count features are where GBDTs shine; the organizers never tried them.
+d. **Loss aligned with the metric**: pairwise BPR or within-user listwise softmax on the FM scorer (§6.3 —
+   implement with the sign check; the first attempt here was inverted, not wrong in principle).
+e. **Ensembles of the above** (rank-average per user) once two decorrelated scorers exist — reliable
+   +0.002..+0.005.
+f. **Hyperparameter tuning** (LR, k, epochs, patience, L2, batch, bucket counts) — LAST. Capacity is not the
+   bottleneck (organizers: k = 8/16/32 flat); gains here are < 0.002 and do not reset the streak. Not before
+   the structural directions are exhausted, and never as a first idea.
 
 ## 4. TRAP LIST — read before every proposal
 - **A score BELOW the rungs means the implementation is broken, not that the idea failed.** Random scores
@@ -111,6 +112,15 @@ f. **Training tweaks**: class weighting for the sparse positive, LR schedule / w
   self-check the code must print (e.g. "train GAUC after epoch 1 must be > 0.55; assert it").
 
 ## 6. High-expected-gain recipes for THIS dataset (ordered by expected gain / reliability)
+0. **Multi-task FM with a watch-time head.** Keep the champion's embeddings V (k=16) as the shared trunk. Heads:
+   long_view (logloss, weight 1.0), is_click (logloss, 0.3), is_like (logloss, 0.2), watch-time
+   (target = log1p(play_time_ms), predicted from the same interaction term plus a head-specific bias/linear
+   term; loss = squared error, but one-sided when play_time_ms >= duration_ms, i.e. the video was watched to
+   the end: only penalise under-prediction, because the true watch time is censored at duration; weight 0.3).
+   All heads trained jointly on TRAIN rows only, same Adam, same early stopping on validation long_view
+   primary. Score the validation rows with the long_view head only. Runtime ≈ 2× the champion (~60 s).
+   Expected: +0.003..+0.008 if the auxiliary signals transfer; if the auxiliaries improve but long_view stalls,
+   the next iteration escalates to MMoE/PLE gating (2–4 expert embedding sets, softmax gate per task).
 1. **Stack: past-only rolling features + LightGBM.** Compute, strictly from earlier dates, per-row features:
    user long_view rate & count, user×author rate, user×tab rate, video rate & impression count, author rate,
    days since the user's last impression, days since the video's first impression, the FM champion's score

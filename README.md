@@ -56,9 +56,9 @@ Shipped model choice (settled after the first live test on 2026-08-28 — see NO
 | role | model | why |
 |---|---|---|
 | Researcher | `z-ai/glm-5.2` | reasoning model; wrote an excellent BPR plan in 8.8 s (#1 open-weight on the Artificial Analysis index) |
-| Engineer / Debugger | `anthropic/claude-sonnet-5` | implementation correctness is the bottleneck (a sign error can waste one of the three shots the convergence rule allows); `--llm-profile openrouter_open` for the all-open-weights setup (`qwen/qwen3-coder`) |
+| Engineer / Debugger | `deepseek/deepseek-v4-pro` | strong coder at $0.78/$1.56 per MTok; Claude Sonnet 5 is the last fallback, so quality is there when the cheap model fails |
 | Scribe | `deepseek/deepseek-v4-flash` | a ≤20-word job |
-| automatic fallbacks | `qwen/qwen3-coder` → `minimax/minimax-m3` | used when the primary stalls, returns 429 or disappears |
+| automatic fallbacks | `qwen/qwen3-coder` → `anthropic/claude-sonnet-5` | used when the primary stalls, returns 429 or disappears |
 
 Why a non-reasoning Engineer: reasoning models' thinking tokens count against `max_tokens`, and an exhausted budget
 returns *empty* content while the provider still bills the generation. `llm.reasoning` caps thinking per role.
@@ -66,7 +66,7 @@ returns *empty* content while the provider still bills the generation. `llm.reas
 Every call is **streamed**: a stalled generation is abandoned after `inactivity_timeout_s` (120 s) without a
 token, capped at `call_timeout_s` (900 s), retried once, then the next fallback model is used — and the console
 shows a heartbeat (`[llm] engineer: qwen/qwen3-coder streaming — 6,120 chars, 30s`) plus one line per completed
-call, so you always know what the agent is doing. Cost ≈ $0.08 per iteration (~$4 for a full 50-iteration run).
+call, so you always know what the agent is doing. Cost ≈ $0.03–0.04 per iteration (~$2 for a full 50-iteration run).
 
 ```bash
 .venv/bin/python -m agent.harness --llm-profile openrouter_claude  # anthropic/claude-opus-4.8 + haiku-4.5, ~$10-20
@@ -88,6 +88,11 @@ Other providers (`--llm-profile <name>`, key in `.env`):
 .venv/bin/python -m agent.harness --llm-check              # 1 tiny request per role model
 .venv/bin/python -m agent.harness --max-iters 1 --label smoke
 ```
+Research strategy knobs (`config.yaml` → `run`): `structural_first_until_iter: 10` injects a briefing directive
+that allows only major structural changes (strong multi-task with a watch-time head, history/sequence features,
+GBDT stacking, ranking losses, ensembles) for the first 10 iterations — no hyperparameter-only proposals; and
+`implausible_gauc_below: 0.5` gives the Debugger one pass at a scored-but-inverted ranking before it counts.
+
 Model handles move fast; if `--llm-check` reports an unknown model, `--llm-list-models` shows what the key serves
 and you edit `config.yaml`. Every role also has a fallback list, so a rate-limited or delisted primary does not
 fail the iteration.

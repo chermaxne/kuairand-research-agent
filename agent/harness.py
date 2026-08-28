@@ -50,6 +50,16 @@ hyperparameter, one well-understood feature, a smaller model variant). Requireme
 new files, runtime well under the limit, minimal diff. State in `rationale` why it cannot fail the same way."""
 
 
+STRUCTURAL_DIRECTIVE = """# STRATEGY DIRECTIVE (harness policy, iteration {it} of the first {n})
+Propose MAJOR structural changes only — the kind that can plausibly move primary by >= +0.005: multi-task learning
+in its strong form (watch-time / play_time head with censoring at duration, is_click + is_like heads, gated or
+partial sharing such as MMoE/PLE), user history / sequence features (past-only, DIN-style attention over the
+user's previous items), GBDT stacking on past-only rolling features, a pairwise/listwise loss, or ensembles of
+such scorers. Hyperparameter-only proposals (learning rate, embedding size, epochs, patience, regularisation,
+batch size, bucket counts) are NOT allowed before iteration {n} unless they are a required part of a structural
+change. Stack on any earlier sub-threshold gain rather than starting from scratch."""
+
+
 class FinalizeError(RuntimeError):
     pass
 
@@ -189,6 +199,9 @@ class Harness:
                 if h.get("training_log_tail"):
                     lines.append("  training log tail:\n" + "\n".join("    " + l for l in h["training_log_tail"].splitlines()))
             parts.append("\n".join(lines))
+        n_struct = int(self.run_cfg.get("structural_first_until_iter", 0) or 0)
+        if it <= n_struct:
+            parts.append(STRUCTURAL_DIRECTIVE.format(n=n_struct, it=it))
         if state.consecutive_failures >= int(self.run_cfg.get("STALL_FAILURES", 3)):
             parts.append(STALL_DIRECTIVE.format(n=state.consecutive_failures))
         return "\n\n".join(p for p in parts if p)

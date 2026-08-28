@@ -610,3 +610,32 @@ def test_training_log_tail_is_bounded_and_absent_when_nothing_ran(tmp_path, base
 def test_scribe_prompt_forbids_causal_claims():
     sys_p, task = load_prompt(os.path.join(ROOT, "prompts"), "scribe_lesson")
     assert "never WHY" in sys_p and "causal" in sys_p and "training log" in sys_p.lower()
+
+
+def test_structural_directive_in_early_briefings_only(tmp_path, base_cfg, mini_data):
+    briefings = []
+
+    def researcher(role, system, messages):
+        briefings.append(messages[-1]["content"])
+        return default_mock_handlers()["researcher"](role, system, messages)
+    handlers = default_mock_handlers()
+    handlers["researcher"] = researcher
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 3, "N_FLAT": 99, "structural_first_until_iter": 2}})
+    h.init_or_resume()
+    h.phase0()
+    for it in (1, 2, 3):
+        h.run_iteration(it)
+    assert "STRATEGY DIRECTIVE" in briefings[0] and "iteration 1 of the first 2" in briefings[0]
+    assert "STRATEGY DIRECTIVE" in briefings[1]
+    assert "STRATEGY DIRECTIVE" not in briefings[2]
+    assert "watch-time" in briefings[0] and "NOT allowed before iteration 2" in briefings[0]
+
+
+def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
+    run, llm = base_cfg["run"], base_cfg["llm"]
+    assert run["structural_first_until_iter"] >= 5 and run["implausible_gauc_below"] == 0.5
+    assert llm["engineer_model"] == "deepseek/deepseek-v4-pro" and "anthropic/claude-sonnet-5" in llm["fallback_models"]["engineer"]
+    lib = open(os.path.join(ROOT, "knowledge", "library.md")).read()
+    assert lib.index("Multi-task learning, in its STRONG form") < lib.index("Hyperparameter tuning")
+    assert "watch-time head" in lib and "censored" in lib

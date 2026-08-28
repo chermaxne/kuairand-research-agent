@@ -7,24 +7,23 @@ llm:
   # DEFAULT PROVIDER: OpenRouter (one key, every model). Switch with --llm-profile <anthropic|gemini|groq|...>.
   provider: openrouter             # -> https://openrouter.ai/api/v1 (OpenAI-compatible Chat Completions)
   api_key_env: OPENROUTER_API_KEY  # key from https://openrouter.ai/keys — put it in .env, never in git
-  # Model choice (2026-08-28, after a 10-iteration test run — see NOTES.md "why it stopped at 3"):
-  #   Researcher  z-ai/glm-5.2              reasoning model; its plans were precise and cheap ($1.19/$3.74 per MTok)
-  #   Engineer /  anthropic/claude-sonnet-5 the bottleneck is implementation correctness (a sign error wasted one of the
-  #   Debugger                              three shots the convergence rule allows); Claude is the strongest coder
-  #                                         that follows the file-block contract reliably ($2/$10, 1M ctx, 128k out)
-  #   Scribe      deepseek/deepseek-v4-flash ≤20-word job ($0.09/$0.18)
-  # Cost: ~$0.08 per iteration -> a full 50-iteration run is ~$4. Cheaper: --llm-profile openrouter_open (open weights).
+  # Model choice (2026-08-28): quality where it matters, cost where it does not.
+  #   Researcher  z-ai/glm-5.2              reasoning model; precise plans, cheap ($1.19/$3.74 per MTok)
+  #   Engineer /  deepseek/deepseek-v4-pro  strong coder at $0.78/$1.56 (Claude Sonnet 5 costs ~5x more per call and is
+  #   Debugger                              kept as the LAST fallback, so quality is available when the cheap model fails)
+  #   Scribe      deepseek/deepseek-v4-flash ≤20-word job ($0.09/$0.17)
+  # Cost: ~$0.03-0.04 per iteration -> a full 50-iteration run is ~$1.5-2. Claude everywhere: --llm-profile openrouter_claude
   researcher_model: z-ai/glm-5.2
-  engineer_model: anthropic/claude-sonnet-5
-  debugger_model: anthropic/claude-sonnet-5
+  engineer_model: deepseek/deepseek-v4-pro
+  debugger_model: deepseek/deepseek-v4-pro
   scribe_model: deepseek/deepseek-v4-flash
   fallback_models:                 # tried in order when the primary stalls, is rate-limited (429) or unavailable
-    researcher: [anthropic/claude-sonnet-5, minimax/minimax-m3]
-    engineer:   [qwen/qwen3-coder, minimax/minimax-m3]
-    debugger:   [qwen/qwen3-coder, minimax/minimax-m3]
+    researcher: [deepseek/deepseek-v4-pro, minimax/minimax-m3]
+    engineer:   [qwen/qwen3-coder, anthropic/claude-sonnet-5]
+    debugger:   [qwen/qwen3-coder, anthropic/claude-sonnet-5]
     scribe:     [qwen/qwen3-coder]
-  reasoning:                       # OpenRouter unified parameter. Claude 5 models accept `effort` (a token budget is
-    researcher: {max_tokens: 6000} # rejected); GLM accepts either. Models that cannot disable reasoning ignore "none".
+  reasoning:                       # OpenRouter unified parameter (`effort` works on every model here; Claude 5 rejects
+    researcher: {effort: medium}   # token budgets). Models that cannot disable reasoning ignore "none".
     engineer: {effort: medium}
     debugger: {effort: low}
     scribe: {effort: none}
@@ -168,6 +167,9 @@ run:
   STALL_FAILURES: 3                # N consecutive failed iterations -> canned recovery directive in next briefing
   implausible_gauc_below: 0.5      # a scored GAUC below this = inverted ranking (random is 0.5): one Debugger pass for a
                                    # sign/logic fix before the result is accepted (set null to disable)
+  structural_first_until_iter: 10  # briefing directive: iterations 1..N must propose major structural changes (multitask
+                                   # incl. watch time, history/sequence features, GBDT stacking, new loss); no
+                                   # hyperparameter-only proposals before then (set 0 to disable)
   retry_timeouts_with_debugger: false   # a timeout is terminal for the iteration (no traceback to fix)
   mask_test_period_in_loop: true   # experiments see a derived data dir WITHOUT test-period rows
   categories: [feature, model, training, multitask, other]   # §5.1 category vocabulary

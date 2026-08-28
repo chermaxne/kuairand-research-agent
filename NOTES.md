@@ -240,6 +240,19 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   promotion margin (0.001 by default; lowering it to 0.0005 would have promoted it02 and let it03 stack on it — a
   legitimate config choice for the humans, at the risk of promoting seed noise σ ≈ 0.0008).
 
+### Cost + strategy adjustment (2026-08-28, team decision)
+* Sonnet 5 for Engineer/Debugger (~$4 per 50 iterations) judged too expensive → `deepseek/deepseek-v4-pro`
+  ($0.78/$1.56; ~$0.9 per 50 iterations for both roles), with `qwen/qwen3-coder` then `anthropic/claude-sonnet-5` as
+  fallbacks so the strong model is still reached when the cheap one stalls or errors. Whole run ≈ $1.5–2.
+* Team priority: methods with large plausible upside first (multi-task learning, other major changes) before any
+  parameter tuning. Encoded three ways: (1) the knowledge library's ladder now starts with multi-task in its STRONG
+  form (watch-time head with censoring at duration, click + like heads, MMoE/PLE gating on seesaw), then history /
+  sequence features, GBDT stacking, ranking loss, ensembles, and puts hyperparameter tuning explicitly last, with a
+  ready recipe (§6.0) for the multi-task FM; (2) `run.structural_first_until_iter: 10` injects a STRATEGY DIRECTIVE
+  into the first 10 briefings forbidding hyperparameter-only proposals; (3) Researcher rule 1 says the same.
+  The single is_click head's flat result (it03 of the ten-run) is recorded in the library so the agent tries the strong
+  form rather than repeating it.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

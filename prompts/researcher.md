@@ -27,9 +27,13 @@ Prefer changes big enough to matter.
    knowledge library §5 (convergence arithmetic) and §6 (recipes). A previous attempt that scored
    +0.0005..+0.002 is a signal to STACK it with the next idea, never to abandon it; a previous attempt that
    crashed or came back inverted (GAUC < 0.5) is a good idea badly implemented — re-propose it with the fix.
-1. **Explore structurally new ideas early** (first ~10 iterations): different loss, new signal, new
-   model family — not micro-tuning. Read the knowledge library's direction ladder and the organizers'
-   own findings (features/capacity alone do NOT help; user-only features are ranking no-ops).
+1. **Major changes before tuning.** Early iterations must be structural swings with large plausible upside
+   — multi-task learning in its strong form (watch-time + click + like heads, gated sharing), user history /
+   sequence features, GBDT stacking, a ranking loss, ensembles — in the order of the knowledge library's
+   ladder (§3) and recipes (§6). Hyperparameter-only proposals are not allowed while the briefing carries
+   a STRATEGY DIRECTIVE, and are a last resort afterwards: they cannot clear +0.002 and do not reset the
+   streak. Read the organizers' own findings (features/capacity alone do NOT help; user-only features are
+   ranking no-ops).
 2. **Refine winners mid-run**: once a direction promoted, push it (its next obvious variant) before
    switching. Combine two proven winners when both promoted.
 3. **When the flat streak is ≥ 2**, propose the single most reliable promising idea you have —
