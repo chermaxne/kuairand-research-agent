@@ -99,7 +99,14 @@ class AnthropicClient:
                  base_url: Optional[str] = None, compat: bool = False, provider: str = "anthropic"):
         """`base_url` + `compat=True` target an Anthropic-*compatible* gateway (e.g. Poe): plain-string system prompt,
         no cache_control, no thinking/effort/beta parameters — only the core Messages API surface."""
-        import anthropic  # imported lazily so tests never need the package configured
+        try:
+            import anthropic  # imported lazily so tests never need the package configured
+        except ImportError as e:
+            raise LLMError(
+                "the `anthropic` package is required for the Anthropic provider but is not installed in the interpreter running "
+                "the harness. You are probably not using the project venv — run `.venv/bin/python -m agent.harness ...` "
+                "(or `source .venv/bin/activate` first), or install it with `pip install -r requirements.txt`."
+            ) from e
         self._anthropic = anthropic
         kwargs: Dict[str, Any] = {"timeout": request_timeout_s, "max_retries": 0}
         if api_key:
@@ -200,7 +207,14 @@ class OpenAICompatClient:
                  provider_name: str = "openai-compatible", max_tokens_field: str = "max_tokens",
                  extra_body: Optional[Dict[str, Any]] = None, extra_headers: Optional[Dict[str, str]] = None,
                  fallback_models: Optional[Dict[str, List[str]]] = None):
-        import openai  # imported lazily so the Anthropic path never needs this package
+        try:
+            import openai  # imported lazily so the Anthropic path never needs this package
+        except ImportError as e:
+            raise LLMError(
+                "the `openai` package is required for OpenAI-compatible providers (OpenRouter, Gemini, Groq, ...) but is not installed in the interpreter running "
+                "the harness. You are probably not using the project venv — run `.venv/bin/python -m agent.harness ...` "
+                "(or `source .venv/bin/activate` first), or install it with `pip install -r requirements.txt`."
+            ) from e
         self._openai = openai
         self._client = openai.OpenAI(api_key=api_key or "missing", base_url=base_url, timeout=request_timeout_s, max_retries=0)
         self.provider = provider_name

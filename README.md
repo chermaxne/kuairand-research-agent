@@ -64,8 +64,8 @@ Free-tier arithmetic: OpenRouter allows **20 req/min and 50 req/day** until the 
 for a 50-iteration run. Two ways past it, same key:
 
 ```bash
-python -m agent.harness --llm-profile openrouter_paid    # z-ai/glm-5.2 + minimax-m3, ~$1-2 for a full run
-python -m agent.harness --llm-profile openrouter_claude  # anthropic/claude-opus-4.8 + haiku-4.5, ~$10-20
+.venv/bin/python -m agent.harness --llm-profile openrouter_paid    # z-ai/glm-5.2 + minimax-m3, ~$1-2 for a full run
+.venv/bin/python -m agent.harness --llm-profile openrouter_claude  # anthropic/claude-opus-4.8 + haiku-4.5, ~$10-20
 ```
 
 Other providers (`--llm-profile <name>`, key in `.env`):
@@ -80,33 +80,37 @@ Other providers (`--llm-profile <name>`, key in `.env`):
 | `poe` | [poe.com/api/keys](https://poe.com/api/keys) → `POE_API_KEY` | Poe subscription | 500 rpm | Claude models on an existing Poe subscription (Anthropic-compatible gateway) |
 
 ```bash
-python -m agent.harness --llm-list-models glm    # what this key can actually serve
-python -m agent.harness --llm-check              # 1 tiny request per role model
-python -m agent.harness --max-iters 1 --label smoke
+.venv/bin/python -m agent.harness --llm-list-models glm    # what this key can actually serve
+.venv/bin/python -m agent.harness --llm-check              # 1 tiny request per role model
+.venv/bin/python -m agent.harness --max-iters 1 --label smoke
 ```
 Model handles move fast; if `--llm-check` reports an unknown model, `--llm-list-models` shows what the key serves
 and you edit `config.yaml`. Every role also has a fallback list, so a rate-limited or delisted primary does not
 fail the iteration.
 
 ## Run
+> **Use the project venv.** A bare `python` is often a system/conda interpreter without these dependencies —
+> and the same interpreter runs the generated experiments, so it needs `lightgbm`/`torch` too. Either prefix
+> commands with `.venv/bin/python` (as below) or `source .venv/bin/activate` once per shell.
+
 ```bash
 # 1. self-check: Phase 0 only (rungs + organizers' FM + champion) — ~2 min, no API key needed
-python -m agent.harness --mock --phase0-only
+.venv/bin/python -m agent.harness --mock --phase0-only
 
 # 2. the official run (needs a key in .env): Phase 0, then up to 50 iterations, then finalize
-python -m agent.harness --label official          # add --llm-profile <name> for a non-default provider
+.venv/bin/python -m agent.harness --label official          # add --llm-profile <name> for a non-default provider
 
 # 3. resume after a crash / Ctrl-C (the restart is recorded as an intervention)
-python -m agent.harness --run-dir runs/<RUN_ID>
+.venv/bin/python -m agent.harness --run-dir runs/<RUN_ID>
 
 # 4. offline dry run on the real data with the deterministic mock roles (no key)
-python -m agent.harness --mock --label dryrun
+.venv/bin/python -m agent.harness --mock --label dryrun
 
 # 5. the Phase-1 toy loop (synthetic mini dataset, seconds)
-python -m agent.harness --toy --mock
+.venv/bin/python -m agent.harness --toy --mock
 
 # record a manual intervention (bumps the counter; --block marks a direction BLOCKED for the Researcher)
-python -m agent.intervene "restarted with a longer timeout" --stuck "it07 hung" --scope config --run-dir runs/<RUN_ID>
+.venv/bin/python -m agent.intervene "restarted with a longer timeout" --stuck "it07 hung" --scope config --run-dir runs/<RUN_ID>
 ```
 Useful flags: `--max-iters N`, `--session-iters N` (stop this process after N iterations, resumable),
 `--set run.EXPERIMENT_TIMEOUT_S=1200` (override any config key), `--config other.yaml`.
@@ -118,15 +122,15 @@ stdout/stderr, debug attempts, LLM transcripts), `best/` (champion code + score 
 `interventions.md`, `run_state.json`, `llm_calls.jsonl`, `phase0/`, `finalize/`.
 
 ## Reproduce
-1. `python -m pytest -q` — the full suite (≈ 3 min; the real-data Phase 0 test is skipped when the
+1. `.venv/bin/python -m pytest -q` — the full suite (≈ 3 min; the real-data Phase 0 test is skipped when the
    data is absent).
-2. `python -m agent.harness --mock --phase0-only` — must print `random ≈ 0.483`, `pop ≈ 0.581`,
+2. `.venv/bin/python -m agent.harness --mock --phase0-only` — must print `random ≈ 0.483`, `pop ≈ 0.581`,
    `official FM ≈ 0.6015`, `champion ≈ 0.6015` (difference 0.0: the champion is a bit-for-bit port).
-3. `python -m agent.harness --mock --label dryrun` — deterministic offline end-to-end run on the real
+3. `.venv/bin/python -m agent.harness --mock --label dryrun` — deterministic offline end-to-end run on the real
    data (see `runs/example_run/` for what it produces and the numbers below).
 4. Re-score any run's champion by hand with the organizers' tools:
-   `python starter_kit/submit.py --score --split valid --data_dir starter_kit/KuaiRand-Pure/data runs/<RUN_ID>/best/preds_val.csv`
-   and check the submission: `python sealed/submit_check.py --split test --data_dir starter_kit/KuaiRand-Pure/data runs/<RUN_ID>/submission.csv`.
+   `.venv/bin/python starter_kit/submit.py --score --split valid --data_dir starter_kit/KuaiRand-Pure/data runs/<RUN_ID>/best/preds_val.csv`
+   and check the submission: `.venv/bin/python sealed/submit_check.py --split test --data_dir starter_kit/KuaiRand-Pure/data runs/<RUN_ID>/submission.csv`.
 
 ## Layout
 ```
@@ -142,7 +146,7 @@ tests/        promotion · ledger · checkpoint · resume · sealed/phase0/submi
 ```
 
 ## Example run (`runs/example_run/`, offline mock roles on the real data)
-`python -m agent.harness --mock --label dryrun` — deterministic, no API key. The mock Researcher follows a
+`.venv/bin/python -m agent.harness --mock --label dryrun` — deterministic, no API key. The mock Researcher follows a
 fixed plan of FM edits; one Engineer output deliberately contains a `NameError` so the Debugger path is on
 record. Prediction CSVs were dropped from the copy; everything else is verbatim.
 
@@ -161,8 +165,8 @@ iterations, ≈42k tokens over 13 LLM calls (mock usage is estimated from charac
 ## Limitations
 * **No real-API run yet.** No working key was available while this was built, so both clients are verified only
   against fake transports (request shape, usage parsing, refusal/truncation handling, model fallback). Before the
-  official run, put the key in `.env` and execute `python -m agent.harness --llm-check` then
-  `python -m agent.harness --max-iters 1 --label smoke`, and check `llm_calls.jsonl` (real token counts,
+  official run, put the key in `.env` and execute `.venv/bin/python -m agent.harness --llm-check` then
+  `.venv/bin/python -m agent.harness --max-iters 1 --label smoke`, and check `llm_calls.jsonl` (real token counts,
   `estimated_usage: false`). On the native Anthropic profile, set `llm.refusal_fallbacks: false` if the account
   rejects the server-side-fallback beta.
 * **Prompt quality with real models is untested** — whether Researcher change specs are precise enough and
