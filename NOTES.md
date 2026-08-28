@@ -351,6 +351,12 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Why flipped rather than hidden labels: hiding them would break legitimate validation-based early stopping (the official
   baseline does it) and produce false positives; flipping keeps early stopping functional and makes a leak inverted.
 
+### Engineer back to `deepseek-v4-flash` (2026-08-29)
+* Qwen3-Coder's tally on non-trivial changes: 2 correct first attempts out of 6 (BPR sign error, NameError, broadcast
+  bug, "no mixed users" logic bug, the 0.8484 index-shift leak). V4 Flash: 1/1 on the same bundle. Under a 3-miss rule
+  a wasted iteration costs more than a slow one, so Engineer and Debugger are V4 Flash again (reasoning effort low,
+  ~2.5 min per rewrite); Qwen and Codestral remain as fallbacks and in `--llm-profile fast`. ~6 min per iteration.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

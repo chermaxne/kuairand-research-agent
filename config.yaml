@@ -9,24 +9,27 @@ llm:
   api_key_env: OPENROUTER_API_KEY  # key from https://openrouter.ai/keys — put it in .env, never in git
   # Model choice (2026-08-28): quality where it matters, cost where it does not.
   #   Researcher  deepseek/deepseek-v4-flash  reasoning planner, ~60-90 s and ~$0.002 per call; wrote the plan that
-  #                                           reached 0.6044. Engineer/Debugger qwen/qwen3-coder: non-reasoning coder,
-  #                                           21 s / 160 tok/s / $0.0045 per rewrite of the 230-line pipeline (measured
-  #                                           2026-08-29). Scribe mistralai/codestral-2508: 0.4 s, $0.0028.
-  # MiniMax M3 is NOT used: it returned an empty file after 14k reasoning tokens on the real Engineer job (twice).
-  # Cost ≈ $0.01 per iteration; ~4-5 min per iteration -> 50 iterations in ~4 h.
+  #                                           reached 0.6044.
+  #   Engineer    deepseek/deepseek-v4-flash  ~2.5 min per full-pipeline rewrite (it reasons first), but the only model
+  #                                           here that produced correct non-trivial code without help (1/1 vs
+  #                                           qwen3-coder's 2/6, incl. the 0.8484 label leak). Wasted iterations cost
+  #                                           more than slow ones under the 3-miss convergence rule.
+  #   Debugger    deepseek/deepseek-v4-flash  root-cause fixes need reasoning; only called on failure.
+  #   Scribe      mistralai/codestral-2508    0.4 s, $0.0028.
+  # ≈ $0.01 per iteration; ~6 min per iteration -> 50 iterations in ~5 h. Faster/cheaper coder: --llm-profile fast.
   researcher_model: deepseek/deepseek-v4-flash
-  engineer_model: qwen/qwen3-coder
-  debugger_model: qwen/qwen3-coder
+  engineer_model: deepseek/deepseek-v4-flash
+  debugger_model: deepseek/deepseek-v4-flash
   scribe_model: mistralai/codestral-2508
   fallback_models:                 # tried in order when the primary stalls, is rate-limited (429) or unavailable
     researcher: [qwen/qwen3-coder, z-ai/glm-5.3-flash]
-    engineer:   [mistralai/codestral-2508, qwen/qwen3-coder-next]
-    debugger:   [mistralai/codestral-2508, qwen/qwen3-coder-next]
+    engineer:   [qwen/qwen3-coder, mistralai/codestral-2508]
+    debugger:   [qwen/qwen3-coder, mistralai/codestral-2508]
     scribe:     [qwen/qwen3-coder]
   reasoning:                       # OpenRouter unified parameter (`effort` works on every model here; Claude 5 rejects
     researcher: {effort: medium}   # token budgets). Models that cannot disable reasoning ignore "none".
-    engineer: {}                   # qwen3-coder does not reason; nothing to cap
-    debugger: {}
+    engineer: {effort: low}        # reasoning helps correctness; low keeps the call ~2-3 min
+    debugger: {effort: low}
     scribe: {}
   max_output_tokens: {researcher: 12000, engineer: 24000, debugger: 24000, scribe: 600}   # includes any thinking
   # Streaming timeouts (OpenAI-compatible providers): a stalled generation is abandoned after inactivity_timeout_s
