@@ -635,7 +635,9 @@ def test_structural_directive_in_early_briefings_only(tmp_path, base_cfg, mini_d
 def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
     run, llm = base_cfg["run"], base_cfg["llm"]
     assert run["structural_first_until_iter"] >= 5 and run["implausible_gauc_below"] == 0.5
-    assert llm["engineer_model"] == "deepseek/deepseek-v4-pro" and "anthropic/claude-sonnet-5" in llm["fallback_models"]["engineer"]
+    assert llm["engineer_model"] == "deepseek/deepseek-v4-pro"
+    for role in ("researcher", "engineer", "debugger", "scribe"):          # initial phase: no Claude-priced model anywhere
+        assert not any("claude" in m for m in [llm[f"{role}_model"]] + llm["fallback_models"][role])
     lib = open(os.path.join(ROOT, "knowledge", "library.md")).read()
     assert lib.index("Multi-task learning, in its STRONG form") < lib.index("Hyperparameter tuning")
     assert "watch-time head" in lib and "censored" in lib

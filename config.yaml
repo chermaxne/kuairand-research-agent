@@ -9,8 +9,8 @@ llm:
   api_key_env: OPENROUTER_API_KEY  # key from https://openrouter.ai/keys — put it in .env, never in git
   # Model choice (2026-08-28): quality where it matters, cost where it does not.
   #   Researcher  z-ai/glm-5.2              reasoning model; precise plans, cheap ($1.19/$3.74 per MTok)
-  #   Engineer /  deepseek/deepseek-v4-pro  strong coder at $0.78/$1.56 (Claude Sonnet 5 costs ~5x more per call and is
-  #   Debugger                              kept as the LAST fallback, so quality is available when the cheap model fails)
+  #   Engineer /  deepseek/deepseek-v4-pro  strong coder at $0.78/$1.56; fallbacks are cheap open-weight coders only
+  #   Debugger                              (no Claude anywhere in this default — see openrouter_claude for that)
   #   Scribe      deepseek/deepseek-v4-flash ≤20-word job ($0.09/$0.17)
   # Cost: ~$0.03-0.04 per iteration -> a full 50-iteration run is ~$1.5-2. Claude everywhere: --llm-profile openrouter_claude
   researcher_model: z-ai/glm-5.2
@@ -19,8 +19,8 @@ llm:
   scribe_model: deepseek/deepseek-v4-flash
   fallback_models:                 # tried in order when the primary stalls, is rate-limited (429) or unavailable
     researcher: [deepseek/deepseek-v4-pro, minimax/minimax-m3]
-    engineer:   [qwen/qwen3-coder, anthropic/claude-sonnet-5]
-    debugger:   [qwen/qwen3-coder, anthropic/claude-sonnet-5]
+    engineer:   [qwen/qwen3-coder, moonshotai/kimi-k2.7-code]
+    debugger:   [qwen/qwen3-coder, moonshotai/kimi-k2.7-code]
     scribe:     [qwen/qwen3-coder]
   reasoning:                       # OpenRouter unified parameter (`effort` works on every model here; Claude 5 rejects
     researcher: {effort: medium}   # token budgets). Models that cannot disable reasoning ignore "none".

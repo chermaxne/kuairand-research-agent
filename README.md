@@ -56,9 +56,9 @@ Shipped model choice (settled after the first live test on 2026-08-28 — see NO
 | role | model | why |
 |---|---|---|
 | Researcher | `z-ai/glm-5.2` | reasoning model; wrote an excellent BPR plan in 8.8 s (#1 open-weight on the Artificial Analysis index) |
-| Engineer / Debugger | `deepseek/deepseek-v4-pro` | strong coder at $0.78/$1.56 per MTok; Claude Sonnet 5 is the last fallback, so quality is there when the cheap model fails |
+| Engineer / Debugger | `deepseek/deepseek-v4-pro` | strong coder at $0.78/$1.56 per MTok |
 | Scribe | `deepseek/deepseek-v4-flash` | a ≤20-word job |
-| automatic fallbacks | `qwen/qwen3-coder` → `anthropic/claude-sonnet-5` | used when the primary stalls, returns 429 or disappears |
+| automatic fallbacks | `qwen/qwen3-coder` → `moonshotai/kimi-k2.7-code` | used when the primary stalls, returns 429 or disappears (all cheap open-weight models) |
 
 Why a non-reasoning Engineer: reasoning models' thinking tokens count against `max_tokens`, and an exhausted budget
 returns *empty* content while the provider still bills the generation. `llm.reasoning` caps thinking per role.
