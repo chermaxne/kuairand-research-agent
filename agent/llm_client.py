@@ -198,7 +198,8 @@ class OpenAICompatClient:
 
     def __init__(self, api_key: Optional[str], base_url: str, *, request_timeout_s: float = 300, max_retries: int = 3,
                  provider_name: str = "openai-compatible", max_tokens_field: str = "max_tokens",
-                 extra_body: Optional[Dict[str, Any]] = None, extra_headers: Optional[Dict[str, str]] = None):
+                 extra_body: Optional[Dict[str, Any]] = None, extra_headers: Optional[Dict[str, str]] = None,
+                 fallback_models: Optional[Dict[str, List[str]]] = None):
         import openai  # imported lazily so the Anthropic path never needs this package
         self._openai = openai
         self._client = openai.OpenAI(api_key=api_key or "missing", base_url=base_url, timeout=request_timeout_s, max_retries=0)
@@ -208,6 +209,8 @@ class OpenAICompatClient:
         self.max_tokens_field = max_tokens_field
         self.extra_body = dict(extra_body or {})
         self.extra_headers = dict(extra_headers or {})
+        # role -> ordered alternates tried when the primary model is rate-limited or unavailable (free tiers are flaky)
+        self.fallback_models = {k: list(v) for k, v in (fallback_models or {}).items() if v}
 
     # -- request assembly (pure; unit-tested without network) --------------
     def build_request(self, *, role: str, model: str, system_blocks: Sequence[str], messages: Sequence[Dict[str, str]],
@@ -237,34 +240,55 @@ class OpenAICompatClient:
         stop = {"stop": "end_turn", "length": "max_tokens", "content_filter": "refusal", "tool_calls": "tool_use"}.get(finish, finish)
         return {"text": text, "usage": usage, "model": str(getattr(resp, "model", "")), "stop_reason": stop, "finish_reason": finish}
 
+    def candidates(self, role: str, model: str) -> List[str]:
+        """Primary model first, then the role's configured alternates (deduplicated, order preserved)."""
+        out = [model]
+        for m in self.fallback_models.get(role_key(role), []):
+            if m not in out:
+                out.append(m)
+        return out
+
     def complete(self, *, role: str, model: str, system_blocks: Sequence[str], messages: Sequence[Dict[str, str]],
                  max_tokens: int) -> LLMResponse:
-        req = self.build_request(role=role, model=model, system_blocks=system_blocks, messages=messages, max_tokens=max_tokens)
-        if self.extra_headers:
-            req["extra_headers"] = self.extra_headers
         last_err: Optional[Exception] = None
-        for attempt in range(self.max_retries + 1):
-            t0 = time.time()
-            try:
-                resp = self._client.chat.completions.create(**req)
-            except self._openai.APIStatusError as e:
-                if type(e).__name__ in self.TRANSIENT or getattr(e, "status_code", 0) >= 500:
+        models = self.candidates(role, model)
+        for m_i, candidate in enumerate(models):
+            req = self.build_request(role=role, model=candidate, system_blocks=system_blocks, messages=messages,
+                                     max_tokens=max_tokens)
+            if self.extra_headers:
+                req["extra_headers"] = self.extra_headers
+            for attempt in range(self.max_retries + 1):
+                t0 = time.time()
+                try:
+                    resp = self._client.chat.completions.create(**req)
+                except self._openai.APIStatusError as e:
+                    status = int(getattr(e, "status_code", 0) or 0)
+                    if type(e).__name__ in self.TRANSIENT or status >= 500 or status == 429:
+                        last_err = e
+                        if attempt < self.max_retries:
+                            time.sleep(min(90, 2 ** attempt * 3))   # free tiers are strict: back off generously
+                            continue
+                        break                                        # retries spent -> fall back to the next model
+                    if status in (400, 402, 403, 404) and m_i < len(models) - 1:
+                        last_err = e                                 # unknown/forbidden/unfunded model -> next candidate
+                        break
+                    raise LLMError(f"{type(e).__name__} on {candidate}: {getattr(e, 'message', e)}") from e
+                except (self._openai.APIConnectionError, self._openai.APITimeoutError) as e:
                     last_err = e
-                    time.sleep(min(90, 2 ** attempt * 3))       # free tiers are strict: back off generously
-                    continue
-                raise LLMError(f"{type(e).__name__}: {getattr(e, 'message', e)}") from e     # 4xx: not retryable
-            except (self._openai.APIConnectionError, self._openai.APITimeoutError) as e:
-                last_err = e
-                time.sleep(min(90, 2 ** attempt * 3))
-                continue
-            parsed = self.parse_response(resp)
-            if parsed["stop_reason"] == "refusal":
-                raise LLMError(f"content filter refused the {role} call")
-            if not parsed["text"].strip():
-                raise LLMError(f"empty response from {self.provider} (finish_reason={parsed['finish_reason']!r})")
-            return LLMResponse(text=parsed["text"], usage=parsed["usage"], model=parsed["model"] or model,
-                               latency_s=time.time() - t0, stop_reason=parsed["stop_reason"])
-        raise LLMError(f"LLM call failed after {self.max_retries + 1} attempts: {type(last_err).__name__}: {last_err}")
+                    if attempt < self.max_retries:
+                        time.sleep(min(90, 2 ** attempt * 3))
+                        continue
+                    break
+                parsed = self.parse_response(resp)
+                if parsed["stop_reason"] == "refusal":
+                    raise LLMError(f"content filter refused the {role} call ({candidate})")
+                if not parsed["text"].strip():
+                    last_err = LLMError(f"empty response from {candidate} (finish_reason={parsed['finish_reason']!r})")
+                    break                                            # a mute model is a dead model: try the next one
+                return LLMResponse(text=parsed["text"], usage=parsed["usage"], model=parsed["model"] or candidate,
+                                   latency_s=time.time() - t0, stop_reason=parsed["stop_reason"])
+        raise LLMError(f"all models failed for role {role} ({', '.join(models)}): "
+                       f"{type(last_err).__name__}: {str(last_err)[:300]}")
 
 
 def load_dotenv(path: str, override: bool = False) -> List[str]:
@@ -331,7 +355,8 @@ def make_client(cfg: Dict[str, Any], mock_handlers: Optional[Dict[str, Handler]]
         return OpenAICompatClient(api_key=key, base_url=base_url, request_timeout_s=float(llm.get("request_timeout_s", 300)),
                                   max_retries=int(llm.get("max_retries", 3)), provider_name=provider,
                                   max_tokens_field=str(llm.get("max_tokens_field", "max_tokens")),
-                                  extra_body=llm.get("extra_body") or {}, extra_headers=llm.get("extra_headers") or {})
+                                  extra_body=llm.get("extra_body") or {}, extra_headers=llm.get("extra_headers") or {},
+                                  fallback_models=llm.get("fallback_models") or {})
     raise LLMError(f"unknown llm.provider {provider!r}")
 
 

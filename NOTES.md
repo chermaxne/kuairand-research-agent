@@ -167,6 +167,25 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   budget, and whether output quality suffices for the Engineer role. `--llm-check` + a 1-iteration smoke run answer
   all three in ~5 minutes.
 
+### Provider decision — OpenRouter is now the default (2026-08-28)
+* The team has an OpenRouter key, so `config.yaml`'s top-level `llm` block is OpenRouter; `--llm-profile anthropic`
+  (or gemini / groq / cerebras / deepseek / poe / openrouter_paid / openrouter_claude) switches away in one flag.
+* Model choice from OpenRouter's live catalogue (`GET /api/v1/models`, 387 models, read 2026-08-28) plus published
+  benchmarks: **`z-ai/glm-5.2:free`** for Researcher/Engineer/Debugger (#1 open-weight on the Artificial Analysis
+  index at 51, LiveBench coding 79.65, 256k context / 230k max output — it can emit the whole ~250-line pipeline),
+  **`google/gemma-4-31b-it:free`** for the Scribe (a ≤20-word job that is half the calls per iteration; keeping it off
+  the strong model preserves that model's daily request pool).
+* Added per-role **model fallback** in `OpenAICompatClient`: on 429/5xx (after retries), on 400/402/403/404 (unknown,
+  forbidden or unfunded model) and on an empty completion, the client moves to the next configured model —
+  `minimax/minimax-m3:free` (80.5% SWE-bench Verified) then `nvidia/nemotron-3-super-120b-a12b:free`. This is our own
+  logic rather than OpenRouter's undocumented `models` array, so it works on every provider and is unit-tested offline.
+* **Free-tier arithmetic matters for planning:** OpenRouter free is 20 rpm and 50 req/day below $10 lifetime credits,
+  1000/day above. At ~4 calls per iteration that is ~12 iterations/day — fine for a demo, not for a 50-iteration run.
+  `--llm-profile openrouter_paid` (glm-5.2 + minimax-m3) costs ~$1-2 for a full run and has no daily cap;
+  `openrouter_claude` (claude-opus-4.8) ~$10-20. A negative OpenRouter balance returns 402 even for `:free` models.
+* Untested live (the key was not in `.env` when this was wired): whether the free variants honour a 16k-token output
+  request, their real latency, and Engineer output quality. `--llm-check` then a 1-iteration smoke run answer all three.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

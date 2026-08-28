@@ -4,27 +4,39 @@
 # API keys are read from the environment variable named in llm.api_key_env.
 # ---------------------------------------------------------------------------
 llm:
-  provider: anthropic              # anthropic | mock   (thin wrapper in agent/llm_client.py; --mock forces the offline client)
-  api_key_env: ANTHROPIC_API_KEY   # name of the env var holding the key (never the key itself)
-  allow_sdk_default_credentials: false   # true -> if the env var is unset, let the SDK resolve an `ant auth login` profile
-  # Model ids per role (spec §9: strong models for research/engineering/debugging, a cheap one for the Scribe).
-  # HUMAN: verify these ids are current before the official run.
-  researcher_model: claude-opus-5
-  engineer_model: claude-opus-5
-  debugger_model: claude-opus-5
-  scribe_model: claude-haiku-4-5
-  # Output caps include thinking tokens on adaptive-thinking models, so they are higher than the spec's
-  # pre-thinking suggestions (1500/6000/6000/200) — a truncated pipeline file is a wasted iteration.
+  # DEFAULT PROVIDER: OpenRouter (one key, every model). Switch with --llm-profile <anthropic|gemini|groq|...>.
+  provider: openrouter             # -> https://openrouter.ai/api/v1 (OpenAI-compatible Chat Completions)
+  api_key_env: OPENROUTER_API_KEY  # key from https://openrouter.ai/keys — put it in .env, never in git
+  # Model choice (verified against OpenRouter's live catalogue on 2026-08-28 with --llm-list-models):
+  #   z-ai/glm-5.2       — #1 open-weight on the Artificial Analysis index, LiveBench coding 79.65, 256k ctx / 230k out
+  #   minimax/minimax-m3 — 80.5% SWE-bench Verified (vendor), 1M ctx  → first fallback
+  #   nvidia/nemotron-3-super-120b-a12b — 60.5% SWE-bench Verified    → second fallback
+  # The Scribe is a trivial 20-word job and is 2 of the 4 calls per iteration, so it runs on a small model:
+  # that keeps the strong model's daily request pool for the roles that need it.
+  # PAID upgrade (drop the `:free` suffix): z-ai/glm-5.2 is $1.19/$3.74 per MTok and minimax/minimax-m3
+  # $0.30/$1.20 — a full 50-iteration run is ~2M tokens, i.e. well under $2. anthropic/claude-opus-4.8 also works.
+  researcher_model: z-ai/glm-5.2:free
+  engineer_model: z-ai/glm-5.2:free
+  debugger_model: z-ai/glm-5.2:free
+  scribe_model: google/gemma-4-31b-it:free
+  fallback_models:                 # tried in order when the primary is rate-limited (429) or unavailable
+    researcher: [minimax/minimax-m3:free, nvidia/nemotron-3-super-120b-a12b:free]
+    engineer:   [minimax/minimax-m3:free, nvidia/nemotron-3-super-120b-a12b:free]
+    debugger:   [minimax/minimax-m3:free, nvidia/nemotron-3-super-120b-a12b:free]
+    scribe:     [z-ai/glm-5.2:free]
   max_output_tokens: {researcher: 4000, engineer: 16000, debugger: 16000, scribe: 400}
-  effort: {researcher: high, engineer: high, debugger: medium, scribe: null}      # output_config.effort (null = omit)
-  thinking: {researcher: adaptive, engineer: adaptive, debugger: adaptive, scribe: none}   # adaptive | none
-  refusal_fallbacks: true          # beta server-side-fallback: reroute a policy refusal instead of losing the iteration
+  extra_headers: {HTTP-Referer: "https://github.com/", X-Title: "kuairand-research-agent"}
   max_total_tokens: 4000000        # spend guard: stop the run (finalize from best/) past this many total tokens
   request_timeout_s: 600
-  max_retries: 3                   # transport/rate-limit retries per call (exponential backoff)
-  prompt_caching: true             # cache_control on the static prefix (role prompt + knowledge library)
+  max_retries: 5                   # per model, then the next fallback model (free tiers are 20 rpm and flaky)
   scribe_narrative: true           # Scribe job (b): render logs/iter_NN.md from harness-supplied facts
-  # Alternative providers — select with `python -m agent.harness --llm-profile <name>` (deep-merged over the keys above).
+  # --- the settings below are only read by the native Anthropic client (provider: anthropic) ---
+  allow_sdk_default_credentials: false
+  effort: {researcher: high, engineer: high, debugger: medium, scribe: null}
+  thinking: {researcher: adaptive, engineer: adaptive, debugger: adaptive, scribe: none}
+  refusal_fallbacks: true
+  prompt_caching: true
+
   profiles:
     # --- FREE tiers (no card). Model handles change often: confirm with `--llm-list-models` before a real run. ---
     gemini:                        # BEST FREE FIT: 10 rpm / 250k tokens-per-minute / 1500 req-day, 1M context
@@ -47,15 +59,37 @@ llm:
       max_output_tokens: {researcher: 3000, engineer: 12000, debugger: 12000, scribe: 300}
       max_retries: 6
 
-    openrouter:                    # free tier 20 rpm / 50 req-day (1000/day after a one-time $10, which also
-      provider: openrouter         # unlocks pay-as-you-go Claude). -> https://openrouter.ai/api/v1
+    openrouter:                    # the default provider — this profile only exists to switch BACK to it
+      provider: openrouter         # free: 20 rpm / 50 req-day (1000/day once the account has spent $10 once)
       api_key_env: OPENROUTER_API_KEY
-      researcher_model: qwen/qwen3-coder:free      # paid alternative: anthropic/claude-opus-4.8
-      engineer_model: qwen/qwen3-coder:free
-      debugger_model: qwen/qwen3-coder:free
-      scribe_model: qwen/qwen3-coder:free
-      max_output_tokens: {researcher: 3000, engineer: 12000, debugger: 12000, scribe: 300}
-      extra_headers: {HTTP-Referer: "https://github.com/", X-Title: "kuairand-research-agent"}
+
+    openrouter_paid:               # same key, paid models: ~$1-2 for a full 50-iteration run, no daily cap
+      provider: openrouter
+      api_key_env: OPENROUTER_API_KEY
+      researcher_model: z-ai/glm-5.2
+      engineer_model: z-ai/glm-5.2
+      debugger_model: z-ai/glm-5.2
+      scribe_model: minimax/minimax-m3
+      fallback_models: {researcher: [minimax/minimax-m3], engineer: [minimax/minimax-m3],
+                        debugger: [minimax/minimax-m3], scribe: [z-ai/glm-5.2]}
+
+    openrouter_claude:             # same key, real Claude models (pay-as-you-go, ~$10-20 for a full run)
+      provider: openrouter
+      api_key_env: OPENROUTER_API_KEY
+      researcher_model: anthropic/claude-opus-4.8
+      engineer_model: anthropic/claude-opus-4.8
+      debugger_model: anthropic/claude-opus-4.8
+      scribe_model: anthropic/claude-haiku-4.5
+      fallback_models: {}
+
+    anthropic:                     # native Anthropic API (prompt caching + adaptive thinking + effort)
+      provider: anthropic
+      api_key_env: ANTHROPIC_API_KEY
+      researcher_model: claude-opus-5
+      engineer_model: claude-opus-5
+      debugger_model: claude-opus-5
+      scribe_model: claude-haiku-4-5
+      fallback_models: {}
 
     cerebras:                      # 1M tokens/day free BUT 8k context on the free tier -> too small for the
       provider: cerebras           # Researcher/Engineer briefings; usable for the Scribe only.

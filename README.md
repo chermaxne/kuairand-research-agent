@@ -37,65 +37,64 @@ cd starter_kit && curl -L -o KuaiRand-Pure.tar.gz https://zenodo.org/records/104
   && tar xzf KuaiRand-Pure.tar.gz && rm KuaiRand-Pure.tar.gz && cd ..
 ```
 
-The API key is read from the environment variable named in `config.yaml` (`llm.api_key_env`, default
-`ANTHROPIC_API_KEY`). It is never written to disk, logs or git. Model ids live in `config.yaml`
-(`llm.*_model`) — verify they are current before the official run.
+The API key is read from `<repo>/.env` (loaded automatically, gitignored) or from the environment variable
+named in `config.yaml` (`llm.api_key_env`, default `OPENROUTER_API_KEY`). It is never written to disk, logs or
+git, and the experiment sandbox cannot read it. Model ids live in `config.yaml` — check them with `--llm-check`.
 
 ```bash
-export ANTHROPIC_API_KEY=...               # needed only for real (non --mock) runs
+# .env in the repo root:
+OPENROUTER_API_KEY=sk-or-...               # the default provider — key from https://openrouter.ai/keys
 ```
 
 ### Which provider / key
-The role models are pure text-in/text-out, so any capable provider works. Pick a profile and pass
-`--llm-profile <name>`; each profile sets the endpoint, the key variable and the model ids
-(`config.yaml` → `llm.profiles`). Only the Engineer is demanding: it must emit a complete ~250-line
-`pipeline.py`, so the model needs a big output budget and decent code generation.
+**Default: OpenRouter** — one key, every model. Put `OPENROUTER_API_KEY=...` in `.env` and run; no flag needed.
+The roles are text-in/text-out, so any capable model works; only the Engineer is demanding (it emits a complete
+~250-line `pipeline.py`, so it needs a large output budget and real coding ability).
+
+Shipped model choice (picked from OpenRouter's live catalogue on 2026-08-28):
+
+| role | model | why |
+|---|---|---|
+| Researcher / Engineer / Debugger | `z-ai/glm-5.2:free` | #1 open-weight on the Artificial Analysis index (51), LiveBench coding 79.65, 256k context / 230k max output — free |
+| Scribe | `google/gemma-4-31b-it:free` | a ≤20-word job that is 2 of the 4 calls per iteration; a small model keeps the strong model's daily quota |
+| automatic fallbacks | `minimax/minimax-m3:free` → `nvidia/nemotron-3-super-120b-a12b:free` | 80.5% / 60.5% SWE-bench Verified; used when the primary returns 429 or disappears |
+
+Free-tier arithmetic: OpenRouter allows **20 req/min and 50 req/day** until the account has spent $10 once, then
+**1,000/day**. The loop makes ~4 calls per iteration, so 50/day ≈ **12 iterations/day** — enough for a demo, not
+for a 50-iteration run. Two ways past it, same key:
+
+```bash
+python -m agent.harness --llm-profile openrouter_paid    # z-ai/glm-5.2 + minimax-m3, ~$1-2 for a full run
+python -m agent.harness --llm-profile openrouter_claude  # anthropic/claude-opus-4.8 + haiku-4.5, ~$10-20
+```
+
+Other providers (`--llm-profile <name>`, key in `.env`):
 
 | profile | key from | cost | free limits (Aug 2026) | notes |
 |---|---|---|---|---|
-| *(default)* | [console.anthropic.com](https://console.anthropic.com) → `ANTHROPIC_API_KEY` | paid | — | best quality; prompt caching, thinking and effort are only used here |
-| `gemini` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → `GEMINI_API_KEY` | **free** | 10 rpm · 250k tokens/min · 1500 req/day · 1M context | **best free fit** — the only free tier whose per-minute token budget fits our ~12k-token briefings |
-| `groq` | [console.groq.com/keys](https://console.groq.com/keys) → `GROQ_API_KEY` | **free** | 30 rpm · **6k tokens/min** · 14.4k req/day | very fast, but one briefing exceeds the per-minute budget → long back-offs |
-| `openrouter` | [openrouter.ai/keys](https://openrouter.ai/keys) → `OPENROUTER_API_KEY` | free / $10 | 20 rpm · 50 req/day (**1000/day after a one-time $10**) | the $10 also unlocks pay-as-you-go Claude via `anthropic/claude-opus-4.8` |
-| `cerebras` | [cloud.cerebras.ai](https://cloud.cerebras.ai) → `CEREBRAS_API_KEY` | **free** | 1M tokens/day · **8k context** | context too small for the Researcher/Engineer; Scribe only |
+| `anthropic` | [console.anthropic.com](https://console.anthropic.com) → `ANTHROPIC_API_KEY` | paid | — | native API: prompt caching, adaptive thinking and effort are used only here |
+| `gemini` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → `GEMINI_API_KEY` | **free** | 10 rpm · 250k tokens/min · **1500 req/day** · 1M context | the most generous free tier that fits our ~12k-token briefings |
+| `groq` | [console.groq.com/keys](https://console.groq.com/keys) → `GROQ_API_KEY` | **free** | 30 rpm · **6k tokens/min** | one briefing exceeds a minute's token budget → long back-offs |
+| `cerebras` | [cloud.cerebras.ai](https://cloud.cerebras.ai) → `CEREBRAS_API_KEY` | **free** | 1M tokens/day · **8k context** | context too small for Researcher/Engineer |
 | `deepseek` | [platform.deepseek.com](https://platform.deepseek.com) → `DEEPSEEK_API_KEY` | cheap paid | — | strong at code, cents per run |
 | `poe` | [poe.com/api/keys](https://poe.com/api/keys) → `POE_API_KEY` | Poe subscription | 500 rpm | Claude models on an existing Poe subscription (Anthropic-compatible gateway) |
 
 ```bash
-python -m agent.harness --llm-profile gemini --llm-list-models flash   # exact model handles this key can use
-python -m agent.harness --llm-profile gemini --llm-check               # 1 tiny request per role model
-python -m agent.harness --llm-profile gemini --max-iters 1 --label smoke
-python -m agent.harness --llm-profile gemini --label official
+python -m agent.harness --llm-list-models glm    # what this key can actually serve
+python -m agent.harness --llm-check              # 1 tiny request per role model
+python -m agent.harness --max-iters 1 --label smoke
 ```
-Model handles move fast; if `--llm-check` reports an unknown model, `--llm-list-models` shows what the key
-actually serves and you edit the profile.
-
-**Using a Poe key** (Poe exposes the Claude bots through an Anthropic-compatible gateway at
-`https://api.poe.com`): put it in `.env` as `POE_API_KEY` and add `--llm-profile poe`. The profile sends only
-the core Messages API surface (no prompt caching, thinking, effort or beta headers — Poe does not document
-them). Poe's API listed `claude-opus-4.8 / 4.7 / 4.6 / 4.5`, `claude-sonnet-4.6 / 4.5`, `claude-haiku-4.5` on
-2026-08-28 (no Opus 5).
-
-```bash
-export POE_API_KEY=...                                     # or put it in .env (see below)
-python -m agent.harness --llm-profile poe --llm-check      # 1 tiny request per role model: validates key + model ids
-python -m agent.harness --llm-profile poe --max-iters 1 --label smoke   # one real iteration (~5 min)
-python -m agent.harness --llm-profile poe --label official              # the real run
-```
-`--llm-check` also works for the default Anthropic profile (`python -m agent.harness --llm-check`).
-
-**Keys in a `.env` file:** create `<repo>/.env` containing one line, `POE_API_KEY=...` (or `ANTHROPIC_API_KEY=...`). The harness
-loads `<repo>/.env` automatically (or `--env-file PATH`); variables already exported in the shell take precedence.
-`.env*` is gitignored, values are never printed or logged, the sandbox strips them from every experiment's
-environment, and (on macOS) experiments are denied read access to the file itself.
+Model handles move fast; if `--llm-check` reports an unknown model, `--llm-list-models` shows what the key serves
+and you edit `config.yaml`. Every role also has a fallback list, so a rate-limited or delisted primary does not
+fail the iteration.
 
 ## Run
 ```bash
 # 1. self-check: Phase 0 only (rungs + organizers' FM + champion) — ~2 min, no API key needed
 python -m agent.harness --mock --phase0-only
 
-# 2. the official run (needs the real key): Phase 0, then up to 50 iterations, then finalize
-python -m agent.harness --label official
+# 2. the official run (needs a key in .env): Phase 0, then up to 50 iterations, then finalize
+python -m agent.harness --label official          # add --llm-profile <name> for a non-default provider
 
 # 3. resume after a crash / Ctrl-C (the restart is recorded as an intervention)
 python -m agent.harness --run-dir runs/<RUN_ID>
@@ -160,11 +159,12 @@ iterations, ≈42k tokens over 13 LLM calls (mock usage is estimated from charac
 0 interventions. Note how it01 shows the two separate judgments: promoted, yet the flat streak advanced.
 
 ## Limitations
-* **No real-API run yet.** This environment had no `ANTHROPIC_API_KEY`, so the Anthropic client is verified only
-  against a fake transport (request shape, usage parsing, refusal handling). Before the official run, execute
-  `python -m agent.harness --max-iters 1 --label smoke` with the key exported and check `llm_calls.jsonl`
-  (real `input_tokens`/`cache_read_input_tokens`, `estimated_usage: false`). If the server-side-fallback beta is
-  rejected by the account, set `llm.refusal_fallbacks: false`.
+* **No real-API run yet.** No working key was available while this was built, so both clients are verified only
+  against fake transports (request shape, usage parsing, refusal/truncation handling, model fallback). Before the
+  official run, put the key in `.env` and execute `python -m agent.harness --llm-check` then
+  `python -m agent.harness --max-iters 1 --label smoke`, and check `llm_calls.jsonl` (real token counts,
+  `estimated_usage: false`). On the native Anthropic profile, set `llm.refusal_fallbacks: false` if the account
+  rejects the server-side-fallback beta.
 * **Prompt quality with real models is untested** — whether Researcher change specs are precise enough and
   whether the Engineer keeps diffs minimal. The prompts live in `prompts/` and are meant to be tuned by humans.
 * **OS-level sandboxing is macOS-only** (`sandbox-exec`): no network, writes confined to the workspace,

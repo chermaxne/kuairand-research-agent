@@ -2,6 +2,7 @@
 token accounting, and the Anthropic request shape (built without network)."""
 import json
 import os
+import time
 import types
 
 import pytest
@@ -382,3 +383,92 @@ def test_list_models_helper(base_cfg, monkeypatch):
     real = mod.make_client
     monkeypatch.setattr(mod, "make_client", lambda c, **kw: _oai_client()[0])
     assert list_models(cfg) == ["m-a", "m-b"] and list_models(cfg, "m-a") == ["m-a"]
+
+
+# ---------------- model fallback (free tiers are rate-limited and flaky) ----------------
+def _status_error(status):
+    import openai
+    req = types.SimpleNamespace(method="POST", url="https://x")
+    resp = types.SimpleNamespace(status_code=status, headers={}, request=req)
+    return openai.APIStatusError("boom", response=resp, body=None)
+
+
+def test_fallback_moves_to_the_next_model_on_rate_limit(monkeypatch):
+    from agent.llm_client import OpenAICompatClient
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    c = OpenAICompatClient(api_key="k", base_url="https://x/v1", max_retries=1,
+                           fallback_models={"researcher": ["model-b", "model-c"]})
+    tried = []
+
+    def create(**req):
+        tried.append(req["model"])
+        if req["model"] != "model-c":
+            raise _status_error(429)
+        return _OAIResp("done")
+    c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+    resp = c.complete(role="researcher", model="model-a", system_blocks=["S"], messages=[{"role": "user", "content": "x"}], max_tokens=10)
+    assert resp.text == "done"
+    assert tried == ["model-a", "model-a", "model-b", "model-b", "model-c"]      # 1 retry each, then next candidate
+
+
+def test_fallback_on_unknown_model_and_on_mute_model(monkeypatch):
+    from agent.llm_client import OpenAICompatClient
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    c = OpenAICompatClient(api_key="k", base_url="https://x/v1", max_retries=2, fallback_models={"engineer": ["good"]})
+    tried = []
+
+    def create(**req):
+        tried.append(req["model"])
+        if req["model"] == "gone":
+            raise _status_error(404)                     # unknown model id -> straight to the fallback, no retries
+        return _OAIResp("file")
+    c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+    assert c.complete(role="engineer", model="gone", system_blocks=[], messages=[{"role": "user", "content": "x"}],
+                      max_tokens=10).text == "file"
+    assert tried == ["gone", "good"]
+    tried.clear()
+
+    def create_mute(**req):
+        tried.append(req["model"])
+        return _OAIResp("" if req["model"] == "mute" else "ok")
+    c._client.chat.completions.create = create_mute
+    c.fallback_models = {"engineer": ["good"]}
+    assert c.complete(role="engineer", model="mute", system_blocks=[], messages=[{"role": "user", "content": "x"}],
+                      max_tokens=10).text == "ok"
+    assert tried == ["mute", "good"]
+
+
+def test_fallback_exhausted_raises_naming_every_model(monkeypatch):
+    from agent.llm_client import LLMError, OpenAICompatClient
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    c = OpenAICompatClient(api_key="k", base_url="https://x/v1", max_retries=0, fallback_models={"scribe": ["b"]})
+    c._client = types.SimpleNamespace(chat=types.SimpleNamespace(
+        completions=types.SimpleNamespace(create=lambda **req: (_ for _ in ()).throw(_status_error(429)))))
+    with pytest.raises(LLMError, match=r"all models failed for role scribe_lesson \(a, b\)"):
+        c.complete(role="scribe_lesson", model="a", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
+
+
+def test_non_retryable_client_error_is_raised_when_no_fallback_left():
+    from agent.llm_client import LLMError, OpenAICompatClient
+    c = OpenAICompatClient(api_key="k", base_url="https://x/v1", max_retries=0)
+    c._client = types.SimpleNamespace(chat=types.SimpleNamespace(
+        completions=types.SimpleNamespace(create=lambda **req: (_ for _ in ()).throw(_status_error(401)))))
+    with pytest.raises(LLMError, match="APIStatusError on a"):
+        c.complete(role="engineer", model="a", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
+
+
+# ---------------- the shipped default is OpenRouter and every role is configured ----------------
+def test_default_config_is_openrouter_and_complete(base_cfg, monkeypatch):
+    from agent.llm_client import OPENAI_COMPAT_PROVIDERS, OpenAICompatClient, make_client
+    llm = base_cfg["llm"]
+    assert llm["provider"] == "openrouter" and llm["api_key_env"] == "OPENROUTER_API_KEY"
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    c = make_client(base_cfg)
+    assert isinstance(c, OpenAICompatClient) and c.base_url == OPENAI_COMPAT_PROVIDERS["openrouter"]
+    for role in ("researcher", "engineer", "debugger", "scribe"):
+        model = llm[f"{role}_model"]
+        assert model and llm["max_output_tokens"][role] > 0
+        assert c.candidates(role, model)[0] == model and len(c.candidates(role, model)) >= 2
+    assert llm["max_output_tokens"]["engineer"] >= 8000        # a full ~250-line pipeline.py must fit
+    for name in ("anthropic", "openrouter", "openrouter_paid", "openrouter_claude", "gemini", "poe"):
+        assert name in llm["profiles"]
