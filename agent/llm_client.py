@@ -20,6 +20,15 @@ from .schemas import TokenUsage
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 POE_BASE_URL = "https://api.poe.com"          # Poe's Anthropic-compatible gateway (key in x-api-key, models = Poe bot handles)
+# OpenAI-compatible gateways: provider name -> base URL (each also selectable via provider: openai-compatible + base_url)
+OPENAI_COMPAT_PROVIDERS = {
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "groq": "https://api.groq.com/openai/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "cerebras": "https://api.cerebras.ai/v1",
+    "deepseek": "https://api.deepseek.com",
+    "together": "https://api.together.xyz/v1",
+}
 
 
 @dataclass
@@ -177,6 +186,87 @@ class AnthropicClient:
         raise LLMError(f"LLM call failed after {self.max_retries + 1} attempts: {type(last_err).__name__}: {last_err}")
 
 
+class OpenAICompatClient:
+    """Chat-Completions client for any OpenAI-compatible gateway (Google Gemini, Groq, OpenRouter,
+    Cerebras, DeepSeek, ...). The four roles only need text in / text out, so the compat surface is enough.
+
+    Usage is read from the response `usage` object (`prompt_tokens` / `completion_tokens`, plus
+    `prompt_tokens_details.cached_tokens` when the gateway reports it) — never estimated.
+    """
+    provider = "openai-compatible"
+    TRANSIENT = ("RateLimitError", "APIConnectionError", "APITimeoutError", "InternalServerError")
+
+    def __init__(self, api_key: Optional[str], base_url: str, *, request_timeout_s: float = 300, max_retries: int = 3,
+                 provider_name: str = "openai-compatible", max_tokens_field: str = "max_tokens",
+                 extra_body: Optional[Dict[str, Any]] = None, extra_headers: Optional[Dict[str, str]] = None):
+        import openai  # imported lazily so the Anthropic path never needs this package
+        self._openai = openai
+        self._client = openai.OpenAI(api_key=api_key or "missing", base_url=base_url, timeout=request_timeout_s, max_retries=0)
+        self.provider = provider_name
+        self.base_url = base_url
+        self.max_retries = int(max_retries)
+        self.max_tokens_field = max_tokens_field
+        self.extra_body = dict(extra_body or {})
+        self.extra_headers = dict(extra_headers or {})
+
+    # -- request assembly (pure; unit-tested without network) --------------
+    def build_request(self, *, role: str, model: str, system_blocks: Sequence[str], messages: Sequence[Dict[str, str]],
+                      max_tokens: int) -> Dict[str, Any]:
+        msgs: List[Dict[str, str]] = []
+        blocks = [b for b in system_blocks if b]
+        if blocks:
+            msgs.append({"role": "system", "content": "\n\n".join(blocks)})
+        msgs += [{"role": m["role"], "content": m["content"]} for m in messages]
+        req: Dict[str, Any] = {"model": model, "messages": msgs, self.max_tokens_field: int(max_tokens)}
+        req.update(self.extra_body)
+        return req
+
+    @staticmethod
+    def parse_response(resp: Any) -> Dict[str, Any]:
+        choice = resp.choices[0] if getattr(resp, "choices", None) else None
+        text = (getattr(getattr(choice, "message", None), "content", "") or "") if choice else ""
+        finish = str(getattr(choice, "finish_reason", "") or "") if choice else ""
+        u = getattr(resp, "usage", None)
+        cached = 0
+        details = getattr(u, "prompt_tokens_details", None) if u else None
+        if details is not None:
+            cached = int(getattr(details, "cached_tokens", 0) or 0)
+        usage = TokenUsage(input_tokens=int(getattr(u, "prompt_tokens", 0) or 0) - cached if u else 0,
+                           output_tokens=int(getattr(u, "completion_tokens", 0) or 0) if u else 0,
+                           cache_read_input_tokens=cached)
+        stop = {"stop": "end_turn", "length": "max_tokens", "content_filter": "refusal", "tool_calls": "tool_use"}.get(finish, finish)
+        return {"text": text, "usage": usage, "model": str(getattr(resp, "model", "")), "stop_reason": stop, "finish_reason": finish}
+
+    def complete(self, *, role: str, model: str, system_blocks: Sequence[str], messages: Sequence[Dict[str, str]],
+                 max_tokens: int) -> LLMResponse:
+        req = self.build_request(role=role, model=model, system_blocks=system_blocks, messages=messages, max_tokens=max_tokens)
+        if self.extra_headers:
+            req["extra_headers"] = self.extra_headers
+        last_err: Optional[Exception] = None
+        for attempt in range(self.max_retries + 1):
+            t0 = time.time()
+            try:
+                resp = self._client.chat.completions.create(**req)
+            except self._openai.APIStatusError as e:
+                if type(e).__name__ in self.TRANSIENT or getattr(e, "status_code", 0) >= 500:
+                    last_err = e
+                    time.sleep(min(90, 2 ** attempt * 3))       # free tiers are strict: back off generously
+                    continue
+                raise LLMError(f"{type(e).__name__}: {getattr(e, 'message', e)}") from e     # 4xx: not retryable
+            except (self._openai.APIConnectionError, self._openai.APITimeoutError) as e:
+                last_err = e
+                time.sleep(min(90, 2 ** attempt * 3))
+                continue
+            parsed = self.parse_response(resp)
+            if parsed["stop_reason"] == "refusal":
+                raise LLMError(f"content filter refused the {role} call")
+            if not parsed["text"].strip():
+                raise LLMError(f"empty response from {self.provider} (finish_reason={parsed['finish_reason']!r})")
+            return LLMResponse(text=parsed["text"], usage=parsed["usage"], model=parsed["model"] or model,
+                               latency_s=time.time() - t0, stop_reason=parsed["stop_reason"])
+        raise LLMError(f"LLM call failed after {self.max_retries + 1} attempts: {type(last_err).__name__}: {last_err}")
+
+
 def load_dotenv(path: str, override: bool = False) -> List[str]:
     """Load KEY=VALUE lines from a .env file into os.environ (comments/blank lines ignored, optional quotes and a
     leading `export ` stripped). Existing variables win unless override=True. Returns the names loaded — never values."""
@@ -230,6 +320,18 @@ def make_client(cfg: Dict[str, Any], mock_handlers: Optional[Dict[str, Handler]]
                                max_retries=int(llm.get("max_retries", 3)), prompt_caching=bool(llm.get("prompt_caching", True)),
                                refusal_fallbacks=bool(llm.get("refusal_fallbacks", True)), role_params=role_params,
                                base_url=base_url, compat=compat, provider=provider)
+    if provider in OPENAI_COMPAT_PROVIDERS or provider == "openai-compatible":
+        base_url = llm.get("base_url") or OPENAI_COMPAT_PROVIDERS.get(provider)
+        if not base_url:
+            raise LLMError("llm.base_url is required for provider openai-compatible")
+        key_env = llm.get("api_key_env") or f"{provider.upper().replace('-', '_')}_API_KEY"
+        key = os.environ.get(key_env, "")
+        if not key:
+            raise LLMError(f"environment variable {key_env} is not set (put it in .env or export it; run with --mock for the offline client)")
+        return OpenAICompatClient(api_key=key, base_url=base_url, request_timeout_s=float(llm.get("request_timeout_s", 300)),
+                                  max_retries=int(llm.get("max_retries", 3)), provider_name=provider,
+                                  max_tokens_field=str(llm.get("max_tokens_field", "max_tokens")),
+                                  extra_body=llm.get("extra_body") or {}, extra_headers=llm.get("extra_headers") or {})
     raise LLMError(f"unknown llm.provider {provider!r}")
 
 
@@ -265,3 +367,14 @@ def connectivity_check(cfg: Dict[str, Any], roles: Sequence[str] = ("researcher"
         except Exception as e:  # noqa: BLE001 - report every failure kind
             out.append({"role": r, "model": model, "ok": False, "error": f"{type(e).__name__}: {str(e)[:300]}"})
     return out
+
+
+def list_models(cfg: Dict[str, Any], contains: str = "") -> List[str]:
+    """Ask the configured gateway which model ids it serves (works on every OpenAI-compatible provider and on
+    Poe). Use it to discover the exact handles to put in the profile."""
+    client = make_client(cfg)
+    inner = getattr(client, "_client", None)
+    if inner is None or not hasattr(inner, "models"):
+        raise LLMError(f"provider {getattr(client, 'provider', '?')} does not expose a model listing")
+    ids = sorted(str(m.id) for m in inner.models.list())
+    return [i for i in ids if contains.lower() in i.lower()] if contains else ids

@@ -148,6 +148,25 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Untested against the live gateway (no key in this environment): exact accepted model handles (`claude-opus-5` vs
   `Claude-Opus-5`), whether `system` content blocks or `thinking` pass through, and whether `usage` includes cache fields.
 
+### Post-Phase-6 addition — OpenAI-compatible providers (2026-08-28)
+* The supplied Poe key is rejected by Poe itself (401 `Invalid API key` on both `/v1/messages` and
+  `/v1/chat/completions`, with `x-api-key` and with `Authorization: Bearer`; a deliberately bogus key returns the same,
+  and the only endpoint that answered 200, `GET /v1/models`, turns out to need no key at all). The wiring is correct;
+  the key needs to be reissued at https://poe.com/api/keys.
+* To unblock the run without an Anthropic key, added `OpenAICompatClient` (Chat Completions) plus profiles for
+  **gemini / groq / openrouter / cerebras / deepseek**, `--llm-list-models` for handle discovery and `openai>=1.60`
+  in requirements. The roles are text-in/text-out, so the compat surface is sufficient; usage is still read from the
+  response `usage` object (`prompt_tokens` minus `prompt_tokens_details.cached_tokens`, `completion_tokens`).
+  Spec §9 explicitly calls for a swappable provider wrapper, so this is inside the contract.
+* Free-tier reality check (Aug 2026): our Researcher briefing is ~12k tokens, so **Groq's 6k tokens/minute** and
+  **Cerebras's 8k context** do not fit the strong roles; **Gemini free (10 rpm, 250k tokens/min, 1500 req/day, 1M
+  context)** is the only free tier that comfortably does. OpenRouter free is 50 req/day (≈12 iterations) until a
+  one-time $10 raises it to 1000/day.
+* Untested against live gateways (no working key here): exact model handles (`gemini-3.7-flash` comes from Google's
+  own OpenAI-compat docs sample), whether a free-tier model keeps the Engineer's ~250-line file inside its output
+  budget, and whether output quality suffices for the Engineer role. `--llm-check` + a 1-iteration smoke run answer
+  all three in ~5 minutes.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

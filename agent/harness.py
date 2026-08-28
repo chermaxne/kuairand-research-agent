@@ -480,6 +480,8 @@ def main(argv=None) -> int:
     ap.add_argument("--env-file", default=None, help="KEY=VALUE file to load into the environment (default: <repo>/.env if present)")
     ap.add_argument("--llm-profile", default=None, help="apply llm.profiles.<name> from config (e.g. poe)")
     ap.add_argument("--llm-check", action="store_true", help="ping every configured role model with a tiny request and exit")
+    ap.add_argument("--llm-list-models", nargs="?", const="", default=None, metavar="FILTER",
+                    help="list the model ids the configured provider serves (optionally filtered) and exit")
     a = ap.parse_args(argv)
 
     root = os.path.dirname(os.path.abspath(a.config))
@@ -508,6 +510,15 @@ def main(argv=None) -> int:
         for p in parts[:-1]:
             d = d.setdefault(p, {})
         d[parts[-1]] = yaml.safe_load(v)
+    if a.llm_list_models is not None:
+        from .llm_client import LLMError as _E, list_models
+        try:
+            for m in list_models(cfg, a.llm_list_models):
+                print(m)
+        except _E as e:
+            print(f"could not list models: {e}", file=sys.stderr)
+            return 2
+        return 0
     if a.llm_check:
         from .llm_client import connectivity_check
         results = connectivity_check(cfg)

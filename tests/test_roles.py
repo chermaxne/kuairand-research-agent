@@ -282,3 +282,103 @@ def test_llm_profile_cli_flag_applies_profile(base_cfg, monkeypatch, capsys):
     assert rc == 2 and "POE_API_KEY" in out and "LLM CHECK FAILED (provider=poe)" in out
     rc = main(["--config", os.path.join(ROOT, "config.yaml"), "--llm-profile", "nope", "--llm-check"])
     assert rc == 2
+
+
+# ---------------- OpenAI-compatible gateways (Gemini / Groq / OpenRouter / Cerebras / DeepSeek) ----------------
+class _OAIMsg:
+    def __init__(self, content):
+        self.content = content
+
+
+class _OAIChoice:
+    def __init__(self, content, finish="stop"):
+        self.message, self.finish_reason = _OAIMsg(content), finish
+
+
+class _OAIResp:
+    def __init__(self, content='{"ok": true}', finish="stop", cached=7):
+        self.choices = [_OAIChoice(content, finish)]
+        self.model = "served-model"
+        self.usage = types.SimpleNamespace(prompt_tokens=100, completion_tokens=25,
+                                           prompt_tokens_details=types.SimpleNamespace(cached_tokens=cached))
+
+
+def _oai_client(**kw):
+    from agent.llm_client import OpenAICompatClient
+    c = OpenAICompatClient(api_key="gw-secret", base_url="https://example.invalid/v1", **kw)
+    captured = {}
+
+    def create(**req):
+        captured.clear()
+        captured.update(req)
+        return _OAIResp()
+    c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)),
+                                      models=types.SimpleNamespace(list=lambda: [types.SimpleNamespace(id="m-b"), types.SimpleNamespace(id="m-a")]))
+    return c, captured
+
+
+def test_openai_compat_request_shape_and_usage():
+    c, cap = _oai_client()
+    resp = c.complete(role="researcher", model="gemini-3.7-flash", system_blocks=["ROLE", "KNOWLEDGE"],
+                      messages=[{"role": "user", "content": "hi"}], max_tokens=3000)
+    assert cap["model"] == "gemini-3.7-flash" and cap["max_tokens"] == 3000
+    assert cap["messages"] == [{"role": "system", "content": "ROLE\n\nKNOWLEDGE"}, {"role": "user", "content": "hi"}]
+    assert resp.text == '{"ok": true}' and resp.model == "served-model" and not resp.estimated_usage
+    assert resp.usage.input_tokens == 93 and resp.usage.cache_read_input_tokens == 7 and resp.usage.output_tokens == 25
+    assert resp.usage.total == 125 and resp.stop_reason == "end_turn"
+    assert "gw-secret" not in json.dumps(cap)
+
+
+def test_openai_compat_truncation_and_empty_and_filter():
+    from agent.llm_client import LLMError, OpenAICompatClient
+    c, _ = _oai_client()
+    c._client.chat.completions.create = lambda **kw: _OAIResp("partial file...", finish="length")
+    assert c.complete(role="engineer", model="m", system_blocks=[], messages=[{"role": "user", "content": "x"}],
+                      max_tokens=10).stop_reason == "max_tokens"          # drives the Engineer's "you were cut off" re-ask
+    c._client.chat.completions.create = lambda **kw: _OAIResp("", finish="content_filter")
+    with pytest.raises(LLMError, match="content filter"):
+        c.complete(role="engineer", model="m", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
+    c._client.chat.completions.create = lambda **kw: _OAIResp("   ", finish="stop")
+    with pytest.raises(LLMError, match="empty response"):
+        c.complete(role="engineer", model="m", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
+
+
+def test_openai_compat_extra_headers_and_body():
+    c, cap = _oai_client(extra_headers={"HTTP-Referer": "https://x"}, extra_body={"provider": {"sort": "throughput"}},
+                         max_tokens_field="max_completion_tokens")
+    c.complete(role="scribe_lesson", model="m", system_blocks=["S"], messages=[{"role": "user", "content": "x"}], max_tokens=300)
+    assert cap["extra_headers"] == {"HTTP-Referer": "https://x"} and cap["provider"] == {"sort": "throughput"}
+    assert cap["max_completion_tokens"] == 300 and "max_tokens" not in cap
+
+
+@pytest.mark.parametrize("name", ["gemini", "groq", "openrouter", "cerebras", "deepseek"])
+def test_every_free_profile_builds_a_client(base_cfg, monkeypatch, name):
+    import copy
+    from agent.harness import deep_update
+    from agent.llm_client import OPENAI_COMPAT_PROVIDERS, LLMError, OpenAICompatClient, make_client
+    cfg = copy.deepcopy(base_cfg)
+    prof = copy.deepcopy(cfg["llm"]["profiles"][name])
+    deep_update(cfg["llm"], prof)
+    env = prof["api_key_env"]
+    monkeypatch.delenv(env, raising=False)
+    with pytest.raises(LLMError, match=env):
+        make_client(cfg)
+    monkeypatch.setenv(env, "test-key")
+    c = make_client(cfg)
+    assert isinstance(c, OpenAICompatClient) and c.provider == name
+    assert c.base_url == OPENAI_COMPAT_PROVIDERS[name]
+    for role in ("researcher", "engineer", "debugger", "scribe"):
+        assert cfg["llm"][f"{role}_model"] and cfg["llm"]["max_output_tokens"][role] > 0
+
+
+def test_list_models_helper(base_cfg, monkeypatch):
+    import copy
+    from agent.harness import deep_update
+    from agent.llm_client import list_models
+    cfg = copy.deepcopy(base_cfg)
+    deep_update(cfg["llm"], copy.deepcopy(cfg["llm"]["profiles"]["gemini"]))
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    import agent.llm_client as mod
+    real = mod.make_client
+    monkeypatch.setattr(mod, "make_client", lambda c, **kw: _oai_client()[0])
+    assert list_models(cfg) == ["m-a", "m-b"] and list_models(cfg, "m-a") == ["m-a"]

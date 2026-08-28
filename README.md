@@ -45,11 +45,36 @@ The API key is read from the environment variable named in `config.yaml` (`llm.a
 export ANTHROPIC_API_KEY=...               # needed only for real (non --mock) runs
 ```
 
-**Using a Poe key instead** (Poe exposes the Claude bots through an Anthropic-compatible gateway at
-`https://api.poe.com`): export it as `POE_API_KEY` and add `--llm-profile poe` to every harness command.
-The profile (in `config.yaml` → `llm.profiles.poe`) switches the endpoint, the key variable and the model
-names (Poe bot handles such as `claude-opus-4.8`, `claude-haiku-4.5` — Poe's API did not list Opus 5 as of 2026-08-28) and sends only the core Messages API
-surface (no prompt caching, thinking, effort or beta headers — the gateway does not document them).
+### Which provider / key
+The role models are pure text-in/text-out, so any capable provider works. Pick a profile and pass
+`--llm-profile <name>`; each profile sets the endpoint, the key variable and the model ids
+(`config.yaml` → `llm.profiles`). Only the Engineer is demanding: it must emit a complete ~250-line
+`pipeline.py`, so the model needs a big output budget and decent code generation.
+
+| profile | key from | cost | free limits (Aug 2026) | notes |
+|---|---|---|---|---|
+| *(default)* | [console.anthropic.com](https://console.anthropic.com) → `ANTHROPIC_API_KEY` | paid | — | best quality; prompt caching, thinking and effort are only used here |
+| `gemini` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → `GEMINI_API_KEY` | **free** | 10 rpm · 250k tokens/min · 1500 req/day · 1M context | **best free fit** — the only free tier whose per-minute token budget fits our ~12k-token briefings |
+| `groq` | [console.groq.com/keys](https://console.groq.com/keys) → `GROQ_API_KEY` | **free** | 30 rpm · **6k tokens/min** · 14.4k req/day | very fast, but one briefing exceeds the per-minute budget → long back-offs |
+| `openrouter` | [openrouter.ai/keys](https://openrouter.ai/keys) → `OPENROUTER_API_KEY` | free / $10 | 20 rpm · 50 req/day (**1000/day after a one-time $10**) | the $10 also unlocks pay-as-you-go Claude via `anthropic/claude-opus-4.8` |
+| `cerebras` | [cloud.cerebras.ai](https://cloud.cerebras.ai) → `CEREBRAS_API_KEY` | **free** | 1M tokens/day · **8k context** | context too small for the Researcher/Engineer; Scribe only |
+| `deepseek` | [platform.deepseek.com](https://platform.deepseek.com) → `DEEPSEEK_API_KEY` | cheap paid | — | strong at code, cents per run |
+| `poe` | [poe.com/api/keys](https://poe.com/api/keys) → `POE_API_KEY` | Poe subscription | 500 rpm | Claude models on an existing Poe subscription (Anthropic-compatible gateway) |
+
+```bash
+python -m agent.harness --llm-profile gemini --llm-list-models flash   # exact model handles this key can use
+python -m agent.harness --llm-profile gemini --llm-check               # 1 tiny request per role model
+python -m agent.harness --llm-profile gemini --max-iters 1 --label smoke
+python -m agent.harness --llm-profile gemini --label official
+```
+Model handles move fast; if `--llm-check` reports an unknown model, `--llm-list-models` shows what the key
+actually serves and you edit the profile.
+
+**Using a Poe key** (Poe exposes the Claude bots through an Anthropic-compatible gateway at
+`https://api.poe.com`): put it in `.env` as `POE_API_KEY` and add `--llm-profile poe`. The profile sends only
+the core Messages API surface (no prompt caching, thinking, effort or beta headers — Poe does not document
+them). Poe's API listed `claude-opus-4.8 / 4.7 / 4.6 / 4.5`, `claude-sonnet-4.6 / 4.5`, `claude-haiku-4.5` on
+2026-08-28 (no Opus 5).
 
 ```bash
 export POE_API_KEY=...                                     # or put it in .env (see below)

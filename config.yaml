@@ -26,6 +26,55 @@ llm:
   scribe_narrative: true           # Scribe job (b): render logs/iter_NN.md from harness-supplied facts
   # Alternative providers — select with `python -m agent.harness --llm-profile <name>` (deep-merged over the keys above).
   profiles:
+    # --- FREE tiers (no card). Model handles change often: confirm with `--llm-list-models` before a real run. ---
+    gemini:                        # BEST FREE FIT: 10 rpm / 250k tokens-per-minute / 1500 req-day, 1M context
+      provider: gemini             # -> https://generativelanguage.googleapis.com/v1beta/openai/ (OpenAI-compatible)
+      api_key_env: GEMINI_API_KEY  # key from https://aistudio.google.com/apikey
+      researcher_model: gemini-3.7-flash
+      engineer_model: gemini-3.7-flash
+      debugger_model: gemini-3.7-flash
+      scribe_model: gemini-3.7-flash
+      max_output_tokens: {researcher: 3000, engineer: 12000, debugger: 12000, scribe: 300}
+      max_retries: 5
+
+    groq:                          # free, very fast, but only ~6k tokens-per-minute -> long waits on big briefings
+      provider: groq               # -> https://api.groq.com/openai/v1   key: https://console.groq.com/keys
+      api_key_env: GROQ_API_KEY
+      researcher_model: openai/gpt-oss-120b
+      engineer_model: openai/gpt-oss-120b
+      debugger_model: openai/gpt-oss-120b
+      scribe_model: llama-3.1-8b-instant
+      max_output_tokens: {researcher: 3000, engineer: 12000, debugger: 12000, scribe: 300}
+      max_retries: 6
+
+    openrouter:                    # free tier 20 rpm / 50 req-day (1000/day after a one-time $10, which also
+      provider: openrouter         # unlocks pay-as-you-go Claude). -> https://openrouter.ai/api/v1
+      api_key_env: OPENROUTER_API_KEY
+      researcher_model: qwen/qwen3-coder:free      # paid alternative: anthropic/claude-opus-4.8
+      engineer_model: qwen/qwen3-coder:free
+      debugger_model: qwen/qwen3-coder:free
+      scribe_model: qwen/qwen3-coder:free
+      max_output_tokens: {researcher: 3000, engineer: 12000, debugger: 12000, scribe: 300}
+      extra_headers: {HTTP-Referer: "https://github.com/", X-Title: "kuairand-research-agent"}
+
+    cerebras:                      # 1M tokens/day free BUT 8k context on the free tier -> too small for the
+      provider: cerebras           # Researcher/Engineer briefings; usable for the Scribe only.
+      api_key_env: CEREBRAS_API_KEY
+      researcher_model: gpt-oss-120b
+      engineer_model: gpt-oss-120b
+      debugger_model: gpt-oss-120b
+      scribe_model: gpt-oss-120b
+      max_output_tokens: {researcher: 2000, engineer: 8000, debugger: 8000, scribe: 300}
+
+    deepseek:                      # cheap PAID (no free tier), strong at code -> https://api.deepseek.com
+      provider: deepseek
+      api_key_env: DEEPSEEK_API_KEY
+      researcher_model: deepseek-chat
+      engineer_model: deepseek-chat
+      debugger_model: deepseek-chat
+      scribe_model: deepseek-chat
+      max_output_tokens: {researcher: 3000, engineer: 8000, debugger: 8000, scribe: 300}
+
     poe:                           # Poe's Anthropic-compatible gateway: one Poe key gives access to the Claude bots.
       provider: poe                # -> base_url https://api.poe.com, key sent as x-api-key, core Messages API only
       api_key_env: POE_API_KEY
