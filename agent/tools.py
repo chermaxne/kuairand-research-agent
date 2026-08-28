@@ -27,6 +27,7 @@ PIPELINE_MAIN = "pipeline.py"
 PREDS_VAL = "preds_val.csv"
 PREDS_TEST = "preds_test.csv"
 CODE_EXCLUDE_PREFIXES = ("preds_", "stdout", "stderr", "__pycache__", "attempts", "llm", ".")
+CODE_SUFFIXES = (".py",)          # pipeline source only: docs/preds/logs never travel with the champion
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +224,7 @@ def read_code_files(directory: str) -> Dict[str, str]:
     for root, dirs, files in os.walk(directory):
         dirs[:] = [d for d in dirs if not d.startswith(CODE_EXCLUDE_PREFIXES)]
         for f in sorted(files):
-            if f.startswith(CODE_EXCLUDE_PREFIXES) or f.endswith((".csv", ".npz", ".npy", ".pkl", ".pt", ".bin", ".txt", ".json")):
+            if f.startswith(CODE_EXCLUDE_PREFIXES) or not f.endswith(CODE_SUFFIXES):
                 continue
             p = os.path.join(root, f)
             rel = os.path.relpath(p, directory)

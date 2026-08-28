@@ -122,3 +122,53 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   best/; static policy violations are never executed and go to the Debugger; sandbox env strips every non-passthrough
   variable (API keys); `sandbox-exec` blocks network, writes outside the workspace and reads of the denied data dir.
 * Tests: 66 passing.
+
+### Phase 5 — full dry run to natural stop (2026-08-28) — GATE PASSED (offline mock roles, real data)
+* `python -m agent.harness --mock --label phase5_dryrun` with the full config (MAX_ITERS 50, N_FLAT 3, ε 0.002, margin 0.001):
+  Phase 0 passed; it01 L2 1e-5 — the mock Engineer's injected `NameError` was caught, the Debugger fixed it in one attempt,
+  re-run scored **0.6025** → PROMOTED (+0.0010 > margin) while the streak ticked (< ε); it02 K=32 → 0.6022 kept; it03 LR
+  0.002 → 0.4909 kept; **stop reason `converged`** (streak 3/3) — correct per the rules; `submission.csv` (170,588 rows)
+  accepted by the kit checker; `results_summary.md` written (best 0.6025 vs 0.6016 published, +0.0009).
+* The run is exported verbatim (minus prediction CSVs) to `runs/example_run/` by `scripts/make_example_run.py`.
+* Cosmetic fix found by the dry run: champion workspaces only carry `.py` files now (`baseline_repro/README.md` had been
+  copied along and shown to the Engineer as a "champion file").
+
+### Phase 6 — packaging (2026-08-28)
+* `README.md` (setup, one-command run, resume, reproduce, layout, example run, limitations), `runs/example_run/`,
+  `.gitignore` (runs/, data, caches, venv, secrets), `scripts/make_example_run.py`.
+* Final state: 69 tests passing; commits at every phase gate.
+
+## 5. What works, what is untested against real data, what the humans must verify next
+
+### Works (verified here)
+* Full loop on the real data with the deterministic mock roles: Phase 0 → iterations → promotion / kept / failed →
+  convergence → finalize → `submission.csv` accepted by the organizers' checker (see Phase 5 below and `runs/example_run/`).
+* Every grading-critical property has a test: sealed scorer identity, checkpoint safety, promotion ≠ convergence, failed
+  iterations tick the streak, stop reasons (streak / cap / wall clock / spend guard), ledger format, resume after SIGKILL,
+  debugger cap, timeout kill, malformed-JSON re-ask, NaN submission rejected, sandbox confinement, intervention logging.
+* Reproduction of the official baseline is exact (champion == `submit.py --make` predictions, 0.60147 valid primary).
+
+### Untested against real data / the real API (no `ANTHROPIC_API_KEY` in this environment)
+* `AnthropicClient` was only exercised against a fake transport. The request shape follows the current API docs (streaming,
+  adaptive thinking, `output_config.effort`, prompt caching, `server-side-fallback-2026-07-01` beta with `fallbacks: "default"`).
+  If the beta header is rejected by the account, set `llm.refusal_fallbacks: false` (the client then uses the non-beta
+  `messages.stream`). If a model id is wrong the first call fails loudly before Phase 0 results are wasted? — no: Phase 0 runs
+  first (≈2 min). Run `python -m agent.harness --max-iters 1 --label smoke` once to validate the key/models before the official run.
+* Prompt quality with real models (whether the Researcher's change specs are precise enough for a 230-line numpy file, whether
+  the Engineer keeps edits minimal, whether 16k output tokens suffice for bigger pipelines) — needs a real 3-iteration run.
+* Real-run token cost: estimated ≈ 25–40k tokens per iteration (researcher briefing ≈ 10k incl. champion code and ledger,
+  engineer ≈ 5k in / up to 6k out, scribes small) → roughly 1.5–2M tokens for 50 iterations; the spend guard is 4M.
+* Timing under real experiments: LightGBM/torch pipelines may approach `EXPERIMENT_TIMEOUT_S: 900`; the knowledge library
+  tells the Researcher to budget runtime. `sandbox.threads` can cap BLAS threads if the box is shared.
+
+### Humans must verify before / during the official run
+1. Model ids in `config.yaml` (`claude-opus-5`, `claude-haiku-4-5`) and the key env var; run the 1-iteration smoke run.
+2. Decide the official run folder and keep it: `runs/<RUN_ID>/` — `submission.csv`, `results_summary.md`, `ledger.md`,
+   `logs/iter_NN.json` are the deliverables. Do not edit anything inside it by hand; use `python -m agent.intervene` for
+   every manual touch (restarts are auto-recorded).
+3. Organizer questions still open (built to the conservative reading): whether failures tick the convergence streak (we do),
+   whether parallel candidates count against the 50 cap (we run one experiment per iteration, so moot).
+4. Linux hosts: `sandbox-exec` is macOS-only; there the harness runs experiments without OS-level confinement and records a
+   warning in `run_state.json['warnings']` (the static code guard and env stripping still apply). A container/`unshare -n`
+   wrapper would restore the guarantee — not implemented.
+5. The knowledge library encodes the organizers' README findings; update it if organizers publish more.

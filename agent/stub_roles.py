@@ -82,18 +82,18 @@ def default_mock_handlers() -> Dict[str, Callable]:
 # debugger path is exercised; the mock debugger repairs exactly that bug.
 # ---------------------------------------------------------------------------
 KUAIRAND_PLAN = [
-    {"hypothesis": "Double the FM embedding dimension (K 16 -> 32) to capture richer user x item interactions",
-     "category": "model", "risk": "low", "edits": [("K = 16", "K = 32")],
-     "rationale": "Mock plan step 1 (organizers report capacity is flat; this measures it on validation)."},
-    {"hypothesis": "Raise the learning rate (0.001 -> 0.002) so Adam converges before early stopping triggers",
-     "category": "training", "risk": "low", "edits": [("LR = 0.001", "LR = 0.002")],
-     "rationale": "Mock plan step 2: cheaper convergence check."},
-    {"hypothesis": "Longer patience (4 -> 6) and more epochs (40 -> 60) to avoid stopping on a noisy dip",
-     "category": "training", "risk": "low", "edits": [("PATIENCE = 4", "PATIENCE = 6"), ("EPOCHS = 40", "EPOCHS = 60")],
-     "rationale": "Mock plan step 3."},
     {"hypothesis": "Stronger L2 (1e-6 -> 1e-5) to regularise sparse id embeddings under temporal shift",
      "category": "training", "risk": "low", "edits": [("L2 = 1e-6", "L2 = 1e-5")],
-     "rationale": "Mock plan step 4 (deliberately introduces a typo to exercise the Debugger path)."},
+     "rationale": "Mock plan step 1 (the Engineer output deliberately contains a NameError to exercise the Debugger path)."},
+    {"hypothesis": "Double the FM embedding dimension (K 16 -> 32) to capture richer user x item interactions",
+     "category": "model", "risk": "low", "edits": [("K = 16", "K = 32")],
+     "rationale": "Mock plan step 2 (organizers report capacity is flat; this measures it on validation)."},
+    {"hypothesis": "Raise the learning rate (0.001 -> 0.002) so Adam converges before early stopping triggers",
+     "category": "training", "risk": "low", "edits": [("LR = 0.001", "LR = 0.002")],
+     "rationale": "Mock plan step 3: cheaper convergence check."},
+    {"hypothesis": "Longer patience (4 -> 6) and more epochs (40 -> 60) to avoid stopping on a noisy dip",
+     "category": "training", "risk": "low", "edits": [("PATIENCE = 4", "PATIENCE = 6"), ("EPOCHS = 40", "EPOCHS = 60")],
+     "rationale": "Mock plan step 4."},
     {"hypothesis": "Finer duration buckets (10 -> 20 train quantiles) to sharpen the duration field",
      "category": "feature", "risk": "low", "edits": [("N_DUR_BUCKETS = 10", "N_DUR_BUCKETS = 20")],
      "rationale": "Mock plan step 5."},
@@ -104,7 +104,7 @@ KUAIRAND_PLAN = [
      "category": "model", "risk": "low", "edits": [("K = 16", "K = 8"), ("K = 32", "K = 8")],
      "rationale": "Mock plan step 7."},
 ]
-BUG_STEP = 3   # 0-based index of the plan step whose engineer output contains an injected NameError
+BUG_STEP = 0   # 0-based index of the plan step whose engineer output contains an injected NameError
 
 
 def _plan_step(it: int) -> dict:
@@ -117,7 +117,7 @@ def kuairand_researcher(role: str, system: List[str], messages: List[Dict[str, s
     edits = "; ".join(f"[[EDIT]] {a} ==> {b}" for a, b in step["edits"])
     plan = {"hypothesis": step["hypothesis"], "category": step["category"],
             "change_spec": f"In pipeline.py apply exactly these line substitutions (leave everything else untouched): {edits}. "
-                           f"Keep the CLI, the train-only rule and the output format.",
+                           f"Keep the CLI, the train-only rule and the output format. [mock it{it:02d}]",
             "expected_risk": step["risk"], "builds_on": "champion", "rationale": step["rationale"] + f" (mock, it{it:02d})"}
     return json.dumps(plan)
 
@@ -129,8 +129,7 @@ def kuairand_engineer(role: str, system: List[str], messages: List[Dict[str, str
     code = files.get("pipeline.py", "")
     for a, b in re.findall(r"\[\[EDIT\]\] (.+?) ==> (.+?)(?:;|\.|$)", user):
         code = code.replace(a.strip(), b.strip(), 1)
-    it = _iteration_from_briefing(user) if "BUDGET: iteration" in user else None
-    m = re.search(r"\(mock, it(\d+)\)", user)
+    m = re.search(r"\[mock it(\d+)\]", user)
     it = int(m.group(1)) if m else 0
     if it and (it - 1) % len(KUAIRAND_PLAN) == BUG_STEP:
         code = code.replace("m = FM(dim)", "m = FM(dim, l2=L2_TYPO)", 1)      # injected NameError

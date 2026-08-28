@@ -189,7 +189,8 @@ class Roles:
         self.transcript_dir: Optional[str] = None
         self.iteration = 0
         self.iteration_usage = TokenUsage()
-        self.role_usage: Dict[str, int] = {}
+        self.role_usage: Dict[str, int] = {}             # cumulative for this process (diagnostics)
+        self.iteration_role_usage: Dict[str, int] = {}   # per iteration (the harness adds these to run_state)
         self.calls_this_iteration = 0
         self.last_error: str = ""
 
@@ -198,6 +199,7 @@ class Roles:
         self.iteration = iteration
         self.transcript_dir = transcript_dir
         self.iteration_usage = TokenUsage()
+        self.iteration_role_usage = {}
         self.calls_this_iteration = 0
         if transcript_dir:
             os.makedirs(transcript_dir, exist_ok=True)
@@ -215,6 +217,7 @@ class Roles:
                                     max_tokens=self._max_tokens(role))
         self.iteration_usage.add(resp.usage)
         self.role_usage[role] = self.role_usage.get(role, 0) + resp.usage.total
+        self.iteration_role_usage[role] = self.iteration_role_usage.get(role, 0) + resp.usage.total
         self.calls_this_iteration += 1
         if self.call_log:
             self.call_log.record(self.iteration, role, resp, attempt=attempt, purpose=purpose)

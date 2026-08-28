@@ -225,3 +225,27 @@ def test_make_client_requires_env_key_or_mock(base_cfg, monkeypatch):
     with pytest.raises(LLMError, match="not set"):
         make_client(base_cfg)
     assert isinstance(make_client(base_cfg, force_mock=True), MockLLMClient)
+
+
+# ---------------------------------------------------------------- offline real-data mock plan (used by --mock dry runs)
+def test_kuairand_mock_plan_injects_bug_then_debugger_fixes_it():
+    from agent.roles import Roles
+    from agent.schemas import ResearcherPlan
+    from agent.stub_roles import BUG_STEP, KUAIRAND_PLAN, kuairand_debugger, kuairand_engineer, kuairand_researcher
+    champ = {"pipeline.py": open(os.path.join(ROOT, "baseline_repro", "pipeline.py")).read()}
+    it = BUG_STEP + 1
+    briefing = f"STATE\nBUDGET: iteration {it} of 50 | 0:00 of 6:00 elapsed | tokens so far 0\n"
+    plan = parse_researcher(kuairand_researcher("researcher", [], [{"role": "user", "content": briefing}]))
+    assert plan.hypothesis == KUAIRAND_PLAN[BUG_STEP]["hypothesis"]
+    msg = Roles.engineer_message(plan, champ, "task", "contract")
+    files = parse_file_blocks(kuairand_engineer("engineer", [], [{"role": "user", "content": msg}]))
+    code = files["pipeline.py"]
+    assert "L2_TYPO" in code and all(b in code for _, b in KUAIRAND_PLAN[BUG_STEP]["edits"])
+    dmsg = Roles.debugger_message(plan, files, "NameError: name 'L2_TYPO' is not defined", 1, "task")
+    fix = parse_debugger(kuairand_debugger("debugger", [], [{"role": "user", "content": dmsg}]))
+    assert fix.action == "fix" and "L2_TYPO" not in fix.files["pipeline.py"] and "L2 = 1e-5" in fix.files["pipeline.py"]
+    # a non-bug step leaves clean code
+    briefing2 = f"STATE\nBUDGET: iteration {it + 1} of 50 | 0:00 of 6:00 elapsed | tokens so far 0\n"
+    plan2 = parse_researcher(kuairand_researcher("researcher", [], [{"role": "user", "content": briefing2}]))
+    files2 = parse_file_blocks(kuairand_engineer("engineer", [], [{"role": "user", "content": Roles.engineer_message(plan2, champ, "t", "c")}]))
+    assert "L2_TYPO" not in files2["pipeline.py"]

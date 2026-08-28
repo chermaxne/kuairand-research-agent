@@ -265,8 +265,8 @@ class Harness:
         state.tokens_total += usage.total
         state.tokens_input += usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens
         state.tokens_output += usage.output_tokens
-        for role, n in self.roles.role_usage.items():
-            state.tokens_by_role[role] = n
+        for role, n in self.roles.iteration_role_usage.items():
+            state.tokens_by_role[role] = state.tokens_by_role.get(role, 0) + n
         state.llm_calls += self.roles.calls_this_iteration
 
         entry = IterationLog(iteration=it, timestamp=utc_now_iso(), hypothesis=plan_for_scribe.hypothesis,
