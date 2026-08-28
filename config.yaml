@@ -1,0 +1,70 @@
+# ---------------------------------------------------------------------------
+# Autonomous ML Research Agent — configuration (spec §9).
+# Every constant, model name, path and threshold lives HERE, never in code.
+# API keys are read from the environment variable named in llm.api_key_env.
+# ---------------------------------------------------------------------------
+llm:
+  provider: anthropic              # thin wrapper in agent/llm_client.py; "mock" = deterministic offline client
+  api_key_env: ANTHROPIC_API_KEY   # name of the env var holding the key (never the key itself)
+  # HUMAN: verify these model ids are current before the official run.
+  researcher_model: claude-opus-5
+  engineer_model: claude-sonnet-5
+  debugger_model: claude-sonnet-5
+  scribe_model: claude-haiku-4-5-20251001
+  max_output_tokens: {researcher: 1500, engineer: 6000, debugger: 6000, scribe: 200}
+  max_total_tokens: 4000000        # spend guard: stop the run (finalize from best/) past this many total tokens
+  request_timeout_s: 300
+  max_retries: 3                   # transport/rate-limit retries per call (exponential backoff)
+  prompt_caching: true             # cache_control on the static prefix (role prompt + knowledge library)
+  scribe_narrative: true           # Scribe job (b): render logs/iter_NN.md from harness-supplied facts
+
+run:
+  EPSILON: 0.002                   # streak resets only on improvement > EPSILON over best-so-far
+  N_FLAT: 3                        # converged after N_FLAT consecutive flat/failed iterations
+  MAX_ITERS: 50
+  WALL_CLOCK_HOURS: 6
+  PROMOTE_MARGIN: 0.0010           # promotion needs primary > best + PROMOTE_MARGIN (separate from EPSILON)
+  DEBUG_RETRIES: 3                 # debugger attempts per iteration; retries never consume iterations
+  EXPERIMENT_TIMEOUT_S: 900        # hard kill for one pipeline run (train + predict val)
+  FINALIZE_TIMEOUT_S: 1800         # hard kill for the single champion --split test pass
+  STALL_FAILURES: 3                # N consecutive failed iterations -> canned recovery directive in next briefing
+  retry_timeouts_with_debugger: false   # a timeout is terminal for the iteration (no traceback to fix)
+  mask_test_period_in_loop: true   # experiments see a derived data dir WITHOUT test-period rows
+  categories: [feature, model, training, multitask, other]   # §5.1 category vocabulary
+
+paths:
+  starter_kit: ./starter_kit
+  data: ./starter_kit/KuaiRand-Pure/data          # kit README: unpack KuaiRand-Pure inside the kit dir
+  loop_data: ./data_cache/loop_train_valid        # derived train+valid-only copy used during the loop
+  sealed: ./sealed
+  runs: ./runs
+  prompts: ./prompts
+  knowledge: ./knowledge/library.md
+  baseline_repro: ./baseline_repro                # iteration-0 champion source (pipeline.py)
+  baseline_scores: ./starter_kit/baseline_scores.json   # published rungs; Phase 0 reads expectations from here
+
+phase0:
+  assert_rungs: true               # abort loudly if the rungs / baseline do not reproduce
+  rung_tolerance: 0.01             # |random - published| and |pop - published| on VALID
+  baseline_tolerance: 0.005        # |FM - published 0.6016| on VALID (5-seed std is 0.0008)
+  random_seed: 0
+  pop_prior: 20.0                  # same smoothing prior as starter_kit/baseline.py run_pop
+
+sandbox:
+  python: null                     # null -> the interpreter running the harness (project venv)
+  isolation: auto                  # auto | sandbox-exec | none  (auto = sandbox-exec on macOS, else none+warning)
+  env_passthrough: [PATH, HOME, LANG, LC_ALL, TMPDIR]   # everything else (incl. API keys) is stripped
+  threads: null                    # e.g. 4 -> OMP/MKL/OPENBLAS thread caps for the pipeline process
+  # Static guard on LLM-written code before it runs (defence in depth; the OS sandbox is the real wall).
+  forbidden_imports: [subprocess, socket, urllib, requests, http, ftplib, smtplib, telnetlib, pip, ensurepip, ctypes]
+  forbidden_patterns: ["pip install", "os.system(", "os.popen(", "os.execv", "shutil.rmtree(", "importlib"]
+
+# Toy task (Phase-1 skeleton demo and tests): mini synthetic dataset in kit format + dummy pipeline.
+toy:
+  data_dir: ./data_cache/toy/data
+  loop_data: ./data_cache/toy/loop
+  champion_src: ./data_cache/toy/champion
+  seed: 0
+  overrides:
+    run: {MAX_ITERS: 5, N_FLAT: 99, EXPERIMENT_TIMEOUT_S: 60, FINALIZE_TIMEOUT_S: 60}
+    llm: {scribe_narrative: true}

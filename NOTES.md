@@ -1,0 +1,87 @@
+# NOTES — discrepancies, decisions, open questions
+
+Maintained by the implementing agent. Spec = `IMPLEMENTATION_SPEC.md`. Where the spec and
+the starter kit conflict, **the kit wins** and the adaptation is recorded here.
+
+## 0. Environment / repo facts discovered at start (2026-08-28)
+
+| Item | Finding | Action |
+|---|---|---|
+| Kit location | The organizer kit files (`README.md baseline.py data.py evaluate.py submit.py ablation_features.py baseline_scores.json`) were at the **repo root**, not in `starter_kit/` as spec §4 assumes. The kit's own `README.md` would collide with the README we must write in Phase 6. | Moved the 7 files **verbatim** into `starter_kit/` (SHA-256 verified identical before/after; checksums in §7 below). Nothing under `starter_kit/` is ever edited afterwards. |
+| Git | `git rev-parse --show-toplevel` was `/Users/ckwang` (a stray, commit-less repo in the home dir). Committing there would be the wrong scope. | `git init -b main` inside the project directory (nested repo). All phase-gate commits go there. |
+| Dataset | Not shipped with the kit. Kit README: download `KuaiRand-Pure.tar.gz` (47 MB) from Zenodo and unpack **inside the kit dir**. | Downloaded to `starter_kit/KuaiRand-Pure/` (gitignored). This is the organizer-provided data, not "external training data". |
+| Python | Kit needs Python ≥ 3.9 + numpy only. Machine: macOS arm64, Python 3.12.1. | Project venv `.venv` (python3.12) with numpy, pandas, scikit-learn, lightgbm, torch-cpu, pyyaml, anthropic, pytest. LightGBM on macOS needs `brew install libomp` (done). |
+| API key | `ANTHROPIC_API_KEY` is **not** set in this environment. | Everything is built/tested with the mock LLM client; commands that need the real key are marked in README. |
+| Sandbox | macOS `sandbox-exec` is available and verified: denies network (`PermissionError`), denies writes outside the workspace, allows writes inside. | Used as the experiment sandbox (`sandbox.isolation: auto`). On non-macOS hosts the harness falls back to no OS isolation and records a warning (documented limitation). |
+
+## 1. Spec §16 assumptions — verified against the kit
+
+### 16.1 CLI / file names / data paths / ordering
+* `baseline.py`: `python3 baseline.py --model {fm,pop,random} [--data_dir ./KuaiRand-Pure/data] [--k 16] [--lr 0.001] [--epochs 40] [--seed 0]`.
+  It only **prints** scores (valid + test); it writes **no prediction file**. The default `--data_dir` is relative to the cwd, so it must run with `cwd=starter_kit` or an explicit `--data_dir`.
+* `submit.py`: `python3 submit.py --make|--check|--score --split {valid,test} [--data_dir …] PATH`.
+  `--make` trains the official FM with the *identical* procedure/seed as `baseline.py run_fm` (k=16, lr=0.001, bs=8192, ≤40 epochs, patience 4, seed 0) and writes predictions in the submission format. **Phase 0 uses `submit.py --make --split valid` to obtain the official baseline's validation predictions** (spec §7 says "run baseline.py … score its validation predictions" — baseline.py cannot emit them).
+  `--check` is the official format/alignment checker → wrapped by `sealed/submit_check.py`.
+* `evaluate.py`: `evaluate(user_ids, labels, scores, k=5) -> {'GAUC','nDCG@5','primary','users','rows'}`. Copied verbatim to `sealed/evaluate.py` (sha256 `ecfde283…95de`, test-enforced).
+* `data.load(data_dir)` → `{'train','valid','test'}` lists of tuples `(date:int, user_id:str, video_id:str, author_id:str, tab:str, duration_ms:float, long_view:int)`.
+  Row order = file order (`log_standard_4_08_to_4_21_pure.csv` first, then `log_standard_4_22_to_5_08_pure.csv`), filtered by date, order preserved. `row_id` = index in `splits[split]`. Split sizes: train 1,141,112 / valid 124,909 / test 170,588; valid users 22,377.
+* Kit split names are `valid`/`test`; spec §5.2 says `--split val`. Our pipelines accept `val` **and** `valid` (both map to the kit's `valid`).
+* `user_id`/`video_id` are **strings** in the kit loader and the checker compares strings; pipelines must echo them exactly as read.
+* Timing on this machine: `data.load` 3.4 s, `encode` 5.2 s, sealed `evaluate` on valid 0.2 s, FM baseline ≈ 40–60 s.
+
+### 16.2 Reference convergence-rule code
+* **None shipped.** `baseline_scores.json` only carries the constants `convergence_rule: {epsilon: 0.002, N: 3}`.
+  → Our own implementation in `agent/promotion.py` (pure functions, unit-tested). A test asserts `config.yaml` EPSILON/N_FLAT equal the kit's constants.
+
+### 16.3 Split conventions behind the published rungs
+* Spec §1 quotes random ≈ 0.475 and pop ≈ 0.5715 — those are **TEST** numbers; the FM 0.6016 is the **VALID** number. Mixed conventions.
+* `baseline_scores.json` VALID rungs (what Phase 0 asserts against, since the test split is hidden/never scored):
+  random 0.4834 (mean over seeds 0–4), item_popularity 0.5807, fm_official 0.6016, oracle ceiling 0.8484 (nDCG@5 ceiling 0.6968).
+  Measured here: random seed 0 → 0.4827 (inside ±0.01).
+* Seed noise: FM std over 5 seeds = 0.0008 (test). Spec tolerance ±0.005 for the baseline reproduction is ≈6σ — comfortable.
+* The kit README's "random ≈ 0.475 (±0.001)" self-check refers to test; on valid we use 0.4834 ± 0.01.
+
+### 16.4 Pinned libraries / Python constraints
+* Kit: "Python 3.9+ and numpy. Nothing else." No pins. Our venv adds the libraries in `requirements.txt`; generated pipelines may only import pre-installed libraries (no installs — enforced by static check + OS sandbox).
+
+### Open competition questions (not blocking; conservative reading built)
+* Parallel candidates per iteration: **we run exactly one experiment per iteration** (so the question is moot for us).
+* Failed iterations tick the flat streak: **yes** (implemented; `tests/test_promotion.py`).
+
+## 2. Deliberate design decisions / interpretations (not silent deviations)
+
+1. **Test-period masking during the loop.** Spec §15 says hidden-test data may be used only in the single finalize pass, but the kit's test rows (with labels) sit in the same CSV as the validation rows. The harness therefore builds a derived data dir `data_cache/loop_train_valid/` where `log_standard_4_22_to_5_08_pure.csv` and `log_random_4_22_to_5_08_pure.csv` are filtered to dates ≤ 20220428 (order preserved, so validation `row_id`s are unchanged). Experiments run against this dir (and, under sandbox-exec, are additionally **denied read access** to the full data dir). Only `finalize()` runs the champion against the full dir with `--split test`. Config: `run.mask_test_period_in_loop`.
+2. **Timeouts are terminal for the iteration** (status `timeout`, streak ticks, no debugger retries) because there is no traceback to fix and each retry would cost another 900 s. Configurable via `run.retry_timeouts_with_debugger`.
+3. **Scribe job (b)** renders a human-readable `logs/iter_NN.md` narrative from harness-supplied facts. The judges' JSON `logs/iter_NN.json` (§5.6) is written by the harness directly from measured values — an LLM never writes a score/decision/streak. The JSON contains exactly the §5.6 keys plus two additive keys: `lesson` and `harness_extra` (run id, best-after, token split, attempt statuses).
+4. **Researcher output** parses exactly the §5.1 keys; an optional `rationale` key is accepted (used for §5.6 `rationale`; falls back to `change_spec`). `builds_on` is recorded but every iteration builds on the current champion (there is only ever one champion, per §2.3).
+5. **Extra modules** beyond spec §4: `agent/phase0.py` (baseline reproduction), `agent/toy.py` (mini kit-format dataset + dummy pipeline for Phase 1/tests), `agent/task.py` (data/evaluator wiring shared by toy and real runs), `agent/intervene.py` (spec §11 CLI).
+6. **Engineer file format**: the Engineer emits whole files as `=== FILE: name ===` … `=== END FILE ===` blocks (a fenced JSON string is fragile for 300-line files). A lone ```python fence is accepted as `pipeline.py`.
+7. **Resume counts as an intervention.** A human restarting the harness is recorded automatically in `interventions.md` (scope `resume`) and bumps the counter — honest accounting over flattering numbers.
+8. **Ledger sanitisation**: hypotheses/lessons are single-line, `|` replaced by `/`, LESSON hard-truncated to 20 words by the harness regardless of what the Scribe returned.
+
+## 3. Questions / ambiguities and the chosen conservative interpretation
+* "Run `baseline.py --model fm` … score its validation predictions": baseline.py has no prediction output → use `submit.py --make --split valid` (same code path, same seed). Additionally the iteration-0 champion (`baseline_repro/pipeline.py`, a §5.2-shaped port of the kit's FM) is run through the sandbox and must land within ±0.005 of 0.6016 too.
+* Early stopping on validation inside a pipeline: the official baseline itself early-stops on validation, so pipelines may compute validation metrics for model selection; only the harness's sealed score counts.
+* "BUDGET: iteration K of 50": K = the iteration being planned in a briefing; on disk after an iteration, K = iterations completed.
+
+## 4. Status log
+(appended per phase)
+
+## 7. Starter-kit checksums (SHA-256, verified after relocation)
+```
+c7a58e652a1aceea144e651ba9ef7a6a4f7dc13f0916e3c4ed342dce69699861  README.md
+c8f7fc60178413e247e78bb231e7550eeef52101b6493fcf1a4d2b0e5fe18f8a  baseline.py
+1bf54f5f3a9f590eab2f87f09a3c27422031867a20a5328d56cbd8c7db36e541  data.py
+ecfde28392eb14fec4f488083251df50624e1af2b86278b962daecfb42d195de  evaluate.py
+ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
+944ff3003451d82cd4694dd2ac0a7a587e53890956cb098f8daa04537d97b457  ablation_features.py
+950f98181770c030a68bdddab7be3c0abbf060531f54455a6a6f81a4cb003324  baseline_scores.json
+```
+
+### Phase 1 — skeleton loop (2026-08-28) — GATE PASSED
+* `python -m agent.harness --toy --mock` runs Phase 0 (toy: champion install only) + 5 iterations + finalize on the
+  toy task; ledger (§5.4), state block (§5.5), `logs/iter_NN.json` (§5.6) and narratives all written; `submission.csv`
+  passes the kit checker on the mini dataset.
+* Resume verified two ways: in-process (session limit) and a real SIGKILL of the CLI mid-iteration
+  (`tests/test_resume.py`). A restart is auto-recorded as an intervention (see decision 7).
+* Tests: 28 passing (`tests/test_promotion.py`, `test_ledger.py`, `test_checkpoint.py`, `test_resume.py`).

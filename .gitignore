@@ -1,0 +1,35 @@
+# --- secrets: never commit keys ---
+.env
+.env.*
+*.key
+*secret*
+*apikey*
+
+# --- run artifacts (one timestamped dir per run) ---
+runs/*
+!runs/.gitkeep
+!runs/example_run/
+!runs/example_run/**
+runs/example_run/**/preds_*.csv
+runs/example_run/**/*.npz
+runs/example_run/**/__pycache__/
+
+# --- data (downloaded per starter_kit/README.md; never committed) ---
+starter_kit/KuaiRand-Pure/
+starter_kit/KuaiRand-Pure.tar.gz
+data_cache/
+
+# --- python ---
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# --- editors / os ---
+.DS_Store
+.idea/
+.vscode/
