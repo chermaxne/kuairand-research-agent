@@ -67,6 +67,12 @@ f. **Training tweaks**: class weighting for the sparse positive, LR schedule / w
    only when the champion has not been tuned yet; gains are usually < 0.002.
 
 ## 4. TRAP LIST — read before every proposal
+- **A score BELOW the rungs means the implementation is broken, not that the idea failed.** Random scores
+  0.4834, item-popularity 0.5807. Sealed GAUC < 0.5 means the ranking is INVERTED (sign error in a loss or
+  gradient, negated predictions, flipped labels) — the harness sends such results to the Debugger once; if
+  you see one in the ledger, re-propose the idea with the sign fix, do not write it off.
+- **An exploding training loss (loss rising epoch over epoch, e.g. 0.7 → 12) is a bug** (wrong gradient sign,
+  learning rate far too high for a new loss), never a research outcome.
 - **Same-row feedback columns as input features = LEAKAGE, forbidden** (`is_click`, `play_time_ms`, …
   of the row being scored). They may only be auxiliary *targets* in multi-task training on TRAIN rows.
 - **Whole-dataset aggregates leak the future**: popularity / rates computed over all rows, or over the
@@ -84,10 +90,41 @@ f. **Training tweaks**: class weighting for the sparse positive, LR schedule / w
 - IDs are strings in the CSVs; keep them as read. Output every row of the split, in order, finite.
 
 ## 5. Strategy rules (the harness enforces the numbers; you enforce the judgment)
-- Explore structurally different ideas early; refine winners once found; combine winners later.
-- At flat streak ≥ 2 pick the most reliable promising idea — the one most likely to clear +0.002.
-- Gains < 0.002 do not reset the streak: prefer bigger structural swings over micro-tuning.
-- Never retry BLOCKED items; never re-propose a failed idea without a stated new reason.
+- **Convergence arithmetic — read this first.** The run ENDS after 3 consecutive iterations that do not beat the
+  best-so-far by more than 0.002 (failed and crashed iterations count). A whole run can therefore be over after
+  three misses. Every proposal must be your single highest-expected-gain idea, implemented in its most reliable
+  form; there is no budget for "let's just see". A crash or an inverted implementation burns one of the three.
+- **Sub-threshold gains are signals to STACK, not to abandon.** A result of +0.0005..+0.002 (e.g. rolling
+  past-only features at +0.0008) is real under σ≈0.0008 only in aggregate: the next iteration should COMBINE
+  that change with the next idea (features + GBDT, features + ensemble, features + tuned loss), because
+  independent small gains add up and the promotion margin (0.001) / ε (0.002) are cleared by sums, rarely by
+  one knob. Say explicitly in the change spec which earlier attempt you are stacking on and why.
+- Explore structurally different ideas early — but "structural" must also mean "high expected gain and
+  reliable to implement" (see §6). Refine winners once found; combine winners later.
+- At flat streak ≥ 2 pick the most reliable promising idea — the one most likely to clear +0.002 — and
+  prefer combining two sub-threshold winners over a new unproven direction.
+- Never retry BLOCKED items; never re-propose a failed idea without a stated new reason. A crashed or
+  inverted implementation of a good idea is NOT a failed idea: re-propose it with the specific fix.
 - Budget runtime explicitly (baseline ≈ 30 s; each FM epoch ≈ 2 s on 1.14M rows; loading ≈ 4 s;
   wall-clock limit per experiment 900 s); a timeout is a failed iteration.
-- One idea per iteration; write the change spec so the Engineer cannot misread it.
+- One idea per iteration; write the change spec so the Engineer cannot misread it — include a
+  self-check the code must print (e.g. "train GAUC after epoch 1 must be > 0.55; assert it").
+
+## 6. High-expected-gain recipes for THIS dataset (ordered by expected gain / reliability)
+1. **Stack: past-only rolling features + LightGBM.** Compute, strictly from earlier dates, per-row features:
+   user long_view rate & count, user×author rate, user×tab rate, video rate & impression count, author rate,
+   days since the user's last impression, days since the video's first impression, the FM champion's score
+   (train it first, use out-of-fold or train-only predictions) — then a LightGBM binary classifier
+   (num_leaves 63, lr 0.05, ~400 rounds, early stopping on validation) scores the rows. GBDT on count/rate
+   features is where the big jumps usually are; it uses the exact features the organizers never tried.
+2. **Rank-average ensemble of two decorrelated scorers** (FM champion + LightGBM from recipe 1, or FM + a
+   correctly implemented BPR-FM): per user, rank-normalise each score and average. Reliable +0.002..+0.005 when
+   the members are individually near the champion and different in kind. Low risk, low runtime.
+3. **BPR done right.** For each TRAIN positive sample a negative from the SAME user and date-neighbourhood,
+   loss = softplus(s_neg − s_pos) = −log σ(s_pos − s_neg); gradient on the pos row is −σ(s_neg − s_pos)·∂s,
+   on the neg row +σ(s_neg − s_pos)·∂s. Use ALL positives per epoch (≈380k pairs), not a per-user cap. Sanity:
+   train GAUC after epoch 1 must exceed 0.55 — if it is below 0.5 the sign is flipped. Warm-start from the
+   pointwise champion weights (train pointwise 5 epochs, then BPR) for stability.
+4. **Multi-task only as a regulariser on top of a winner** (is_click aux head, weight 0.3) — alone it moved
+   primary by < 0.001 here; combined with recipe 1 or 3 it can add a little.
+5. Wider embeddings / DeepFM / DCN: capacity is not the bottleneck (organizers' finding) — only after 1–3.

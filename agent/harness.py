@@ -349,6 +349,48 @@ class Harness:
             if attempts and not attempts[-1].status_after:
                 attempts[-1].status_after = status
             if status == "scored":
+                # Plausibility guard (harness-measured): a GAUC below the configured floor means the predicted order is
+                # INVERTED relative to the labels (random = 0.5) — almost always a sign error, not a research result.
+                # Give the Debugger one shot at it; if it abandons, the measured (implausible) score stands.
+                floor = self.run_cfg.get("implausible_gauc_below")
+                if (floor is not None and score is not None and score.gauc < float(floor) and attempt_no < max_retries
+                        and not any(a.fix_summary.startswith("IMPLAUSIBLE") for a in attempts)):
+                    diag = (f"IMPLAUSIBLE RESULT (the code ran and was scored, but the ranking is inverted): sealed GAUC "
+                            f"{score.gauc:.4f} < {float(floor)} — a random ranking scores 0.5 and the item-popularity rung 0.64, "
+                            f"so positives are being ranked BELOW negatives. Typical causes: a sign error in the loss/gradient "
+                            f"(e.g. updating with +g where -g is needed, or a pairwise diff computed as neg - pos), predictions "
+                            f"written as -score, or labels/probabilities flipped. Keep the hypothesis; fix the implementation.\n"
+                            f"Training log tail:\n{self.training_log_tail(ws)}")
+                    self.log(f"[debug] implausible score (GAUC {score.gauc:.4f} < {floor}); asking the Debugger for a sign/logic fix")
+                    attempt_no += 1
+                    self._archive_attempt(ws, attempt_no, files)
+                    fix = self.roles.debugger(plan, files, diag, attempt_no)
+                    if fix.action == "abandon":
+                        attempts.append(DebugAttempt(attempt=attempt_no, error=one_line(diag.splitlines()[0], 200),
+                                                     fix_summary=f"IMPLAUSIBLE, debugger abandoned: {fix.reason}", status_after="scored (implausible)"))
+                        break
+                    prev_files, prev_score = files, score
+                    files = {**files, **fix.files}
+                    attempts.append(DebugAttempt(attempt=attempt_no, error=one_line(diag.splitlines()[0], 200),
+                                                 fix_summary=f"IMPLAUSIBLE -> {fix.fix_summary}"))
+                    tools.write_code_files(ws, files)
+                    res2 = self.task.sandbox_run(ws, "val", tools.PREDS_VAL, timeout)
+                    total_runtime += res2.runtime_s
+                    score2 = None
+                    if res2.ok:
+                        try:
+                            score2 = self.task.score_preds(os.path.join(ws, tools.PREDS_VAL))
+                        except (ValueError, OSError):
+                            score2 = None
+                    if score2 is not None and score2.gauc >= float(floor):
+                        attempts[-1].status_after = "scored"
+                        score, files = score2, files
+                        self.log(f"[debug] fix restored a plausible ranking: GAUC {score2.gauc:.4f}, primary {score2.primary:.4f}")
+                    else:                                            # the fix did not help: keep the measured original
+                        attempts[-1].status_after = f"{res2.status if not res2.ok else 'scored'} (still implausible); original kept"
+                        files, score = prev_files, prev_score
+                        tools.write_code_files(ws, files)
+                        self.log("[debug] fix did not restore a plausible ranking; keeping the original measured result")
                 break
             self.log(f"[debug] attempt {attempt_no} -> {status}: {one_line(err.splitlines()[-1] if err else '', 160)}")
             if status == "timeout" and not retry_timeouts:

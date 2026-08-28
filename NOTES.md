@@ -215,6 +215,31 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   the Scribe (facts block), the Researcher (RECENT ITERATION DETAILS in the briefing), `run_state.history` and the
   narrative facts — the reflect step now sees the epoch curve, not just the final score. Tests cover both.
 
+### 10-iteration test run stopped after 3 (run `20260828_222721_ten`, 2026-08-28) — diagnosis and changes
+* **Nothing malfunctioned: the stop was the competition's convergence rule** (ε = 0.002, N = 3 from the kit's
+  `baseline_scores.json`, spec §2.5, failed iterations tick). Three consecutive iterations landed within ε of the
+  0.6015 champion: it01 BPR **0.3948** (inverted ranking — GAUC 0.35 from epoch 1, loss exploding 0.7 → 12.9: a gradient
+  sign error the code ran "successfully" with, so the Debugger was never invoked), it02 past-only rolling features
+  **0.6022 (+0.0008)** — real signal but below the 0.001 promotion margin and ε, it03 is_click aux head 0.6010 (−0.0005).
+  13 LLM calls, $0.20, 13 min.
+* Why three misses in a row: (1) an implementation bug wasted a shot and the harness had no notion of "scored but
+  impossible"; (2) the library/prompt pushed "one new structural idea per iteration" without saying that under N = 3 a
+  sub-threshold gain must be STACKED with the next idea rather than abandoned; (3) the Engineer (`qwen3-coder`) produced
+  two buggy implementations in four attempts.
+* Changes: **harness plausibility guard** (`run.implausible_gauc_below: 0.5`): a scored GAUC below 0.5 — a random ranking
+  is 0.5 — is an inverted ranking; the Debugger gets one pass with that diagnosis, the fixed code is re-run and used only
+  if it restores a plausible ranking, otherwise the measured score stands (never an LLM judgment; tests cover both
+  branches and the disabled case). **Knowledge library**: new "convergence arithmetic" and "stack sub-threshold gains"
+  rules, two plausibility traps (GAUC < 0.5 ⇒ inverted; exploding loss ⇒ bug), and §6 concrete high-gain recipes for this
+  dataset (rolling features + LightGBM, rank-average ensemble, BPR with the exact gradient signs and a train-GAUC sanity
+  assert). **Researcher prompt** rule 0 mirrors this. **Scribe** prompt now defines the decision vocabulary (it02's lesson
+  said "kept as champion" for a discarded attempt). **Engineer/Debugger → `anthropic/claude-sonnet-5`** via OpenRouter
+  (`reasoning.effort`, not a token budget — Claude 5 rejects budgets); Researcher stays on `z-ai/glm-5.2`;
+  `--llm-profile openrouter_open` restores the all-open-weights setup. ≈ $0.08 per iteration.
+* Levers deliberately NOT touched (competition rules / human decision): ε, N, the "failed iterations tick" reading, and the
+  promotion margin (0.001 by default; lowering it to 0.0005 would have promoted it02 and let it03 stack on it — a
+  legitimate config choice for the humans, at the risk of promoting seed noise σ ≈ 0.0008).
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

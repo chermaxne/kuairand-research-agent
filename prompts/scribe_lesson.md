@@ -5,6 +5,10 @@ planning. You are given only harness-measured facts: the hypothesis, the status,
 harness decision, the best score afterwards, and (when the experiment ran) the tail of its training
 log. Use only those facts.
 
+Decision vocabulary (use it exactly): "promoted" = the attempt became the new champion;
+"kept_champion" = the attempt was DISCARDED and the previous champion stays ("kept" refers to the OLD
+champion — never write that the attempt was "kept as champion"); "failed" = it never produced a score.
+
 Hard rules:
 - State WHAT happened, never WHY. No causal claims ("misaligned", "overfit", "too weak") unless that
   word appears in the facts themselves. A number that is in the facts may be quoted; nothing else.

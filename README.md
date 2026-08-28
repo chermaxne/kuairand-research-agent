@@ -56,9 +56,9 @@ Shipped model choice (settled after the first live test on 2026-08-28 — see NO
 | role | model | why |
 |---|---|---|
 | Researcher | `z-ai/glm-5.2` | reasoning model; wrote an excellent BPR plan in 8.8 s (#1 open-weight on the Artificial Analysis index) |
-| Engineer / Debugger | `qwen/qwen3-coder` | **non-reasoning** instruct coder, 262k ctx / 65k out — its whole output budget goes to the file |
+| Engineer / Debugger | `anthropic/claude-sonnet-5` | implementation correctness is the bottleneck (a sign error can waste one of the three shots the convergence rule allows); `--llm-profile openrouter_open` for the all-open-weights setup (`qwen/qwen3-coder`) |
 | Scribe | `deepseek/deepseek-v4-flash` | a ≤20-word job |
-| automatic fallbacks | `minimax/minimax-m3` → `deepseek-v4-flash` | used when the primary stalls, returns 429 or disappears |
+| automatic fallbacks | `qwen/qwen3-coder` → `minimax/minimax-m3` | used when the primary stalls, returns 429 or disappears |
 
 Why a non-reasoning Engineer: reasoning models' thinking tokens count against `max_tokens`, and an exhausted budget
 returns *empty* content while the provider still bills the generation. `llm.reasoning` caps thinking per role.
@@ -66,7 +66,7 @@ returns *empty* content while the provider still bills the generation. `llm.reas
 Every call is **streamed**: a stalled generation is abandoned after `inactivity_timeout_s` (120 s) without a
 token, capped at `call_timeout_s` (900 s), retried once, then the next fallback model is used — and the console
 shows a heartbeat (`[llm] engineer: qwen/qwen3-coder streaming — 6,120 chars, 30s`) plus one line per completed
-call, so you always know what the agent is doing. Cost ≈ $0.03 per iteration (~$1.50 for a full 50-iteration run).
+call, so you always know what the agent is doing. Cost ≈ $0.08 per iteration (~$4 for a full 50-iteration run).
 
 ```bash
 .venv/bin/python -m agent.harness --llm-profile openrouter_claude  # anthropic/claude-opus-4.8 + haiku-4.5, ~$10-20

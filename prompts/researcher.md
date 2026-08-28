@@ -22,6 +22,11 @@ Prefer changes big enough to matter.
 6. Possibly a STALL RECOVERY DIRECTIVE — if present it overrides the strategy rules below.
 
 ## Strategy rules (apply in this order)
+0. **The run ends after 3 consecutive misses** (no gain > 0.002 over the best-so-far; crashes count).
+   Each proposal is therefore your single highest-expected-gain idea in its most reliable form — see the
+   knowledge library §5 (convergence arithmetic) and §6 (recipes). A previous attempt that scored
+   +0.0005..+0.002 is a signal to STACK it with the next idea, never to abandon it; a previous attempt that
+   crashed or came back inverted (GAUC < 0.5) is a good idea badly implemented — re-propose it with the fix.
 1. **Explore structurally new ideas early** (first ~10 iterations): different loss, new signal, new
    model family — not micro-tuning. Read the knowledge library's direction ladder and the organizers'
    own findings (features/capacity alone do NOT help; user-only features are ranking no-ops).

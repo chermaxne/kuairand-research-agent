@@ -326,3 +326,58 @@ def test_load_dotenv_ignores_empty_placeholders(tmp_path, monkeypatch):
     monkeypatch.delenv("POE_API_KEY", raising=False)
     assert load_dotenv(str(f)) == ["POE_API_KEY"]          # the empty slot is not reported as loaded
     assert "OPENROUTER_API_KEY" not in os.environ
+
+
+# ---------------------------------------------------------------- implausible-score guard (inverted ranking)
+def _invert_engineer(role, system, messages):
+    files = _champion_files(messages[-1]["content"])
+    files["pipeline.py"] = files["pipeline.py"].replace('f"{THETA * vr(x[2]) + (1 - THETA) * ar(x[3]):.6g}"',
+                                                        'f"{-(THETA * vr(x[2]) + (1 - THETA) * ar(x[3])):.6g}"')   # negated scores
+    return render_file_blocks(files)
+
+
+def test_inverted_ranking_goes_to_debugger_once_and_fix_is_used(tmp_path, base_cfg, mini_data):
+    seen = []
+
+    def debugger(role, system, messages):
+        seen.append(messages[-1]["content"])
+        files = parse_file_blocks(messages[-1]["content"].split("# Failing files", 1)[-1].split("# Error", 1)[0])
+        files["pipeline.py"] = files["pipeline.py"].replace('f"{-(THETA', 'f"{(THETA')
+        return "FIX SUMMARY: removed the stray negation\n" + render_file_blocks(files)
+    handlers = default_mock_handlers()
+    handlers["engineer"] = _invert_engineer
+    handlers["debugger"] = debugger
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "implausible_gauc_below": 0.5}})
+    st = h.init_or_resume()
+    h.phase0()
+    hist = h.run_iteration(1)
+    assert len(seen) == 1 and "IMPLAUSIBLE RESULT" in seen[0] and "inverted" in seen[0]
+    assert hist["status"] == "scored" and hist["gauc"] > 0.5
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    assert log["errors_and_recovery"][0]["fix_summary"].startswith("IMPLAUSIBLE -> removed the stray negation")
+    assert log["errors_and_recovery"][0]["status_after"] == "scored"
+
+
+def test_inverted_ranking_kept_when_debugger_abandons(tmp_path, base_cfg, mini_data):
+    handlers = default_mock_handlers()
+    handlers["engineer"] = _invert_engineer
+    handlers["debugger"] = lambda r, s, m: json.dumps({"action": "abandon", "reason": "cannot see it"})
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "implausible_gauc_below": 0.5}})
+    st = h.init_or_resume()
+    h.phase0()
+    hist = h.run_iteration(1)
+    assert hist["status"] == "scored" and hist["gauc"] < 0.5 and hist["decision"] == "kept_champion" and st.streak == 1
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    assert log["errors_and_recovery"][0]["status_after"] == "scored (implausible)"
+
+
+def test_guard_disabled_when_config_is_null(tmp_path, base_cfg, mini_data):
+    calls = []
+    handlers = default_mock_handlers()
+    handlers["engineer"] = _invert_engineer
+    handlers["debugger"] = lambda r, s, m: (calls.append(1), json.dumps({"action": "abandon", "reason": "x"}))[1]
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "implausible_gauc_below": None}})
+    h.init_or_resume()
+    h.phase0()
+    hist = h.run_iteration(1)
+    assert calls == [] and hist["status"] == "scored" and hist["gauc"] < 0.5
