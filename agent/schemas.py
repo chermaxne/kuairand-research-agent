@@ -210,6 +210,8 @@ class RunState:
     tokens_output: int = 0
     tokens_by_role: Dict[str, int] = field(default_factory=dict)
     llm_calls: int = 0
+    spend_start: Dict[str, Any] = field(default_factory=dict)   # provider credit snapshot at run start
+    spend_end: Dict[str, Any] = field(default_factory=dict)     # ... and at finalize (delta = this run's cost)
     interventions: int = 0
     resumes: int = 0
     blocked: List[str] = field(default_factory=list)

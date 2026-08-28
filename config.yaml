@@ -7,23 +7,22 @@ llm:
   # DEFAULT PROVIDER: OpenRouter (one key, every model). Switch with --llm-profile <anthropic|gemini|groq|...>.
   provider: openrouter             # -> https://openrouter.ai/api/v1 (OpenAI-compatible Chat Completions)
   api_key_env: OPENROUTER_API_KEY  # key from https://openrouter.ai/keys — put it in .env, never in git
-  # Model choice (verified against OpenRouter's live catalogue on 2026-08-28 with --llm-list-models):
-  #   z-ai/glm-5.2       — #1 open-weight on the Artificial Analysis index, LiveBench coding 79.65, 256k ctx / 230k out
-  #   minimax/minimax-m3 — 80.5% SWE-bench Verified (vendor), 1M ctx  → first fallback
-  #   nvidia/nemotron-3-super-120b-a12b — 60.5% SWE-bench Verified    → second fallback
-  # The Scribe is a trivial 20-word job and is 2 of the 4 calls per iteration, so it runs on a small model:
-  # that keeps the strong model's daily request pool for the roles that need it.
-  # PAID upgrade (drop the `:free` suffix): z-ai/glm-5.2 is $1.19/$3.74 per MTok and minimax/minimax-m3
-  # $0.30/$1.20 — a full 50-iteration run is ~2M tokens, i.e. well under $2. anthropic/claude-opus-4.8 also works.
-  researcher_model: z-ai/glm-5.2:free
-  engineer_model: z-ai/glm-5.2:free
-  debugger_model: z-ai/glm-5.2:free
-  scribe_model: google/gemma-4-31b-it:free
+  # Model choice — PAID models on OpenRouter (the account is not free-tier, and the `:free` variants are heavily
+  # contended: several returned 429 or "no endpoints available" when probed on 2026-08-28).
+  #   minimax/minimax-m3   $0.30/$1.20 per MTok — 80.5% SWE-bench Verified, 1M context, 512k max output
+  #   deepseek/deepseek-v4-flash $0.09/$0.18 — the Scribe's ≤20-word job does not need more
+  #   z-ai/glm-5.2 $1.19/$3.74 — #1 open-weight on the Artificial Analysis index; fallback / quality upgrade
+  # Cost: ~$0.013 per iteration, so a full 50-iteration run is well under $1.
+  # Free models instead: --llm-profile openrouter_free   |   Claude: --llm-profile openrouter_claude
+  researcher_model: minimax/minimax-m3
+  engineer_model: minimax/minimax-m3
+  debugger_model: minimax/minimax-m3
+  scribe_model: deepseek/deepseek-v4-flash
   fallback_models:                 # tried in order when the primary is rate-limited (429) or unavailable
-    researcher: [minimax/minimax-m3:free, nvidia/nemotron-3-super-120b-a12b:free]
-    engineer:   [minimax/minimax-m3:free, nvidia/nemotron-3-super-120b-a12b:free]
-    debugger:   [minimax/minimax-m3:free, nvidia/nemotron-3-super-120b-a12b:free]
-    scribe:     [z-ai/glm-5.2:free]
+    researcher: [z-ai/glm-5.2, deepseek/deepseek-v4-flash]
+    engineer:   [z-ai/glm-5.2, deepseek/deepseek-v4-flash]
+    debugger:   [z-ai/glm-5.2, deepseek/deepseek-v4-flash]
+    scribe:     [minimax/minimax-m3]
   max_output_tokens: {researcher: 4000, engineer: 16000, debugger: 16000, scribe: 400}
   extra_headers: {HTTP-Referer: "https://github.com/", X-Title: "kuairand-research-agent"}
   max_total_tokens: 4000000        # spend guard: stop the run (finalize from best/) past this many total tokens
@@ -63,15 +62,25 @@ llm:
       provider: openrouter         # free: 20 rpm / 50 req-day (1000/day once the account has spent $10 once)
       api_key_env: OPENROUTER_API_KEY
 
-    openrouter_paid:               # same key, paid models: ~$1-2 for a full 50-iteration run, no daily cap
+    openrouter_free:               # $0 but flaky: free variants are contended (429) and some have no endpoint
+      provider: openrouter
+      api_key_env: OPENROUTER_API_KEY
+      researcher_model: minimax/minimax-m3:free
+      engineer_model: minimax/minimax-m3:free
+      debugger_model: minimax/minimax-m3:free
+      scribe_model: cohere/north-mini-code:free
+      fallback_models: {researcher: [z-ai/glm-5.2:free, minimax/minimax-m3], engineer: [z-ai/glm-5.2:free, minimax/minimax-m3],
+                        debugger: [z-ai/glm-5.2:free, minimax/minimax-m3], scribe: [minimax/minimax-m3:free, deepseek/deepseek-v4-flash]}
+
+    openrouter_glm:                # higher-quality open weights (#1 on the Artificial Analysis index), ~4x the cost
       provider: openrouter
       api_key_env: OPENROUTER_API_KEY
       researcher_model: z-ai/glm-5.2
       engineer_model: z-ai/glm-5.2
       debugger_model: z-ai/glm-5.2
-      scribe_model: minimax/minimax-m3
+      scribe_model: deepseek/deepseek-v4-flash
       fallback_models: {researcher: [minimax/minimax-m3], engineer: [minimax/minimax-m3],
-                        debugger: [minimax/minimax-m3], scribe: [z-ai/glm-5.2]}
+                        debugger: [minimax/minimax-m3], scribe: [minimax/minimax-m3]}
 
     openrouter_claude:             # same key, real Claude models (pay-as-you-go, ~$10-20 for a full run)
       provider: openrouter

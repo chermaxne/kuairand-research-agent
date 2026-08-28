@@ -105,6 +105,8 @@ class Harness:
             state = RunState(run_id=run_id, start_ts=utc_now_iso(), start_time=float(self.clock()),
                              baseline_primary=self.task.baseline_primary, config_snapshot=copy.deepcopy(self.cfg))
             state.warnings.append(f"sandbox isolation: {self._isolation_note()}")
+            from .llm_client import provider_balance
+            state.spend_start = provider_balance(self.cfg) or {}
             init_ledger(self.run_dir)
             init_interventions(self.run_dir, run_id)
             atomic_write_text(os.path.join(self.run_dir, "data_profile.md"), self.task.profile)
@@ -363,6 +365,8 @@ class Harness:
         state = self.state
         assert state is not None
         state.stop_reason = reason
+        from .llm_client import provider_balance
+        state.spend_end = provider_balance(self.cfg) or {}
         save_run_state(self.run_dir, state)
         self.log(f"\n[finalize] stop reason: {reason} — generating submission from the champion (it{state.best_iter:02d})")
         fin_dir = os.path.join(self.run_dir, "finalize")
@@ -420,6 +424,7 @@ class Harness:
                  f"- tokens: {state.tokens_total:,} total ({state.tokens_input:,} in / {state.tokens_output:,} out) over {state.llm_calls} LLM calls; by role: {json.dumps(state.tokens_by_role)}",
                  f"- wall-clock: {fmt_elapsed(state.elapsed_s(self.clock()))} (started {state.start_ts})",
                  f"- manual interventions: {state.interventions} (resumes {state.resumes}) — see interventions.md",
+                 self._spend_line(),
                  f"- submission: {'OK — ' + os.path.basename(state.finalize.get('submission', '')) + ' from it%02d' % state.finalize.get('champion_iteration', -1) if state.finalize.get('ok') else 'FAILED'} (sealed checker)",
                  f"- phase 0: random {state.phase0.get('random', {}).get('primary')}, pop {state.phase0.get('pop', {}).get('primary')}, "
                  f"official FM {state.phase0.get('official_fm', {}).get('primary')}, champion it00 {state.phase0.get('champion', {}).get('primary')}",
@@ -430,6 +435,18 @@ class Harness:
         atomic_write_text(os.path.join(self.run_dir, "results_summary.md"), text)
         return text
 
+    def _spend_line(self) -> str:
+        """Provider credit actually consumed by this run (start snapshot minus end snapshot)."""
+        s0, s1 = (self.state.spend_start or {}), (self.state.spend_end or {})
+        if s0.get("usage_usd") is None or s1.get("usage_usd") is None:
+            return f"- provider spend: not reported by this provider (models: {json.dumps(self._models())})"
+        return (f"- **provider spend: ${s1['usage_usd'] - s0['usage_usd']:.4f}** this run "
+                f"(account total ${s1['usage_usd']:.2f}, remaining ${s1.get('remaining_usd', float('nan')):.2f})")
+
+    def _models(self) -> Dict[str, str]:
+        llm = self.cfg["llm"]
+        return {r: llm[f"{r}_model"] for r in ("researcher", "engineer", "debugger", "scribe")}
+
     def _banner(self, reason: str) -> None:
         s = self.state
         assert s is not None
@@ -438,6 +455,7 @@ class Harness:
         if s.best_primary is not None:
             self.log(f"best val primary {s.best_primary:.4f} (it{s.best_iter:02d}) vs baseline {s.baseline_primary} | iterations {s.iteration} | "
                      f"tokens {s.tokens_total:,} | {fmt_elapsed(s.elapsed_s(self.clock()))} | interventions {s.interventions}")
+        self.log(self._spend_line().replace("- ", "").replace("**", ""))
         self.log(f"submission: {'OK' if s.finalize.get('ok') else 'FAILED'} | run dir: {self.run_dir}")
         self.log("=" * 78)
 
@@ -480,6 +498,7 @@ def main(argv=None) -> int:
     ap.add_argument("--env-file", default=None, help="KEY=VALUE file to load into the environment (default: <repo>/.env if present)")
     ap.add_argument("--llm-profile", default=None, help="apply llm.profiles.<name> from config (e.g. poe)")
     ap.add_argument("--llm-check", action="store_true", help="ping every configured role model with a tiny request and exit")
+    ap.add_argument("--llm-usage", action="store_true", help="print the provider's credit usage/remaining and exit")
     ap.add_argument("--llm-list-models", nargs="?", const="", default=None, metavar="FILTER",
                     help="list the model ids the configured provider serves (optionally filtered) and exit")
     a = ap.parse_args(argv)
@@ -518,6 +537,11 @@ def main(argv=None) -> int:
         except _E as e:
             print(f"could not list models: {e}", file=sys.stderr)
             return 2
+        return 0
+    if a.llm_usage:
+        from .llm_client import provider_balance
+        b = provider_balance(cfg)
+        print(json.dumps(b, indent=1) if b else f"provider {cfg['llm'].get('provider')} reports no credit endpoint")
         return 0
     if a.llm_check:
         from .llm_client import connectivity_check

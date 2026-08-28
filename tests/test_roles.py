@@ -470,5 +470,6 @@ def test_default_config_is_openrouter_and_complete(base_cfg, monkeypatch):
         assert model and llm["max_output_tokens"][role] > 0
         assert c.candidates(role, model)[0] == model and len(c.candidates(role, model)) >= 2
     assert llm["max_output_tokens"]["engineer"] >= 8000        # a full ~250-line pipeline.py must fit
-    for name in ("anthropic", "openrouter", "openrouter_paid", "openrouter_claude", "gemini", "poe"):
+    for name in ("anthropic", "openrouter", "openrouter_free", "openrouter_glm", "openrouter_claude", "gemini", "poe"):
         assert name in llm["profiles"]
+    assert not llm["researcher_model"].endswith(":free")     # the default is the paid tier (free variants are contended)

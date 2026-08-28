@@ -387,8 +387,11 @@ def connectivity_check(cfg: Dict[str, Any], roles: Sequence[str] = ("researcher"
     for r in roles:
         model = str(cfg["llm"][f"{r}_model"])
         try:
+            # reasoning models spend tokens thinking before the first visible token: don't starve the probe
+            probe_tokens = min(2000, int((cfg["llm"].get("max_output_tokens") or {}).get(role_key(r), 2000)))
             resp = client.complete(role=r, model=model, system_blocks=["You are a connectivity probe."],
-                                   messages=[{"role": "user", "content": "Reply with the single word OK."}], max_tokens=64)
+                                   messages=[{"role": "user", "content": "Reply with the single word OK."}],
+                                   max_tokens=max(512, probe_tokens))
             out.append({"role": r, "model": model, "ok": True, "reply": resp.text.strip()[:40], "served_by": resp.model,
                         "usage": resp.usage.to_dict(), "latency_s": round(resp.latency_s, 2)})
         except Exception as e:  # noqa: BLE001 - report every failure kind
@@ -405,3 +408,30 @@ def list_models(cfg: Dict[str, Any], contains: str = "") -> List[str]:
         raise LLMError(f"provider {getattr(client, 'provider', '?')} does not expose a model listing")
     ids = sorted(str(m.id) for m in inner.models.list())
     return [i for i in ids if contains.lower() in i.lower()] if contains else ids
+
+
+def provider_balance(cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Credit usage/remaining for providers that expose it (currently OpenRouter). Returns None when the
+    provider has no such endpoint or the call fails — never raises, never logs the key."""
+    llm = cfg.get("llm", {})
+    if str(llm.get("provider", "")).lower() != "openrouter":
+        return None
+    key = os.environ.get(llm.get("api_key_env", "OPENROUTER_API_KEY"), "")
+    if not key:
+        return None
+    try:
+        # reuse an SDK's HTTP stack: it ships a CA bundle, which bare urllib does not on every host
+        import httpx2 as httpx
+    except ImportError:
+        try:
+            import httpx  # type: ignore[no-redef]
+        except ImportError:
+            return None
+    try:
+        r = httpx.get("https://openrouter.ai/api/v1/auth/key", headers={"Authorization": f"Bearer {key}"}, timeout=30)
+        r.raise_for_status()
+        d = r.json().get("data", {})
+    except Exception:  # noqa: BLE001 - accounting must never break a run
+        return None
+    return {"usage_usd": d.get("usage"), "limit_usd": d.get("limit"), "remaining_usd": d.get("limit_remaining"),
+            "is_free_tier": d.get("is_free_tier")}
