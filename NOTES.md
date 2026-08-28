@@ -85,3 +85,12 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Resume verified two ways: in-process (session limit) and a real SIGKILL of the CLI mid-iteration
   (`tests/test_resume.py`). A restart is auto-recorded as an intervention (see decision 7).
 * Tests: 28 passing (`tests/test_promotion.py`, `test_ledger.py`, `test_checkpoint.py`, `test_resume.py`).
+
+### Phase 2 — sealed evaluation + Phase 0 (2026-08-28) — GATE PASSED on the real data
+* `python -m agent.harness --mock --phase0-only` on the real kit: random 0.4827 (published 0.4834), item-pop 0.5807 (0.5807),
+  organizers' FM via `submit.py --make --split valid` **0.60147**, champion `baseline_repro/pipeline.py` **0.60147**
+  (difference 0.0 → bit-for-bit reproduction of the official recipe), all inside tolerance; ≈30 s each under `sandbox-exec`.
+* `sealed/evaluate.py` verbatim (sha256 test) and `sealed/submit_check.py` wraps the kit's `submit.py --check` unchanged.
+* Tests: 40 passing, incl. §14.7 submission round-trip (kit checker on the mini dataset, NaN/Inf rejected, finalize
+  raises `FinalizeError` and writes no `submission.csv` when the champion's test predictions are poisoned; a poisoned
+  *promoted* champion falls back to the previous champion and the rejection is recorded in `run_state.json['finalize']`).

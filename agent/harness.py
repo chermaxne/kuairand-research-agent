@@ -474,6 +474,7 @@ def main(argv=None) -> int:
     ap.add_argument("--max-iters", type=int, default=None, help="override run.MAX_ITERS")
     ap.add_argument("--session-iters", type=int, default=None, help="stop this process after N iterations (resumable)")
     ap.add_argument("--set", action="append", default=[], help="override config: a.b.c=value")
+    ap.add_argument("--phase0-only", action="store_true", help="run Phase 0 (baseline reproduction + self-checks) and exit")
     a = ap.parse_args(argv)
 
     root = os.path.dirname(os.path.abspath(a.config))
@@ -494,6 +495,12 @@ def main(argv=None) -> int:
     run_dir = os.path.abspath(a.run_dir) if a.run_dir else new_run_dir(runs_dir, a.label or ("toy" if a.toy else ""))
     h = build(cfg, root, run_dir, toy=a.toy, mock=a.mock)
     try:
+        if a.phase0_only:
+            st = h.init_or_resume()
+            if st.iteration == 0 and not st.phase0.get("passed"):
+                h.phase0()
+            print(json.dumps({k: v for k, v in st.phase0.items() if k != "expected"}, indent=1, default=str))
+            return 0
         h.run(session_iteration_limit=a.session_iters)
     except (Phase0Error, FinalizeError) as e:
         print(f"\nFATAL: {e}", file=sys.stderr)
