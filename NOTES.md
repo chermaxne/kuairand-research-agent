@@ -357,6 +357,11 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   a wasted iteration costs more than a slow one, so Engineer and Debugger are V4 Flash again (reasoning effort low,
   ~2.5 min per rewrite); Qwen and Codestral remain as fallbacks and in `--llm-profile fast`. ~6 min per iteration.
 
+### Researcher → `z-ai/glm-5.2` (2026-08-29, team decision)
+* GLM-5.2 wrote the most precise plans of any model here (BPR spec with runtime budget and leakage statement in 8.8 s;
+  it can also reason for 30k characters per call). Researcher on GLM-5.2 (effort medium, ~$0.02/call), Engineer/Debugger
+  stay on V4 Flash (correctness), fallback Researcher V4 Flash. ≈ $0.03 and ~6 min per iteration.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)
