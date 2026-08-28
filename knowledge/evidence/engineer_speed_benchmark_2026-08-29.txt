@@ -1,0 +1,8 @@
+mistralai/codestral-2508           15.8s    3112 out   196.6 tok/s  $0.0028  block=True compiles=True field=True stop=end_turn
+qwen/qwen3-coder                   21.2s    3393 out   160.0 tok/s  $0.0045  block=True compiles=True field=True stop=end_turn
+qwen/qwen3-coder-next              44.4s    3878 out    87.4 tok/s  $0.0035  block=True compiles=True field=True stop=end_turn
+z-ai/glm-5.3-flash                 57.2s    3571 out    62.4 tok/s  $0.0009  block=True compiles=True field=True stop=end_turn
+deepseek/deepseek-v4-flash        145.5s    9585 out    65.9 tok/s  $0.0020  block=True compiles=True field=True stop=end_turn
+minimax/minimax-m3               FAILED after 72.5s: LLMError: all models failed for role engineer (minimax/minimax-m3): LLMError: empty response from minimax/minimax-m3 (finish_reason='length')
+SPEEDPROBE_DONE
+SPEEDPROBE_DONE

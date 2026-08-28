@@ -82,6 +82,17 @@ llm:
       fallback_models: {researcher: [z-ai/glm-5.2:free, minimax/minimax-m3], engineer: [z-ai/glm-5.2:free, minimax/minimax-m3],
                         debugger: [z-ai/glm-5.2:free, minimax/minimax-m3], scribe: [minimax/minimax-m3:free, deepseek/deepseek-v4-flash]}
 
+    fast:                          # measured 2026-08-29 on a real Engineer job (rewrite the 230-line champion pipeline):
+      provider: openrouter         # qwen3-coder 21 s / 160 tok/s / $0.0045 per call, codestral 16 s / 197 tok/s / $0.0028,
+      api_key_env: OPENROUTER_API_KEY   # deepseek-v4-flash 146 s (9.6k tokens incl. reasoning) / $0.002. ~$0.01 per iteration.
+      researcher_model: deepseek/deepseek-v4-flash    # once per iteration; its reasoning helps planning
+      engineer_model: qwen/qwen3-coder                # non-reasoning coder: the whole output budget is the file
+      debugger_model: qwen/qwen3-coder
+      scribe_model: mistralai/codestral-2508
+      reasoning: {researcher: {effort: medium}, engineer: {}, debugger: {}, scribe: {}}
+      fallback_models: {researcher: [qwen/qwen3-coder, z-ai/glm-5.3-flash], engineer: [mistralai/codestral-2508, qwen/qwen3-coder-next],
+                        debugger: [mistralai/codestral-2508, qwen/qwen3-coder-next], scribe: [qwen/qwen3-coder]}
+
     openrouter_open:               # open-weight models only (~$0.03 per iteration): the pre-Claude default
       provider: openrouter
       api_key_env: OPENROUTER_API_KEY
