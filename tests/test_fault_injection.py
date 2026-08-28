@@ -306,3 +306,13 @@ print(json.dumps(r))
     assert r["env_has_key"] is False
     if detect_isolation("auto") == "sandbox-exec":
         assert r["read"] == "PermissionError"
+
+
+def test_load_dotenv_strips_inline_comments(tmp_path, monkeypatch):
+    from agent.llm_client import load_dotenv
+    f = tmp_path / ".env"
+    f.write_text('KEY_A=abc123            # trailing comment\nKEY_B="quoted # not a comment"\nKEY_C=x#y\n')
+    for k in ("KEY_A", "KEY_B", "KEY_C"):
+        monkeypatch.delenv(k, raising=False)
+    load_dotenv(str(f))
+    assert os.environ["KEY_A"] == "abc123" and os.environ["KEY_B"] == "quoted # not a comment" and os.environ["KEY_C"] == "x#y"

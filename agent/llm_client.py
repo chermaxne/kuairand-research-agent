@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
@@ -195,6 +196,8 @@ def load_dotenv(path: str, override: bool = False) -> List[str]:
                 continue
             if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
                 val = val[1:-1]
+            else:
+                val = re.split(r"\s+#", val, maxsplit=1)[0].strip()      # drop an inline comment
             if override or key not in os.environ:
                 os.environ[key] = val
                 loaded.append(key)

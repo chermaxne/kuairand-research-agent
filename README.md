@@ -48,7 +48,7 @@ export ANTHROPIC_API_KEY=...               # needed only for real (non --mock) r
 **Using a Poe key instead** (Poe exposes the Claude bots through an Anthropic-compatible gateway at
 `https://api.poe.com`): export it as `POE_API_KEY` and add `--llm-profile poe` to every harness command.
 The profile (in `config.yaml` → `llm.profiles.poe`) switches the endpoint, the key variable and the model
-names (Poe bot handles such as `claude-opus-5`, `claude-haiku-4.5`) and sends only the core Messages API
+names (Poe bot handles such as `claude-opus-4.8`, `claude-haiku-4.5` — Poe's API did not list Opus 5 as of 2026-08-28) and sends only the core Messages API
 surface (no prompt caching, thinking, effort or beta headers — the gateway does not document them).
 
 ```bash
@@ -59,7 +59,7 @@ python -m agent.harness --llm-profile poe --label official              # the re
 ```
 `--llm-check` also works for the default Anthropic profile (`python -m agent.harness --llm-check`).
 
-**Keys in a `.env` file:** `cp .env.example .env` and fill in `POE_API_KEY=` or `ANTHROPIC_API_KEY=`. The harness
+**Keys in a `.env` file:** create `<repo>/.env` containing one line, `POE_API_KEY=...` (or `ANTHROPIC_API_KEY=...`). The harness
 loads `<repo>/.env` automatically (or `--env-file PATH`); variables already exported in the shell take precedence.
 `.env*` is gitignored, values are never printed or logged, the sandbox strips them from every experiment's
 environment, and (on macOS) experiments are denied read access to the file itself.
