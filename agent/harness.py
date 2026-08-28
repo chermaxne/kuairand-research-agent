@@ -448,6 +448,8 @@ class Harness:
 def build(cfg: Dict[str, Any], root: str, run_dir: str, *, toy: bool = False, mock: bool = False, clock=time.time, log=print,
           mock_handlers=None) -> Harness:
     task = make_task(cfg, root, toy=toy)
+    if mock and mock_handlers is None and not toy:
+        cfg.setdefault("llm", {})["mock_plan"] = "kuairand"      # offline plan of real FM edits for real-data dry runs
     client = make_client(cfg, mock_handlers=mock_handlers, force_mock=mock)
     os.makedirs(run_dir, exist_ok=True)
     roles = Roles(client, cfg, os.path.join(root, cfg["paths"]["prompts"]), os.path.join(root, cfg["paths"]["knowledge"]),

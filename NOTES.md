@@ -94,3 +94,19 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Tests: 40 passing, incl. §14.7 submission round-trip (kit checker on the mini dataset, NaN/Inf rejected, finalize
   raises `FinalizeError` and writes no `submission.csv` when the champion's test predictions are poisoned; a poisoned
   *promoted* champion falls back to the previous champion and the rejection is recorded in `run_state.json['finalize']`).
+
+### Phase 3 — real roles (2026-08-28) — GATE PASSED (offline mock; real key absent)
+* `agent/llm_client.py`: `AnthropicClient` per the current Messages API (streaming + `get_final_message()`, adaptive thinking
+  and `output_config.effort` per role from config, prompt caching on the static prefix, server-side refusal fallbacks beta,
+  typed error chain with backoff, usage read from `usage` — never estimated). Unit-tested against a fake transport; **not yet
+  exercised against the real API** (no key here — see README "needs the real key").
+* Config models: researcher/engineer/debugger `claude-opus-5`, scribe `claude-haiku-4-5` (HUMAN: verify ids). Output caps raised
+  above the spec's suggestions (4000/16000/16000/400) because adaptive-thinking tokens count against `max_tokens`.
+* Prompts (`prompts/*.md`, system + `<!-- TASK -->` template) and `knowledge/library.md` (≈1150 words: task facts, organizers'
+  measured dead ends, direction ladder, trap list, strategy rules).
+* Offline mock plan for real-data runs (`agent/stub_roles.py: kuairand_mock_handlers`): 7 concrete FM edits applied by text
+  substitution, one with an injected `NameError` so the Debugger path is exercised in dry runs.
+* Gate run `runs/20260828_175517_phase3_gate2`: Phase 0 passed, it01 K=32 → 0.6009 kept, it02 LR=0.002 → 0.4909 kept,
+  it03 patience/epochs → 0.6015 kept, converged (streak 3), submission.csv accepted by the kit checker (170,588 rows).
+* Tests: 54 passing (adds `tests/test_roles.py`: parsing, §3 assembly order, one re-ask then FAILED, token accounting,
+  Anthropic request shape without network, refusal → LLMError, key never in request).

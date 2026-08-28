@@ -277,8 +277,10 @@ class Roles:
         files = parse_file_blocks(resp.text)
         if "pipeline.py" in files:
             return files, ""
-        messages += [{"role": "assistant", "content": resp.text},
-                     {"role": "user", "content": REASK.format(error="no `=== FILE: pipeline.py ===` block with the complete file was found")}]
+        why = "no `=== FILE: pipeline.py ===` block with the complete file was found"
+        if resp.stop_reason == "max_tokens":
+            why += " (your reply was cut off at the output-token limit: keep the file compact, no commentary)"
+        messages += [{"role": "assistant", "content": resp.text}, {"role": "user", "content": REASK.format(error=why)}]
         try:
             resp2 = self._call("engineer", self._system_blocks("engineer"), messages, "engineer_reask", attempt=2)
         except LLMError as e:

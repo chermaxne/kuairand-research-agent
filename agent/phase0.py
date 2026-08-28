@@ -100,6 +100,10 @@ def run_phase0(task, run_dir: str, state: RunState, cfg: Dict[str, Any], log=pri
     files = tools.read_code_files(task.champion_src_dir)
     if tools.PIPELINE_MAIN not in files:
         raise Phase0Error(f"no {tools.PIPELINE_MAIN} in champion source dir {task.champion_src_dir}")
+    from .sandbox import static_code_check
+    violations = static_code_check(files, cfg.get("sandbox", {}))
+    if violations:
+        raise Phase0Error("champion source violates the sandbox code policy (fix the champion or the policy): " + "; ".join(violations))
     ws = os.path.join(p0, "champion_check")
     shutil.rmtree(ws, ignore_errors=True)
     tools.write_code_files(ws, files)

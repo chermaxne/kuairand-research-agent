@@ -75,7 +75,7 @@ class ResearcherPlan:
         risk = str(obj["expected_risk"]).strip().lower()
         if risk not in RISKS:
             raise ContractError(f"expected_risk must be one of {RISKS}, got {obj['expected_risk']!r}")
-        rationale = obj.get("rationale", "")
+        rationale = obj.get("rationale") or ""
         if not isinstance(rationale, str):
             rationale = json.dumps(rationale)
         return cls(hypothesis=obj["hypothesis"].strip(), category=category,
