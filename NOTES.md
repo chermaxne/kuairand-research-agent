@@ -260,6 +260,28 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   a live call showed it reasoning for 29k characters with no output after 61 s. A 50-iteration run costs tens of cents. Trade-off accepted knowingly: the cheaper coder may need the Debugger more often; the plausibility guard
   and the 3 debug attempts per iteration are the safety net.
 
+### Knowledge library rebuilt from scratch on evidence (2026-08-28)
+* Method: data analysis of the kit CSVs (`scratchpad/kb/analyze.py`), literature search (Consensus/arXiv: watch-time
+  debiasing, MMoE/PLE/ESMM, ranking losses, long-sequence models, tabular GBDT vs NN), three probe scripts measuring
+  candidate levers on the official validation split with the sealed evaluator, then an **independent adversarial
+  evaluation agent** that recomputed the data facts, ran its own experiments (pairwise loss, session-position field,
+  proper user-grouped lambdarank with out-of-fold FM score) and corrected the draft before anything was written.
+* Corrections the evaluator made: cold-start users are 1.9% not 8.9% (the draft counted rows); FM seed std is 0.0003
+  (validation user-bootstrap SE 0.0022 is the noise that matters); recency weighting is flat; GBDT loses in every form
+  even with a proper ranker and an OOF FM feature (0.5975 / ensemble 0.6009); warm-starting a pairwise loss from the
+  pointwise optimum gives nothing.
+* Headline evidence that now drives the Researcher: pairwise within-user loss from scratch +0.0013 (3/3 seeds),
+  label-free within-day position field +0.0008, seed rank-average +0.0010, **R1+R2+R3 bundled = 0.6042 (+0.0027)**,
+  the only combination measured to clear the 0.002 convergence threshold in one step. Multi-task heads (click,
+  censored watch time, both) measured flat-to-negative here because `is_click` and `long_view` are nested thresholds
+  of play time (kuairand.com definitions) and the other feedbacks are 0.1–1.9% sparse — **the team's "multi-task
+  first" priority is therefore NOT encoded; the evidence is in the file (§2, §4) so a reader can see why.**
+* Harness directive and Researcher prompt now reference the library's ranked recipes (R1–R5) instead of naming
+  directions; tests pin the ladder order and key numbers.
+* Flag for the humans: the evaluator found that fitting the final test model on train **plus validation** is worth an
+  unvalidatable ≈ +0.002–0.004, but spec §5.2 says pipelines must fit on the train split only, so it is NOT used; ask
+  the organizers whether training on validation for the final submission is permitted.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

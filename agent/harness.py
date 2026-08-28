@@ -51,13 +51,14 @@ new files, runtime well under the limit, minimal diff. State in `rationale` why 
 
 
 STRUCTURAL_DIRECTIVE = """# STRATEGY DIRECTIVE (harness policy, iteration {it} of the first {n})
-Propose MAJOR structural changes only — the kind that can plausibly move primary by >= +0.005: multi-task learning
-in its strong form (watch-time / play_time head with censoring at duration, is_click + is_like heads, gated or
-partial sharing such as MMoE/PLE), user history / sequence features (past-only, DIN-style attention over the
-user's previous items), GBDT stacking on past-only rolling features, a pairwise/listwise loss, or ensembles of
-such scorers. Hyperparameter-only proposals (learning rate, embedding size, epochs, patience, regularisation,
-batch size, bucket counts) are NOT allowed before iteration {n} unless they are a required part of a structural
-change. Stack on any earlier sub-threshold gain rather than starting from scratch."""
+Propose only changes that the knowledge library ranks as high-gain and measured (its §5 ladder: R1 pairwise
+within-user loss from scratch, R2 label-free session-context field, R3 seed rank-average, R4 past-only history
+fields, then R5 variants). In iteration 1 BUNDLE R1 + R2 + R3 exactly as the recipes state — that is the only
+combination measured to clear the +0.002 convergence threshold in one step; afterwards add ONE new element per
+iteration on top of the champion. Hyperparameter-only proposals (learning rate, embedding size, epochs, patience,
+regularisation, batch size, bucket counts) are NOT allowed before iteration {n}. Every change spec must name the
+self-check the code prints (e.g. train GAUC after epoch 1 > 0.6). Do not re-try levers the library marks as
+measured flat (auxiliary heads, GBDT, recency weighting, fine duration buckets)."""
 
 
 class FinalizeError(RuntimeError):

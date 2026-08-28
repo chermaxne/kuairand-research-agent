@@ -1,0 +1,25 @@
+FM6 (+within-day position field) seed 1                      primary=0.6027 GAUC=0.6685 nDCG5=0.5368  (21s)
+FM6 (+within-day position field) seed 2                      primary=0.6018 GAUC=0.6675 nDCG5=0.5360  (38s)
+pairs/epoch 382579 (positives of 24290 mixed train users; 0.93 of train users are mixed)
+FM5 pointwise (seed 0)                                       primary=0.6015 GAUC=0.6671 nDCG5=0.5358  (60s)
+   [warm pairwise lr1e-3] epoch 1: pair loss 0.5213 train GAUC 0.7272 valid primary 0.6012
+FM5 -> within-user pairwise fine-tune (lr 1e-3)              primary=0.6012 GAUC=0.6670 nDCG5=0.5353  (66s)
+   [warm pairwise lr3e-4] epoch 1: pair loss 0.5213 train GAUC 0.7253 valid primary 0.6016
+FM5 -> within-user pairwise fine-tune (lr 3e-4)              primary=0.6016 GAUC=0.6674 nDCG5=0.5358  (72s)
+   [warm pair+pointwise] epoch 1: pair loss 0.5213 train GAUC 0.7355 valid primary 0.6004
+FM5 -> pairwise + pointwise epochs interleaved (lr 1e-3)     primary=0.6004 GAUC=0.6658 nDCG5=0.5351  (85s)
+   [scratch pairwise] epoch 1: pair loss 0.6751 train GAUC 0.6746 valid primary 0.5941
+pairwise from scratch (lr 1e-3)                              primary=0.6034 GAUC=0.6697 nDCG5=0.5372  (96s)
+rank-avg FM5 pointwise + pairwise fine-tune (lr 3e-4)        primary=0.6015 GAUC=0.6672 nDCG5=0.5358  (96s)
+{
+ "FM6 (+within-day position field) seed 1": 0.6027,
+ "FM6 (+within-day position field) seed 2": 0.6018,
+ "FM5 pointwise (seed 0)": 0.6015,
+ "FM5 -> within-user pairwise fine-tune (lr 1e-3)": 0.6012,
+ "FM5 -> within-user pairwise fine-tune (lr 3e-4)": 0.6016,
+ "FM5 -> pairwise + pointwise epochs interleaved (lr 1e-3)": 0.6004,
+ "pairwise from scratch (lr 1e-3)": 0.6034,
+ "rank-avg FM5 pointwise + pairwise fine-tune (lr 3e-4)": 0.6015
+}
+total 96s
+EVAL_PROBE2_DONE

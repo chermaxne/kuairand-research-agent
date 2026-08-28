@@ -22,18 +22,16 @@ Prefer changes big enough to matter.
 6. Possibly a STALL RECOVERY DIRECTIVE — if present it overrides the strategy rules below.
 
 ## Strategy rules (apply in this order)
-0. **The run ends after 3 consecutive misses** (no gain > 0.002 over the best-so-far; crashes count).
-   Each proposal is therefore your single highest-expected-gain idea in its most reliable form — see the
-   knowledge library §5 (convergence arithmetic) and §6 (recipes). A previous attempt that scored
-   +0.0005..+0.002 is a signal to STACK it with the next idea, never to abandon it; a previous attempt that
-   crashed or came back inverted (GAUC < 0.5) is a good idea badly implemented — re-propose it with the fix.
-1. **Major changes before tuning.** Early iterations must be structural swings with large plausible upside
-   — multi-task learning in its strong form (watch-time + click + like heads, gated sharing), user history /
-   sequence features, GBDT stacking, a ranking loss, ensembles — in the order of the knowledge library's
-   ladder (§3) and recipes (§6). Hyperparameter-only proposals are not allowed while the briefing carries
-   a STRATEGY DIRECTIVE, and are a last resort afterwards: they cannot clear +0.002 and do not reset the
-   streak. Read the organizers' own findings (features/capacity alone do NOT help; user-only features are
-   ranking no-ops).
+0. **The run ends after 3 consecutive misses** (no gain > 0.002 over the best-so-far; crashes count). Each
+   proposal is therefore your highest-expected-gain idea in its most reliable form. The knowledge library's
+   §4 table is MEASURED on this exact validation split: use it. A previous attempt that scored
+   +0.0005..+0.002 is a signal to STACK it with the next lever, never to abandon it; a crashed or inverted
+   attempt (GAUC < 0.5) is a good idea badly implemented — re-propose it with the fix.
+1. **Evidence before folklore.** Follow the library's ladder (§5): R1 pairwise loss → R2 session field →
+   R3 seed averaging → R4 history fields → R5 variants, bundling R1+R2+R3 first. Do not spend iterations on
+   levers the table marks flat (auxiliary heads, GBDT, recency weighting, duration buckets, capacity/LR/L2).
+   Hyperparameter-only proposals are not allowed while the briefing carries a STRATEGY DIRECTIVE and are a
+   last resort afterwards.
 2. **Refine winners mid-run**: once a direction promoted, push it (its next obvious variant) before
    switching. Combine two proven winners when both promoted.
 3. **When the flat streak is ≥ 2**, propose the single most reliable promising idea you have —

@@ -1,0 +1,215 @@
+{
+ "rows": {
+  "train": 1141112,
+  "test": 170588,
+  "valid": 124909
+ },
+ "train_rates": {
+  "is_click": 0.4634,
+  "is_like": 0.0187,
+  "is_follow": 0.001,
+  "is_comment": 0.0026,
+  "is_forward": 0.001,
+  "is_hate": 0.0004,
+  "long_view": 0.3366,
+  "is_profile_enter": 0.0254
+ },
+ "valid_rates": {
+  "is_click": 0.4438,
+  "is_like": 0.018,
+  "is_follow": 0.0013,
+  "is_comment": 0.0023,
+  "is_forward": 0.0008,
+  "is_hate": 0.0006,
+  "long_view": 0.3133,
+  "is_profile_enter": 0.0195
+ },
+ "long_view_vs_play": {
+  "pos_ratio_min": 0.0168,
+  "pos_play_ms_min": 5055,
+  "neg_ratio_max": 0.9987,
+  "neg_play_ms_max": 17999,
+  "pos_ratio_p01_p50": [
+   0.081,
+   0.977
+  ],
+  "neg_ratio_p50_p99": [
+   0.031,
+   0.853
+  ],
+  "rule_ratio>=0.5_agree": 0.8825,
+  "rule_play>=18s_agree": 0.9661,
+  "rule_play>=18s_or_ratio>=0.5_agree": 0.9693,
+  "rule_ratio>=0.5_short_or_18s_long_agree": 0.9693
+ },
+ "duration_ms_quantiles": {
+  "0.1": 11633,
+  "0.5": 70233,
+  "0.9": 235766,
+  "0.99": 420483
+ },
+ "play_time_ms_quantiles": {
+  "0.1": 0,
+  "0.5": 4970,
+  "0.9": 69776,
+  "0.99": 213231
+ },
+ "play_ratio_censored_share_train": 0.1556,
+ "long_view_rate_by_duration_quintile": {
+  "(4999.999, 21383.0]": 0.304,
+  "(21383.0, 52200.0]": 0.359,
+  "(52200.0, 93160.0]": 0.362,
+  "(93160.0, 162816.0]": 0.358,
+  "(162816.0, 1177720.0]": 0.328
+ },
+ "users": {
+  "train": 26210,
+  "valid": 22377,
+  "valid_not_in_train": 1990
+ },
+ "videos": {
+  "train": 7538,
+  "valid": 5951,
+  "valid_rows_with_video_unseen_in_train": 0.0001
+ },
+ "train_impressions_per_user": {
+  "median": 31,
+  "p10": 5,
+  "p90": 97,
+  "max": 809
+ },
+ "train_impressions_per_video": {
+  "median": 44,
+  "p10": 7,
+  "p90": 369,
+  "max": 9110
+ },
+ "valid_impressions_per_user": {
+  "median": 4,
+  "p10": 1,
+  "p90": 12
+ },
+ "valid_user_composition": {
+  "all_negative": 0.303,
+  "all_positive": 0.119,
+  "mixed": 0.578
+ },
+ "corr_user_train_rate_vs_valid_rate": 0.414,
+ "corr_video_train_rate_vs_valid_rate_(n>=20)": 0.86,
+ "tab_share_train": {
+  "1": 0.732,
+  "0": 0.131,
+  "4": 0.066,
+  "2": 0.034,
+  "6": 0.026,
+  "3": 0.003
+ },
+ "long_view_rate_by_tab": {
+  "0": 0.042,
+  "1": 0.386,
+  "2": 0.381,
+  "3": 0.004,
+  "4": 0.489,
+  "5": 0.17
+ },
+ "long_view_rate_by_hour_minmax": [
+  0.318,
+  0.376
+ ],
+ "long_view_rate_by_date": {
+  "20220409": 0.336,
+  "20220410": 0.341,
+  "20220411": 0.333,
+  "20220412": 0.332,
+  "20220413": 0.317,
+  "20220414": 0.319,
+  "20220415": 0.363,
+  "20220416": 0.377,
+  "20220417": 0.364,
+  "20220418": 0.331,
+  "20220419": 0.323,
+  "20220420": 0.311,
+  "20220421": 0.315,
+  "20220422": 0.319,
+  "20220423": 0.338,
+  "20220424": 0.303,
+  "20220425": 0.312,
+  "20220426": 0.311,
+  "20220427": 0.297,
+  "20220428": 0.29,
+  "20220429": 0.301,
+  "20220430": 0.324,
+  "20220501": 0.318,
+  "20220502": 0.321,
+  "20220503": 0.317,
+  "20220504": 0.314,
+  "20220505": 0.301,
+  "20220506": 0.296,
+  "20220507": 0.308,
+  "20220508": 0.323
+ },
+ "is_rand_share_standard_log": 0.0,
+ "p_long_view_given_click": 0.723,
+ "p_long_view_given_noclick": 0.003,
+ "p_long_view_given_like": 0.676,
+ "corr_click_longview": 0.76,
+ "valid_rows_with_same_user_video_pair_in_train": 0.0162,
+ "video_basic_cols": [
+  "video_id",
+  "author_id",
+  "video_type",
+  "upload_dt",
+  "upload_type",
+  "visible_status",
+  "video_duration",
+  "server_width",
+  "server_height",
+  "music_id",
+  "music_type",
+  "tag"
+ ],
+ "video_stat_cols_head": [
+  "video_id",
+  "counts",
+  "show_cnt",
+  "show_user_num",
+  "play_cnt",
+  "play_user_num",
+  "play_duration",
+  "complete_play_cnt",
+  "complete_play_user_num",
+  "valid_play_cnt",
+  "valid_play_user_num",
+  "long_time_play_cnt"
+ ],
+ "video_stat_show_cnt_vs_train_impressions_corr": 0.881,
+ "video_stat_counts_days_median": 147,
+ "video_upload_dt_range": [
+  "2022-04-09",
+  "2022-04-11"
+ ],
+ "user_feature_cols": [
+  "user_id",
+  "user_active_degree",
+  "is_lowactive_period",
+  "is_live_streamer",
+  "is_video_author",
+  "follow_user_num",
+  "follow_user_num_range",
+  "fans_user_num",
+  "fans_user_num_range",
+  "friend_user_num",
+  "friend_user_num_range",
+  "register_days",
+  "register_days_range",
+  "onehot_feat0"
+ ],
+ "videos_total": 7583,
+ "authors": 6510,
+ "random_log_valid_period": {
+  "rows": 288338,
+  "users": 19091,
+  "long_view_rate": 0.0806
+ },
+ "elapsed_s": 3.8
+}

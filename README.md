@@ -89,9 +89,15 @@ Other providers (`--llm-profile <name>`, key in `.env`):
 .venv/bin/python -m agent.harness --max-iters 1 --label smoke
 ```
 Research strategy knobs (`config.yaml` → `run`): `structural_first_until_iter: 10` injects a briefing directive
-that allows only major structural changes (strong multi-task with a watch-time head, history/sequence features,
-GBDT stacking, ranking losses, ensembles) for the first 10 iterations — no hyperparameter-only proposals; and
-`implausible_gauc_below: 0.5` gives the Debugger one pass at a scored-but-inverted ranking before it counts.
+that restricts the first 10 iterations to the knowledge library's measured, ranked recipes (pairwise within-user
+loss, session-context field, seed averaging, past-only history fields — bundled first) and forbids
+hyperparameter-only proposals; `implausible_gauc_below: 0.5` gives the Debugger one pass at a scored-but-inverted
+ranking before it counts.
+
+**The knowledge library is evidence, not folklore.** `knowledge/library.md` was built from a data analysis of the
+kit, a literature review, and probe experiments scored on the official validation split with the sealed evaluator,
+then audited by an independent evaluation agent that recomputed the facts and ran its own experiments. Every
+number in it is reproducible from `knowledge/evidence/`.
 
 Model handles move fast; if `--llm-check` reports an unknown model, `--llm-list-models` shows what the key serves
 and you edit `config.yaml`. Every role also has a fallback list, so a rate-limited or delisted primary does not

@@ -1,0 +1,22 @@
+   best epoch 7
+pairwise from scratch, 5 fields, seed 1                      primary=0.6026 GAUC=0.6690 nDCG5=0.5363  (19s)
+   best epoch 7
+pairwise from scratch, 5 fields, seed 2                      primary=0.6027 GAUC=0.6693 nDCG5=0.5362  (31s)
+   best epoch 4
+pairwise from scratch, 5 fields + position field, seed 0     primary=0.6038 GAUC=0.6704 nDCG5=0.5372  (41s)
+   best epoch 8
+pairwise from scratch, 5 fields + position field, seed 1     primary=0.6039 GAUC=0.6703 nDCG5=0.5375  (56s)
+rank-avg pairwise 5-field seeds 1,2                          primary=0.6028 GAUC=0.6695 nDCG5=0.5361  (57s)
+rank-avg pairwise 6-field seeds 0,1                          primary=0.6042 GAUC=0.6708 nDCG5=0.5376  (57s)
+rank-avg all four pairwise models                            primary=0.6040 GAUC=0.6709 nDCG5=0.5371  (57s)
+{
+ "pairwise from scratch, 5 fields, seed 1": 0.6026,
+ "pairwise from scratch, 5 fields, seed 2": 0.6027,
+ "pairwise from scratch, 5 fields + position field, seed 0": 0.6038,
+ "pairwise from scratch, 5 fields + position field, seed 1": 0.6039,
+ "rank-avg pairwise 5-field seeds 1,2": 0.6028,
+ "rank-avg pairwise 6-field seeds 0,1": 0.6042,
+ "rank-avg all four pairwise models": 0.604
+}
+total 57s
+EVAL_PROBE3_DONE

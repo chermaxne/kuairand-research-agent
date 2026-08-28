@@ -1,0 +1,33 @@
+features ready 7s; train 1141112 valid 124909
+FM5 baseline fields (seed 0)                                   primary=0.6015 GAUC=0.6671 nDCG5=0.5358  (28s)
+FM6 = FM5 + within-day position bucket                         primary=0.6028 GAUC=0.6689 nDCG5=0.5367  (49s)
+FM7 = FM5 + day-pos + session-pos + fine duration (0/7/18s)    primary=0.6013 GAUC=0.6670 nDCG5=0.5355  (69s)
+FM5 + fine duration bucket only                                primary=0.6013 GAUC=0.6662 nDCG5=0.5363  (89s)
+FM5 trained on is_click (scored on long_view)                  primary=0.5831 GAUC=0.6420 nDCG5=0.5243  (110s)
+rank-avg FM5(long_view) + FM5(is_click)                        primary=0.5953 GAUC=0.6584 nDCG5=0.5321  (110s)
+rank-avg FM5 + FM7                                             primary=0.6018 GAUC=0.6678 nDCG5=0.5358  (110s)
+FM5 trained on week 1 only                                     primary=0.5981 GAUC=0.6623 nDCG5=0.5339  (127s)
+LGBM lambdarank(user) past-only feats + session feats, no FM   primary=0.5922 GAUC=0.6547 nDCG5=0.5296  (132s)
+   top feats: [(np.int32(1763), 'gap_min'), (np.int32(1547), 'ut_rate'), (np.int32(1524), 'duration_ms'), (np.int32(1266), 'ut_n'), (np.int32(1245), 'v_rate'), (np.int32(1150), 'au_rate'), (np.int32(1147), 'tag_rate'), (np.int32(1143), 'tag_n')]
+   rank-avg FM5 + ranker(no FM)                                primary=0.5999 GAUC=0.6651 nDCG5=0.5346  (132s)
+LGBM lambdarank(user) same + OOF FM score                      primary=0.5975 GAUC=0.6620 nDCG5=0.5330  (138s)
+   top feats: [(np.int32(1709), 'fm_oof'), (np.int32(1586), 'ut_rate'), (np.int32(1499), 'gap_min'), (np.int32(1333), 'duration_ms'), (np.int32(1155), 'ut_n'), (np.int32(1111), 'v_n'), (np.int32(1085), 'tag_rate'), (np.int32(1060), 'v_rate')]
+   rank-avg FM5 + ranker(with FM)                              primary=0.6009 GAUC=0.6664 nDCG5=0.5353  (138s)
+LGBM logloss same feats + OOF FM score                         primary=0.6000 GAUC=0.6653 nDCG5=0.5346  (142s)
+{
+ "FM5 baseline fields (seed 0)": 0.6015,
+ "FM6 = FM5 + within-day position bucket": 0.6028,
+ "FM7 = FM5 + day-pos + session-pos + fine duration (0/7/18s)": 0.6013,
+ "FM5 + fine duration bucket only": 0.6013,
+ "FM5 trained on is_click (scored on long_view)": 0.5831,
+ "rank-avg FM5(long_view) + FM5(is_click)": 0.5953,
+ "rank-avg FM5 + FM7": 0.6018,
+ "FM5 trained on week 1 only": 0.5981,
+ "LGBM lambdarank(user) past-only feats + session feats, no FM": 0.5922,
+ "   rank-avg FM5 + ranker(no FM)": 0.5999,
+ "LGBM lambdarank(user) same + OOF FM score": 0.5975,
+ "   rank-avg FM5 + ranker(with FM)": 0.6009,
+ "LGBM logloss same feats + OOF FM score": 0.6
+}
+total 142s
+EVAL_PROBE_DONE

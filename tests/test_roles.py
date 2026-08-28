@@ -629,7 +629,7 @@ def test_structural_directive_in_early_briefings_only(tmp_path, base_cfg, mini_d
     assert "STRATEGY DIRECTIVE" in briefings[0] and "iteration 1 of the first 2" in briefings[0]
     assert "STRATEGY DIRECTIVE" in briefings[1]
     assert "STRATEGY DIRECTIVE" not in briefings[2]
-    assert "watch-time" in briefings[0] and "NOT allowed before iteration 2" in briefings[0]
+    assert "R1 + R2 + R3" in briefings[0] and "NOT allowed before iteration 2" in briefings[0]
 
 
 def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
@@ -639,5 +639,7 @@ def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
     for role in ("researcher", "engineer", "debugger", "scribe"):          # initial phase: no Claude-priced model anywhere
         assert not any("claude" in m for m in [llm[f"{role}_model"]] + llm["fallback_models"][role])
     lib = open(os.path.join(ROOT, "knowledge", "library.md")).read()
-    assert lib.index("Multi-task learning, in its STRONG form") < lib.index("Hyperparameter tuning")
-    assert "watch-time head" in lib and "censored" in lib
+    assert lib.index("R1. Pairwise within-user loss") < lib.index("R6. Multi-task")      # evidence-ranked ladder
+    for must in ("0.6042", "Leave-one-out target", "1.9% of valid users", "bootstrap standard error",
+                 "train GAUC after epoch 1", "video_features_statistic_pure.csv"):
+        assert must in lib, must

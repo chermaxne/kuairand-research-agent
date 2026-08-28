@@ -1,0 +1,27 @@
+FM seed 0                                        primary=0.6015 GAUC=0.6671 nDCG5=0.5358  (29s)
+FM seed 1                                        primary=0.6018 GAUC=0.6674 nDCG5=0.5361  (45s)
+FM seed 2                                        primary=0.6011 GAUC=0.6671 nDCG5=0.5351  (67s)
+FM seed 3                                        primary=0.6015 GAUC=0.6675 nDCG5=0.5355  (88s)
+FM seed 4                                        primary=0.6020 GAUC=0.6679 nDCG5=0.5361  (110s)
+FM 3-seed rank-average                           primary=0.6021 GAUC=0.6680 nDCG5=0.5363  (111s)
+FM 5-seed rank-average                           primary=0.6026 GAUC=0.6689 nDCG5=0.5364  (111s)
+FM 5-seed logit-average                          primary=0.6021 GAUC=0.6682 nDCG5=0.5360  (112s)
+FM recency-weighted tau=5d (seed 0)              primary=0.6010 GAUC=0.6665 nDCG5=0.5355  (134s)
+FM recency-weighted tau=10d (seed 0)             primary=0.6018 GAUC=0.6677 nDCG5=0.5359  (156s)
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-ckwang-Documents-TechJam-kuairand-starter-kit/afbb0d1b-da0b-4c92-b210-73859310e750/scratchpad/kb/probe3.py", line 54, in <module>
+    print(json.dumps(res)); print("PROBE3_DONE")
+          ^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/json/__init__.py", line 231, in dumps
+    return _default_encoder.encode(obj)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/json/encoder.py", line 200, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/json/encoder.py", line 258, in iterencode
+    return _iterencode(o, 0)
+           ^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/json/encoder.py", line 180, in default
+    raise TypeError(f'Object of type {o.__class__.__name__} '
+TypeError: Object of type float32 is not JSON serializable
+PROBE3_DONE

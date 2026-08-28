@@ -1,0 +1,13 @@
+global tab rate (train)                              primary=0.5399 GAUC=0.5789 nDCG5=0.5008
+user x tab rate (train-only, not cumulative)         primary=0.5213 GAUC=0.5545 nDCG5=0.4882
+valid users with >1 tab: 0.398 | valid rows in tab-1: 0.742
+LightGBM lambdarank (user groups), LOO item/user x item feats primary=0.4699 GAUC=0.4812 nDCG5=0.4586
+LightGBM logloss, same feats (no user-constant feats) primary=0.4525 GAUC=0.4556 nDCG5=0.4495
+feature importance (ranker): [(np.int32(15744), 'tag_rate'), (np.int32(2284), 'v_rate'), (np.int32(2106), 'au_rate'), (np.int32(1452), 'duration_ms'), (np.int32(1343), 'ut_rate'), (np.int32(744), 'utag_rate'), (np.int32(499), 'hour'), (np.int32(416), 'tab'), (np.int32(212), 'ua_rate')]
+multi-task FM control: no aux heads (best ep 7)      primary=0.6015 GAUC=0.6671 nDCG5=0.5358
+multi-task FM + is_click head w=0.3 (best ep 8)      primary=0.6016 GAUC=0.6668 nDCG5=0.5364
+multi-task FM + censored watch-time head w=0.5 (best ep 13) primary=0.6001 GAUC=0.6655 nDCG5=0.5347
+multi-task FM + click 0.3 + watch-time 0.5 (best ep 12) primary=0.6007 GAUC=0.6663 nDCG5=0.5351
+{"global tab rate (train)": 0.5399, "user x tab rate (train-only, not cumulative)": 0.5213, "LightGBM lambdarank (user groups), LOO item/user x item feats": 0.4699, "LightGBM logloss, same feats (no user-constant feats)": 0.4525, "multi-task FM control: no aux heads (best ep 7)": 0.6015, "multi-task FM + is_click head w=0.3 (best ep 8)": 0.6016, "multi-task FM + censored watch-time head w=0.5 (best ep 13)": 0.6001, "multi-task FM + click 0.3 + watch-time 0.5 (best ep 12)": 0.6007}
+total 159s
+PROBE2_DONE

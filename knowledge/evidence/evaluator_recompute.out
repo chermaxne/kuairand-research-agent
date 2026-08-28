@@ -1,0 +1,50 @@
+/Users/ckwang/Documents/TechJam/kuairand-starter-kit/.venv/lib/python3.12/site-packages/numpy/lib/_function_base_impl.py:4608: RuntimeWarning: invalid value encountered in subtract
+  diff_b_a = b - a
+load 1.2s  train rows 1141112  valid rows 124909
+A1 videos(basic file) 7583 authors 6510 train users 26210 train videos 7538
+A1 train imp/video median,p90,max 44.0 369.0 9110
+A1 train imp/user median,p90,max 31.0 97.0 809
+A1 valid imp/user median,p10,p90,max 4.0 1.0 12.0 74 | users with 1 impression: 0.175 | valid users 22377
+A2 valid users unseen in train 422 / 22377 0.019 | rows of cold users 0.016
+A2 valid rows with unseen video 0.0001
+A2 valid rows whose (user,video) pair is in train 0.0162
+A3 upload_dt range 2022-04-09 2022-04-11 n distinct 3
+A4 train rates {'is_click': 0.4634, 'long_view': 0.3366, 'is_like': 0.0187, 'is_profile_enter': 0.0254, 'is_comment': 0.0026, 'is_follow': 0.001, 'is_forward': 0.001, 'is_hate': 0.0004}
+A4 valid rates {'is_click': 0.4438, 'long_view': 0.3133, 'is_like': 0.018, 'is_profile_enter': 0.0195, 'is_comment': 0.0023, 'is_follow': 0.0013, 'is_forward': 0.0008, 'is_hate': 0.0006}
+A4 daily lv rate {20220409: 0.336, 20220410: 0.341, 20220411: 0.333, 20220412: 0.332, 20220413: 0.317, 20220414: 0.319, 20220415: 0.363, 20220416: 0.377, 20220417: 0.364, 20220418: 0.331, 20220419: 0.323, 20220420: 0.311, 20220421: 0.315} {20220422: 0.319, 20220423: 0.338, 20220424: 0.303, 20220425: 0.312, 20220426: 0.311, 20220427: 0.297, 20220428: 0.29}
+A5 corr video train rate vs valid rate (n>=20 both) 0.86 n videos 1495
+A5 corr (n_tr>=20 only) 0.588
+A5 corr user train rate vs valid rate (all) 0.414 | n_tr>=20 & n_va>=5: 0.612
+A6 valid users all-neg 0.303 all-pos 0.119 mixed 0.578
+A6 rows in mixed users 0.789 | oracle primary = (1 + (1-all_neg))/2 = 0.8484
+A7 tab share train {1: 0.732, 0: 0.131, 4: 0.066, 2: 0.034, 6: 0.026, 3: 0.003, 5: 0.003, 8: 0.002, 12: 0.001, 11: 0.0, 7: 0.0, 13: 0.0, 9: 0.0, 10: 0.0, 14: 0.0}
+A7 lv rate by tab train {0: 0.042, 1: 0.386, 2: 0.381, 3: 0.004, 4: 0.489, 5: 0.17, 6: 0.087, 7: 0.213, 8: 0.018, 9: 0.167, 10: 0.612, 11: 0.115, 12: 0.096, 13: 0.18, 14: 0.0}
+A7 lv rate by tab valid {0: 0.035, 1: 0.356, 2: 0.357, 3: 0.006, 4: 0.459, 5: 0.103, 6: 0.096, 7: 0.202, 8: 0.022, 9: 0.152, 10: 0.667, 11: 0.14, 12: 0.133, 13: 0.368, 14: 0.2}
+A7 valid users with >1 tab 0.398 | valid users with >1 tab among MIXED users 0.513
+A8 duration quantiles p10/p50/p90 {0.1: 11633.0, 0.5: 70233.0, 0.9: 235766.0}
+A8 lv by duration quintile [0.277, 0.357, 0.361, 0.36, 0.328]
+A8 complete plays train 0.1734 | rows with duration<=18s 0.1775 lv rate there 0.276 | lv rate duration>18s 0.35
+A8 lv rate by finer duration bins {Interval(0.0, 7.0, closed='right'): 0.497, Interval(7.0, 10.0, closed='right'): 0.327, Interval(10.0, 15.0, closed='right'): 0.279, Interval(15.0, 18.0, closed='right'): 0.246, Interval(18.0, 25.0, closed='right'): 0.324, Interval(25.0, 40.0, closed='right'): 0.359, Interval(40.0, 60.0, closed='right'): 0.359, Interval(60.0, 120.0, closed='right'): 0.367, Interval(120.0, 300.0, closed='right'): 0.336, Interval(300.0, 100000.0, closed='right'): 0.314}
+A9 lv by hour min/max [0.318, 0.376]
+A10 corr(show_cnt, train impressions) 0.881 | counts median 147.0 counts range 45 181
+A11 random log rows 288338 users 19091 lv rate 0.0806 dates 20220422 20220428 | is_rand share 1.0 | random users also in valid std log 0.9
+A12 is_rand share standard log 0.0 0.0
+B1 rule(log duration_ms) agreement 0.9781 | max play_time among negatives 17999 | min play among positives 5055
+B1 rule(feature-file video_duration) agreement 0.9976 | duration_ms==video_duration share 0.9789
+B1 disagreements: n 25036 label dist {0: 22348, 1: 2688} | duration<=18s share among disagreements 1.0 | play/duration ratio quantiles [0.99, nan, nan]
+B2 click rule agreement 0.9646 | P(lv|click) 0.723 P(lv|noclick) 0.0026 corr 0.76
+B2 P(lv|like) 0.676 P(lv|profile_enter) 0.764 P(like|lv) 0.0375
+X random scores                                 primary=0.4827 GAUC=0.4990 nDCG5=0.4663
+X constant score (file order tie-break)         primary=0.4837 GAUC=0.5000 nDCG5=0.4673
+X earlier-in-time first (-time_ms)              primary=0.4947 GAUC=0.5160 nDCG5=0.4733
+X later-in-time first (+time_ms)                primary=0.4741 GAUC=0.4840 nDCG5=0.4641
+X video train rate (prior 20)                   primary=0.5807 GAUC=0.6387 nDCG5=0.5227
+X video TRAIN impression count                  primary=0.5112 GAUC=0.5396 nDCG5=0.4829
+X video VALID-period impression count (transductive) primary=0.4973 GAUC=0.5189 nDCG5=0.4757
+X -duration_ms                                  primary=0.4911 GAUC=0.5140 nDCG5=0.4683
+X +duration_ms                                  primary=0.4730 GAUC=0.4860 nDCG5=0.4599
+X tab==1 indicator                              primary=0.5172 GAUC=0.5460 nDCG5=0.4883
+X lv rate by within-day position (valid): [0.339, 0.305, 0.289, 0.265, 0.275, 0.248, 0.25, 0.198, 0.251, 0.175]
+X lv rate by #impressions that user-day (valid): [0.358, 0.319, 0.307, 0.289, 0.283, 0.277, 0.265, 0.236, 0.27, 0.232]
+X -pos_in_day (first impressions first)         primary=0.4942 GAUC=0.5156 nDCG5=0.4729
+done 5s
