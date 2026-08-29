@@ -510,6 +510,17 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   `provider: {sort: throughput, allow_fallbacks: true}` in `llm.extra_body` — OpenRouter then picks the backend with the
   highest current tokens/s per request. Price impact: cents per million tokens. Applies to all OpenRouter profiles.
 
+### Convergence reading switched to `window` (2026-08-29, run ten10)
+* Run `20260829_104603_ten10` promoted it02 (ListNet loss, +0.0016) and it03 (session-position field + seed averaging,
+  +0.0014; leak test clean at 0.6058 on flipped users) and then stopped as "converged" after 18 minutes: under the
+  per-iteration reading each gain is < EPSILON=0.002, so two consecutive PROMOTIONS ticked the streak to 3.
+* Default is now `run.streak_mode: window`: converged when the best score has not improved by > EPSILON over the best
+  N_FLAT=3 iterations ago (standard early stopping; matches spec §2.5's prose). The same history gives streak 1, so
+  the run continues. The per-iteration reading (spec §6 pseudocode) remains available via
+  `--set run.streak_mode=iteration`. Organizers' question stays open (§7).
+* Resume recomputes the streak from `best_history` under the configured mode, so a run that converged under the old
+  reading can be resumed: `python -m agent.harness --run-dir runs/20260829_104603_ten10 --max-iters 10`.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

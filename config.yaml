@@ -200,10 +200,13 @@ run:
   one_change_per_iteration: true   # attribution: every iteration changes exactly ONE thing on top of the champion, so the
                                    # measured delta is attributable. The harness exempts iteration 1 and the last shot
                                    # before convergence, where a single +0.001-class lever cannot clear EPSILON.
-  streak_mode: iteration           # iteration = spec §6 pseudocode (each iteration vs the champion at its start; three
-                                   # +0.001 promotions in a row still converge). window = spec §2.5 prose / kit README /
-                                   # standard early stopping (best score vs the best N iterations ago, so stacked small
-                                   # gains keep the run alive). HUMANS: ask the organizers which reading applies.
+  streak_mode: window              # window = spec §2.5 prose "no improvement > EPSILON over N consecutive iterations" read
+                                   # cumulatively / kit README / standard early stopping: converged when the best score
+                                   # has not improved by > EPSILON over the best N_FLAT iterations ago. iteration = spec §6
+                                   # pseudocode (each iteration vs the champion at its start), under which run ten10
+                                   # (2026-08-29) "converged" while PROMOTING two iterations in a row (+0.0016, +0.0014;
+                                   # +0.003 over the window). HUMANS: confirm the reading with the organizers; switch back
+                                   # with --set run.streak_mode=iteration if they read §6 literally.
   # Briefing depth: the context window is ~1M tokens and a briefing costs ~6k, so detail is nearly free. The Researcher
   # gets the full hypothesis, change spec, rationale, code diff and training curve of the last N iterations, so it can
   # tell WHICH component of a bundled change worked and decide whether to continue it.

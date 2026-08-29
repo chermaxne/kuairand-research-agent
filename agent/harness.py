@@ -146,6 +146,19 @@ class Harness:
             append_intervention(self.run_dir, what_stuck=f"harness process ended after iteration {state.iteration} (stop_reason={state.stop_reason})",
                                 what_done="harness restarted and resumed from run_state.json", scope="resume (auto-recorded)")
             state = load_run_state(self.run_dir)
+            if str(self.run_cfg.get("streak_mode", "iteration")) == "window" and state.best_history:
+                # the streak is a pure function of the score history, so a config change of the convergence reading
+                # applies to a resumed run too (a run that "converged" under the per-iteration reading can continue)
+                from .promotion import window_streak
+                if len(state.best_history) == state.iteration:     # run written before the it00 seed existed
+                    state.best_history.insert(0, state.best_history[0])
+                recomputed = window_streak(state.best_history, self.limits.n_flat, self.limits.epsilon)
+                if recomputed != state.streak:
+                    self.log(f"[harness] streak recomputed under streak_mode=window: {state.streak} -> {recomputed}")
+                    state.streak = recomputed
+                    if state.stop_reason == "converged" and recomputed < self.limits.n_flat:
+                        state.stop_reason = None
+                    save_run_state(self.run_dir, state)
             partial = self.iteration_dir(state.iteration + 1)
             if os.path.exists(partial):
                 os.rename(partial, partial + f"_partial_{int(self.clock())}")
@@ -332,6 +345,8 @@ class Harness:
         if dec.promoted:
             install_champion(self.run_dir, files, os.path.join(ws, tools.PREDS_VAL), score, it, ws)
             state.best_primary, state.best_gauc, state.best_ndcg5, state.best_iter = score.primary, score.gauc, score.ndcg5, it
+        if not state.best_history:
+            state.best_history.append(best_at_start)          # seed: the it00 champion, so the window counts iterations
         state.best_history.append(dec.best_primary_after)
         if str(self.run_cfg.get("streak_mode", "iteration")) == "window":
             from .promotion import window_streak

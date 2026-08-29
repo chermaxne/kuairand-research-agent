@@ -140,3 +140,15 @@ def test_window_streak_matches_iteration_mode_on_a_flat_run():
     from agent.promotion import window_streak
     flat = [0.6015] * 5
     assert window_streak(flat, n_flat=3, epsilon=0.002) == 3
+
+
+def test_window_streak_run_ten10_two_promotions_in_a_row_does_not_converge():
+    """Run 20260829_104603_ten10: it02 +0.0016 and it03 +0.0014 were both PROMOTED yet the per-iteration reading
+    declared convergence (each gain < EPSILON). Under the window reading the run stays alive (+0.003 over the window)."""
+    from agent.promotion import next_streak, window_streak
+    best = [0.6015, 0.6015, 0.6031, 0.6045]           # champion after it00..it03
+    s = 0
+    for prev, cur in zip(best, best[1:]):
+        s = next_streak(cur, prev, s, 0.002)
+    assert s == 3                                      # iteration reading: converged
+    assert window_streak(best, n_flat=3, epsilon=0.002) == 1 < 3   # window reading: continue
