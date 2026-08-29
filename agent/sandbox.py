@@ -150,12 +150,14 @@ def run_command(cmd: List[str], workspace: str, timeout_s: float, env: Dict[str,
 
 def run_pipeline(workspace: str, data_dir: str, split: str, out_name: str, timeout_s: float, sandbox_cfg: Dict,
                  pythonpath: Sequence[str] = (), deny_read: Sequence[str] = (), python: Optional[str] = None,
-                 log_prefix: str = "") -> SandboxResult:
+                 log_prefix: str = "", extra_env: Optional[Dict[str, str]] = None) -> SandboxResult:
     """Spec §5.2 invocation: python pipeline.py --data <dir> --split <val|test> --out <preds.csv>."""
     py = python or sandbox_cfg.get("python") or sys.executable
     isolation = detect_isolation(sandbox_cfg.get("isolation", "auto"))
     cmd = [py, "pipeline.py", "--data", os.path.realpath(data_dir), "--split", split, "--out", out_name]
     env = make_env(sandbox_cfg, pythonpath)
+    for k, v in (extra_env or {}).items():      # harness-owned variables (e.g. the pipeline's time budget)
+        env[str(k)] = str(v)
     return run_command(cmd, workspace, timeout_s, env, isolation=isolation, deny_read=deny_read, log_prefix=log_prefix)
 
 

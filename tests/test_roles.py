@@ -810,3 +810,7 @@ def test_digest_is_deterministic_and_never_llm_authored_except_lessons():
     assert "| it02 | training | loss Y (full) | n/a | n/a | failed | failed: ValueError: boom | — | crashed |" in d
     assert "promoted 1 (it01)" in d and "never attempted: model, multitask, other" in d
     assert research_digest(hist, lambda n: details[n]) == d
+
+
+# ---------------------------------------------------------------- reasoning stream + full plan on the console (2026-08-29)
+
