@@ -558,6 +558,25 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   `best_measured` still updates. Team decision: default 0.005 (the re-run fires only for jumps larger than any
   honest single lever measured here); my recommendation of 0.0 is on record, one flag away.
 
+### "Structural" made explicit; literature location; full Researcher output on the console (2026-08-29)
+* The spec's strategy rule "explore structurally different ideas early" is ambiguous. The live prompt (rule 1c) and the
+  streak-0 posture now define "structural" as one of the organizers' open directions by number — user behaviour
+  sequences (§8.2), multi-task on auxiliary behaviours (§8.3), watch-time modelling (§8.4), time/drift (§8.6), unbiased
+  validation on the random log (§4 #7), model families only where they consume a new signal (§8.5); direction #1
+  (ranking loss) is already in the champion. The Researcher must cite the paper it builds on (venue + year).
+* The literature list the Researcher is told to prioritise has lived in `knowledge/library.md` §8 since it was
+  written (BPR/UAI 2009, sampled softmax/TOIS 2024, DIN/KDD 2018, SASRec/ICDM 2018, MMoE/KDD 2018, PLE/RecSys 2020,
+  ESMM, CWM/KDD 2024, TPM/KDD 2023, DeepFM/xDeepFM/DCN, unbiased LTR …), one subsection per organizer direction; the
+  whole library is system block 2 of every Researcher call. Nothing was missing — the prompt now points at the
+  subsections by number so the mapping is unmistakable.
+* Console: the Researcher's full plan (hypothesis, predicted gain + evidence, rationale with citations, ablation
+  plan, change spec) is printed in a box after each call (`llm.console_plan: full`), and its reasoning stream is
+  captured (`LLMResponse.reasoning`, OpenRouter `reasoning` / DeepSeek `reasoning_content` deltas), written to the
+  per-call transcript and printed for the roles in `llm.show_reasoning` (default `[researcher]`). Previously the
+  reasoning was only counted, never kept.
+* The quoted runtime numbers in the spec (900 s limit, FM epoch ≈ 2 s) are stale relative to config (1500 s); the
+  briefing carries the live limit.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

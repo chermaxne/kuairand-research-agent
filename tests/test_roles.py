@@ -811,3 +811,45 @@ def test_digest_is_deterministic_and_never_llm_authored_except_lessons():
     assert "| it02 | training | loss Y (full) | n/a | n/a | failed | failed: ValueError: boom | — | crashed |" in d
     assert "promoted 1 (it01)" in d and "never attempted: model, multitask, other" in d
     assert research_digest(hist, lambda n: details[n]) == d
+
+
+# ---------------------------------------------------------------- reasoning stream + full plan on the console (2026-08-29)
+def test_reasoning_stream_is_kept_written_to_the_transcript_and_shown_on_the_console(tmp_path, base_cfg):
+    from agent.llm_client import OpenAICompatClient, LLMResponse
+    c = OpenAICompatClient(api_key="k", base_url="https://x/v1", call_timeout_s=30, heartbeat_s=999)
+    c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(
+        create=lambda **kw: _FakeStream(_chunks('{"ok": true}', reasoning="DIN (KDD 2018) fits: within-user attention...")))))
+    resp = c.complete(role="researcher", model="m", system_blocks=["S"], messages=[{"role": "user", "content": "x"}], max_tokens=50)
+    assert resp.reasoning.startswith("DIN (KDD 2018)") and resp.text == '{"ok": true}'
+
+    class Client:
+        provider = "fake"
+        def complete(self, **kw):
+            return LLMResponse(text="{}", usage=TokenUsage(1, 1), model="m", latency_s=0.1, reasoning="because the metric is within-user\ncite: DIN")
+    logs = []
+    cfg = json.loads(json.dumps(base_cfg)); cfg["llm"]["show_reasoning"] = ["researcher"]
+    r = Roles(Client(), cfg, os.path.join(ROOT, "prompts"), os.path.join(ROOT, "knowledge", "library.md"))
+    r.log = logs.append
+    r.begin_iteration(1, str(tmp_path / "llm"))
+    r._call("researcher", ["S"], [{"role": "user", "content": "x"}], "researcher")
+    saved = open(tmp_path / "llm" / "researcher.md").read()
+    assert "## assistant (reasoning stream" in saved and "cite: DIN" in saved
+    assert any("researcher reasoning" in l for l in logs) and any(l == "│ cite: DIN" for l in logs)
+    logs.clear(); cfg["llm"]["show_reasoning"] = []
+    r._call("researcher", ["S"], [{"role": "user", "content": "x"}], "researcher")
+    assert not any("reasoning" in l for l in logs)                                  # opt-out keeps the console quiet
+
+
+def test_console_shows_the_full_researcher_plan_with_evidence_and_citations(tmp_path, base_cfg, mini_data):
+    logs = []
+    handlers = default_mock_handlers()
+    handlers["researcher"] = lambda r, s, m: json.dumps({**GOOD, "rationale": "BPR (Rendle et al., UAI 2009): pairs within user target GAUC",
+                                                          "change_spec": "1. swap loss\n2. keep CLI"})
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}}, log=logs.append)
+    h.init_or_resume(); h.phase0(); h.run_iteration(1)
+    joined = "\n".join(logs)
+    assert "RESEARCHER PLAN (training, risk medium, predicted gain +0.0030)" in joined
+    assert "RATIONALE (citations):" in joined and "Rendle et al., UAI 2009" in joined
+    assert "EVIDENCE FOR THE GAIN:" in joined and "organizers' direction #1" in joined
+    assert "ABLATION PLAN:" in joined and "CHANGE SPEC:" in joined and "│   2. keep CLI" in joined
+    assert "Concretely, \"structural\" means one of the organizers' open directions" in load_prompt(os.path.join(ROOT, "prompts"), "researcher")[0]

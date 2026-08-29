@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .llm_client import CallLog, LLMClient, LLMError, LLMResponse
+from .llm_client import role_key, CallLog, LLMClient, LLMError, LLMResponse
 from .memory import one_line, truncate_words
 from .schemas import ContractError, HarnessResult, ResearcherPlan, TokenUsage
 
@@ -237,7 +237,15 @@ class Roles:
                     fh.write(f"## system block {i + 1}\n\n{b}\n\n")
                 for m in messages:
                     fh.write(f"## {m['role']}\n\n{m['content']}\n\n")
+                if getattr(resp, "reasoning", ""):
+                    fh.write(f"## assistant (reasoning stream, {len(resp.reasoning):,} chars)\n\n{resp.reasoning}\n\n")
                 fh.write(f"## assistant (response)\n\n{resp.text}\n")
+        show = self.cfg["llm"].get("show_reasoning") or []
+        if self.log and getattr(resp, "reasoning", "") and (show is True or role in show or role_key(role) in show):
+            self.log(f"┌─ {role} reasoning ({resp.model}, {len(resp.reasoning):,} chars) ─────────────────────────────")
+            for line in resp.reasoning.strip().splitlines():
+                self.log("│ " + line)
+            self.log("└" + "─" * 78)
         return resp
 
     def _system_blocks(self, role: str) -> List[str]:

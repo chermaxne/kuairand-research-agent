@@ -40,6 +40,7 @@ class LLMResponse:
     stop_reason: str = ""
     estimated_usage: bool = False     # True when the client had no API usage field (mock)
     fallback_notes: List[str] = field(default_factory=list)   # why earlier candidate models were skipped
+    reasoning: str = ""               # the model's visible reasoning stream (OpenRouter `reasoning` / DeepSeek `reasoning_content`), if any
 
 
 class LLMClient(Protocol):
@@ -289,6 +290,7 @@ class OpenAICompatClient:
         t0 = time.time()
         last_beat = t0
         parts: List[str] = []
+        reasoning_parts: List[str] = []
         finish, usage_obj, served, reasoning_chars = "", None, "", 0
         kwargs = dict(req)
         kwargs["stream"] = True
@@ -311,9 +313,10 @@ class OpenAICompatClient:
                         piece = getattr(delta, "content", None)
                         if piece:
                             parts.append(piece)
-                        rd = getattr(delta, "reasoning", None)
-                        if rd:
+                        rd = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
+                        if rd and isinstance(rd, str):
                             reasoning_chars += len(rd)
+                            reasoning_parts.append(rd)
                     fr = getattr(choices[0], "finish_reason", None)
                     if fr:
                         finish = str(fr)
@@ -330,7 +333,8 @@ class OpenAICompatClient:
                     pass
         text = "".join(parts)
         return {"text": text, "finish_reason": finish, "usage": self._usage_from(usage_obj, text), "model": served or candidate,
-                "estimated": usage_obj is None, "latency_s": time.time() - t0, "reasoning_chars": reasoning_chars}
+                "estimated": usage_obj is None, "latency_s": time.time() - t0, "reasoning_chars": reasoning_chars,
+                "reasoning": "".join(reasoning_parts)}
 
     def candidates(self, role: str, model: str) -> List[str]:
         """Primary model first, then the role's configured alternates (deduplicated, order preserved)."""
@@ -397,7 +401,7 @@ class OpenAICompatClient:
                     self.progress(f"[llm] {role}: served by fallback {candidate} after: " + "; ".join(notes))
                 return LLMResponse(text=parsed["text"], usage=parsed["usage"], model=parsed["model"] or candidate,
                                    latency_s=parsed.get("latency_s", 0.0), stop_reason=stop, estimated_usage=bool(parsed.get("estimated")),
-                                   fallback_notes=notes)
+                                   fallback_notes=notes, reasoning=parsed.get("reasoning", ""))
         raise LLMError(f"all models failed for role {role} ({', '.join(models)}): "
                        f"{type(last_err).__name__}: {str(last_err)[:300]}")
 

@@ -60,6 +60,12 @@ threshold is 2.5σ of the seed noise (σ = 0.0008): a gain has to be real AND la
    changes with room to clear +0.002 are the ones that give the model a signal it does not have (the user's past
    behaviour as a sequence, auxiliary behaviours, watch time, past-only context) or an objective closer to the
    metric. An architecture change earns its place when it is what lets the model consume such a signal.
+   Concretely, "structural" means one of the organizers' open directions (knowledge library §4, with the published
+   methods for each in §8): user behaviour sequences (§8.2: DIN target attention, SASRec-style, or history-derived
+   past-only fields), multi-task on the auxiliary behaviours (§8.3: shared-bottom / MMoE / PLE / ESMM), watch-time
+   modelling (§8.4: censored / ordinal targets, CWM, TPM), time and drift (§8.6), unbiased validation on the random
+   log (§4 #7), and model families only where they consume such a signal (§8.5). Cite the paper you build on in
+   `rationale` — venue and year — and say which of its assumptions this data satisfies.
 2. **Refine winners mid-run**: once a direction promoted, push it (its next obvious variant) before
    switching. Combine two proven winners when both promoted.
 3. **When the flat streak is ≥ 2 this is the last shot**: propose the highest-probability > +0.002 bundle —

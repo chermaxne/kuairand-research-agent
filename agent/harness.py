@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 import sys
+import textwrap
 import time
 import traceback
 from typing import Any, Dict, List, Optional, Tuple
@@ -71,7 +72,12 @@ INFORMATION (the user's past behaviour as a sequence, auxiliary behaviours, watc
 objective closer to the metric. Capacity alone is not information: the organizers measured that bigger embeddings
 and more static fields do nothing, so a deeper network over the same inputs is a large diff with a small expected
 gain. An architecture change earns its place when it is what lets the model consume a new signal (e.g. attention
-over the user's history). Treat "a better FM over the same five id fields" as explored: the organizers swept its
+over the user's history). "Structural" means one of the directions the organizers left open (knowledge library §4,
+literature in §8): (2) the user's behaviour history as a sequence (DIN-style target attention, or history-derived
+past-only fields), (3) multi-task learning on the auxiliary behaviours, (4) watch-time modelling (censored /
+ordinal targets), (6) time and drift features, (7) unbiased validation on the random-exposure log, and (5) a model
+family only where it consumes a new signal; direction (1), the ranking loss, is already in the champion.
+Treat "a better FM over the same five id fields" as explored: the organizers swept its
 capacity and its static features to a plateau, so proposals whose only novelty lies inside that model (its loss,
 its regularisation, its seeds, fields derived from the same columns) are not structural bets — the open directions
 are the ones that add a signal the model does not have."""
@@ -267,6 +273,16 @@ class Harness:
         else:
             atomic_write_json(os.path.join(ws, "plan.json"), plan.to_dict())
             self.log(f"[it{it:02d}] HYP ({plan.category}, risk {plan.expected_risk}): {one_line(plan.hypothesis, 200)}")
+            if str(self.cfg["llm"].get("console_plan", "full")) == "full":
+                gain = f"{plan.expected_gain:+.4f}" if plan.expected_gain is not None else "n/a"
+                self.log(f"┌─ it{it:02d} RESEARCHER PLAN ({plan.category}, risk {plan.expected_risk}, predicted gain {gain}) ─────────")
+                for title, body in (("HYPOTHESIS", plan.hypothesis), ("EVIDENCE FOR THE GAIN", plan.gain_evidence),
+                                    ("RATIONALE (citations)", plan.rationale), ("ABLATION PLAN", plan.ablation_plan), ("CHANGE SPEC", plan.change_spec)):
+                    if body:
+                        self.log(f"│ {title}:")
+                        for line in textwrap.wrap(body, 110) if "\n" not in body else body.splitlines():
+                            self.log("│   " + line)
+                self.log("└" + "─" * 78)
             new_files, err = self.roles.engineer(plan, champion_files, PIPELINE_CONTRACT_NOTE.format(timeout=int(self.run_cfg["EXPERIMENT_TIMEOUT_S"])))
             if new_files is None:
                 error_reason = err
