@@ -71,9 +71,16 @@ def stub_scribe_logentry(role: str, system: List[str], messages: List[Dict[str, 
     return "Stub narrative: see the JSON facts for this iteration (numbers are harness-measured)."
 
 
+def stub_scribe_digest(role: str, system: List[str], messages: List[Dict[str, str]]) -> str:
+    user = _last_user(messages)
+    m = re.search(r"Totals: (\d+) iterations; promoted (\d+)", user)
+    return (f"Stub synthesis: {m.group(1)} iterations so far, {m.group(2)} promoted; see the table for per-direction outcomes."
+            if m else "Stub synthesis: see the table.")
+
+
 def default_mock_handlers() -> Dict[str, Callable]:
     return {"researcher": stub_researcher, "engineer": stub_engineer, "debugger": stub_debugger,
-            "scribe_lesson": stub_scribe_lesson, "scribe_logentry": stub_scribe_logentry}
+            "scribe_lesson": stub_scribe_lesson, "scribe_logentry": stub_scribe_logentry, "scribe_digest": stub_scribe_digest}
 
 
 # ---------------------------------------------------------------------------
@@ -174,4 +181,4 @@ def kuairand_scribe_logentry(role: str, system: List[str], messages: List[Dict[s
 
 def kuairand_mock_handlers() -> Dict[str, Callable]:
     return {"researcher": kuairand_researcher, "engineer": kuairand_engineer, "debugger": kuairand_debugger,
-            "scribe_lesson": kuairand_scribe_lesson, "scribe_logentry": kuairand_scribe_logentry}
+            "scribe_lesson": kuairand_scribe_lesson, "scribe_logentry": kuairand_scribe_logentry, "scribe_digest": stub_scribe_digest}

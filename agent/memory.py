@@ -128,6 +128,51 @@ def active_themes(history: Iterable[Dict[str, Any]], categories: Iterable[str] =
     return f"winning: {fmt(winning)}; losing/flat: {fmt(losing)}; untried: {', '.join(untried) or 'none'}"
 
 
+def research_digest(history: Iterable[Dict[str, Any]], read_detail=None) -> str:
+    """Harness-written fact table over EVERY iteration, grouped by category: what was changed, the delta against the
+    champion at that time, the decision and the failure/leak status. Deterministic; nothing here is LLM-authored
+    except the quoted lesson. `read_detail(iteration)` may return the tier-3 record for the untruncated hypothesis."""
+    rows = list(history)
+    if not rows:
+        return ""
+    by_cat: Dict[str, List[Dict[str, Any]]] = {}
+    for h in rows:
+        by_cat.setdefault(h.get("category") or "other", []).append(h)
+    out = ["# RESEARCH DIGEST — every iteration so far, grouped by direction (harness-measured facts)",
+           "| it | direction | what changed | Δ vs then-champion | decision | status | lesson |", "|---|---|---|---|---|---|---|"]
+    for cat in sorted(by_cat):
+        for h in by_cat[cat]:
+            it = h["iteration"]
+            d = read_detail(it) if read_detail else None
+            x = (d or {}).get("harness_extra", {})
+            hyp = (d or {}).get("hypothesis") or h.get("hypothesis", "")
+            bb = x.get("best_at_iteration_start")
+            delta = (f"{h['primary'] - bb:+.4f}" if (h.get("primary") is not None and bb is not None) else "n/a")
+            status = h.get("status", "")
+            lt = (x.get("leak_test") or {}).get("verdict")
+            if lt and lt != "clean":
+                status += f" ({lt.split(' ')[0]})"
+            if h.get("error_short") and status != "scored":
+                status += f": {one_line(h['error_short'], 60)}"
+            out.append(f"| it{it:02d} | {cat} | {one_line(hyp, 220)} | {delta} | {h.get('decision')} | {status} | {one_line(h.get('lesson', ''), 120)} |")
+    promoted = [h for h in rows if h.get("promoted")]
+    tried = {c: len(v) for c, v in by_cat.items()}
+    out.append("")
+    out.append(f"Totals: {len(rows)} iterations; promoted {len(promoted)}" +
+               (f" (it{', it'.join(f'{h['iteration']:02d}' for h in promoted)})" if promoted else "") +
+               "; attempts per direction: " + ", ".join(f"{c} {n}" for c, n in sorted(tried.items())) +
+               "; never attempted: " + (", ".join(c for c in CATEGORIES if c not in by_cat) or "none") + ".")
+    return "\n".join(out)
+
+
+def synthesis_numbers_ok(synthesis: str, digest: str) -> bool:
+    """Guard: every number the Scribe wrote must appear in the harness digest (no invented figures)."""
+    import re as _re
+    nums = set(_re.findall(r"\d+\.\d+", synthesis))
+    have = set(_re.findall(r"\d+\.\d+", digest))
+    return nums <= have
+
+
 def render_state_block(state: RunState, limits: Dict[str, Any], iteration_display: int, now: Optional[float] = None) -> str:
     """Spec §5.5 — regenerated fresh; every number is harness-measured."""
     best = state.best_primary

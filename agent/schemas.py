@@ -221,6 +221,7 @@ class RunState:
     finalize: Dict[str, Any] = field(default_factory=dict)
     best_history: List[Optional[float]] = field(default_factory=list)   # champion score after each iteration (window streak mode)
     best_measured: Dict[str, Any] = field(default_factory=dict)        # best leak-clean score seen, even if below the margin
+    synthesis: str = ""                                                # Scribe's research synthesis of the digest (interpretive; number-checked)
     history: List[Dict[str, Any]] = field(default_factory=list)   # one compact dict per iteration
     warnings: List[str] = field(default_factory=list)
     config_snapshot: Dict[str, Any] = field(default_factory=dict)

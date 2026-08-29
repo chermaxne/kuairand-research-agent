@@ -482,6 +482,17 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   more in practice; the noise floor is documented in the library and the Researcher is told to measure its own seed
   spread.
 
+### Research digest + Scribe synthesis (2026-08-29)
+* Gap: iterations older than the last 5 reached the Researcher only as 120-char/20-word ledger lines, and nothing
+  aggregated across the run, so "already tried in it12, flat" was easy to miss. Team asked why not an LLM-written digest.
+* Design: **both, with the LLM constrained like the lesson.** `memory.research_digest()` is a harness-written fact table
+  over every iteration (grouped by direction: full hypothesis, delta vs then-champion, decision, failure/leak status,
+  lesson, totals and never-attempted directions) — deterministic, spec §2.2-compliant. Scribe job (c) `scribe_digest`
+  writes a ≤150-word synthesis **from that table only, regenerated every iteration** (never from its previous synthesis,
+  so it cannot drift), with no causal claims and no recommendations; `synthesis_numbers_ok` rejects any synthesis whose
+  numbers are not all present in the table (logged as a warning). Both appear in every briefing, the synthesis labelled
+  interpretive. Cost: one small Scribe call per iteration. `llm.scribe_digest: false` disables the synthesis.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

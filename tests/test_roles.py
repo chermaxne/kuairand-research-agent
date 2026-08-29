@@ -737,3 +737,64 @@ def test_researcher_prompt_puts_run_evidence_above_the_library():
     assert "YOUR MEASUREMENTS ARE THE ONLY EVIDENCE OF WHAT WORKS" in sys_p
     assert "Ground every proposal in published work" in sys_p and "name the method and paper" in sys_p
     assert "One change at a time" in sys_p
+
+
+
+# ---------------- research digest (harness facts over ALL iterations) + Scribe synthesis (number-guarded) ----------------
+def test_research_digest_covers_every_iteration_and_synthesis_reaches_the_briefing(tmp_path, base_cfg, mini_data):
+    briefings, synth_inputs = [], []
+
+    def researcher(role, system, messages):
+        briefings.append(messages[-1]["content"])
+        return default_mock_handlers()["researcher"](role, system, messages)
+
+    def digest_scribe(role, system, messages):
+        synth_inputs.append(messages[-1]["content"])
+        return "Synthesis: feature direction tried in it01; see table."
+    handlers = default_mock_handlers()
+    handlers["researcher"] = researcher
+    handlers["scribe_digest"] = digest_scribe
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 7, "N_FLAT": 99, "structural_first_until_iter": 0, "briefing_recent_iterations": 2}})
+    st = h.init_or_resume()
+    h.phase0()
+    for it in range(1, 8):
+        h.run_iteration(it)
+    b = briefings[-1]                                                       # briefing for iteration 7
+    assert "# RESEARCH DIGEST" in b
+    for it in range(1, 7):
+        assert f"| it{it:02d} |" in b                                       # ALL past iterations, not just the last 2
+    assert "Totals: 6 iterations" in b and "never attempted" in b
+    assert "# RESEARCH SYNTHESIS" in b and "Synthesis: feature direction tried" in b
+    assert "RESEARCH DIGEST" in synth_inputs[-1] and "| it07 |" in synth_inputs[-1]   # the Scribe saw the current iteration too
+    assert st.synthesis.startswith("Synthesis:")
+
+
+def test_synthesis_with_invented_number_is_rejected(tmp_path, base_cfg, mini_data):
+    from agent.memory import synthesis_numbers_ok
+    table = "| it01 | feature | x | +0.0031 | promoted | scored | l |"
+    assert synthesis_numbers_ok("it01 gained 0.0031 and was promoted", table)
+    assert not synthesis_numbers_ok("it01 gained 0.0050", table)               # 0.0050 is not in the table
+    assert synthesis_numbers_ok("promoted once; nothing else tried", table)   # no numbers at all is fine
+    handlers = default_mock_handlers()
+    handlers["scribe_digest"] = lambda r, s, m: "Everything improved by 0.9999 which is great."
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
+    st = h.init_or_resume()
+    h.phase0()
+    h.run_iteration(1)
+    assert st.synthesis == "" and any("synthesis rejected" in w for w in st.warnings)
+
+
+def test_digest_is_deterministic_and_never_llm_authored_except_lessons():
+    from agent.memory import research_digest
+    hist = [{"iteration": 1, "category": "feature", "hypothesis": "add X", "primary": 0.61, "decision": "promoted", "promoted": True,
+             "status": "scored", "lesson": "X helped"},
+            {"iteration": 2, "category": "training", "hypothesis": "loss Y", "primary": None, "decision": "failed", "promoted": False,
+             "status": "failed", "lesson": "crashed", "error_short": "ValueError: boom"}]
+    details = {1: {"hypothesis": "add X (full)", "harness_extra": {"best_at_iteration_start": 0.6}},
+               2: {"hypothesis": "loss Y (full)", "harness_extra": {"best_at_iteration_start": 0.61, "leak_test": None}}}
+    d = research_digest(hist, lambda n: details[n])
+    assert "| it01 | feature | add X (full) | +0.0100 | promoted | scored | X helped |" in d
+    assert "| it02 | training | loss Y (full) | n/a | failed | failed: ValueError: boom | crashed |" in d
+    assert "promoted 1 (it01)" in d and "never attempted: model, multitask, other" in d
+    assert research_digest(hist, lambda n: details[n]) == d

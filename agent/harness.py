@@ -26,8 +26,8 @@ import yaml
 from . import tools
 from .llm_client import CallLog, make_client
 from .memory import (append_intervention, append_ledger, fmt_elapsed, init_interventions, init_ledger, ledger_line, load_run_state,
-                     one_line, read_iteration_detail, read_ledger, render_state_block, result_string, save_run_state,
-                     write_iteration_log, write_iteration_narrative, write_state_block)
+                     one_line, read_iteration_detail, read_ledger, render_state_block, research_digest, result_string,
+                     save_run_state, synthesis_numbers_ok, write_iteration_log, write_iteration_narrative, write_state_block)
 from .phase0 import Phase0Error, install_champion, run_phase0
 from .promotion import RunLimits, judge_iteration, stop_reason, vs_best_string
 from .roles import Roles
@@ -205,6 +205,12 @@ class Harness:
         parts.append("# CHAMPION CODE (current best pipeline; every experiment builds on it)\n" +
                      "\n".join(f"--- {n} ---\n{c}" for n, c in sorted(champ.items())))
         parts.append("# LEDGER (full history, oldest first)\n" + (read_ledger(self.run_dir) or "(empty)"))
+        digest = research_digest(state.history, lambda n: read_iteration_detail(self.run_dir, n))
+        if digest:
+            parts.append(digest)
+            if state.synthesis:
+                parts.append("# RESEARCH SYNTHESIS (written by the Scribe from the digest above — interpretive; verify any claim "
+                             "against the table)\n" + state.synthesis)
         parts.append(self.render_recent_iterations(state))
         n_struct = int(self.run_cfg.get("structural_first_until_iter", 0) or 0)
         if it <= n_struct:
@@ -358,6 +364,20 @@ class Harness:
         if self.cfg["llm"].get("scribe_narrative", True):
             write_iteration_narrative(self.run_dir, it, self.roles.scribe_logentry(facts))
 
+        # Scribe job (c): research synthesis of the whole run so far, rebuilt from the harness digest every iteration
+        # (this iteration included). Numbers are checked against the digest; a synthesis that invents one is dropped.
+        hist_preview = {"iteration": it, "hypothesis": one_line(plan_for_scribe.hypothesis, 0), "category": plan_for_scribe.category,
+                        "status": status, "primary": primary, "decision": dec.decision, "promoted": dec.promoted, "lesson": lesson,
+                        "error_short": one_line(error_reason.splitlines()[-1] if error_reason else "", 200)}
+        if self.cfg["llm"].get("scribe_digest", True):
+            digest_now = research_digest(state.history + [hist_preview], lambda n: read_iteration_detail(self.run_dir, n) if n != it else
+                                         {"hypothesis": plan_for_scribe.hypothesis, "harness_extra": {"best_at_iteration_start": best_at_start, "leak_test": leak or None}})
+            synth = self.roles.scribe_digest(digest_now)
+            if synth and synthesis_numbers_ok(synth, digest_now):
+                state.synthesis = synth
+            elif synth:
+                state.warnings.append(f"it{it:02d}: scribe synthesis rejected (contained a number not in the digest)")
+                self.log(f"[scribe] synthesis rejected: it contained a number not present in the harness digest")
         usage = self.roles.iteration_usage
         state.tokens_total += usage.total
         state.tokens_input += usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens

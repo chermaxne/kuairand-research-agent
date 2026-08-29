@@ -93,6 +93,10 @@ control how much of each recent iteration the Researcher sees — full hypothesi
 delta vs the then-champion, debug attempts, leak verdict and training curve, so it can judge which component of a
 bundled change worked. A briefing costs ~15–25k tokens of a ~1M-token context window.
 
+Memory across the whole run: every briefing carries a harness-written **research digest** (a fact table over all
+iterations — direction, what changed, delta vs the then-champion, decision, failure/leak status) and a ≤150-word
+**Scribe synthesis** regenerated from that table each iteration and rejected if it contains a number not in the table.
+
 Banking (`config.yaml` → `run`): `PROMOTE_MARGIN: 0.0002` (seed-noise level) so small real gains compound;
 `leak_check: on_improvement` verifies every iteration that beats the champion; the best leak-clean measurement is
 tracked as `best_measured` and finalize builds the submission from it when it beats the champion, so a gain that

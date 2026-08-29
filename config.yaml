@@ -40,6 +40,8 @@ llm:
   request_timeout_s: 600
   max_retries: 3                   # rate-limit / 5xx retries per model, then the next fallback model
   scribe_narrative: true           # Scribe job (b): render logs/iter_NN.md from harness-supplied facts
+  scribe_digest: true              # Scribe job (c): ≤150-word research synthesis of the harness digest (every iteration so
+                                   # far), rebuilt each iteration from the table, number-checked; shown to the Researcher
   # --- the settings below are only read by the native Anthropic client (provider: anthropic) ---
   allow_sdk_default_credentials: false
   effort: {researcher: high, engineer: high, debugger: medium, scribe: null}
