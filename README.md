@@ -93,6 +93,12 @@ control how much of each recent iteration the Researcher sees — full hypothesi
 delta vs the then-champion, debug attempts, leak verdict and training curve, so it can judge which component of a
 bundled change worked. A briefing costs ~15–25k tokens of a ~1M-token context window.
 
+Attribution (`config.yaml` → `run`): `one_change_per_iteration: true` makes every iteration change exactly one
+component on top of the champion, so its delta is attributable — except iteration 1 and the last shot before
+convergence, where a single +0.001-class lever cannot clear ε and the harness requires a bundle. `streak_mode`
+selects the reading of the convergence rule: `iteration` (spec §6 pseudocode, default) or `window` (spec §2.5 prose /
+kit README / standard early stopping — stacked small gains keep the run alive). See NOTES.md; ask the organizers.
+
 Research strategy knobs (`config.yaml` → `run`): `structural_first_until_iter: 10` injects a briefing directive
 that restricts the first 10 iterations to the knowledge library's measured, ranked recipes (pairwise within-user
 loss, session-context field, seed averaging, past-only history fields — bundled first) and forbids

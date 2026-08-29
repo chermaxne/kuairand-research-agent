@@ -68,6 +68,15 @@ signal. Do NOT replace or remove a proven component, do NOT re-try a lever kind 
 ±0.0006 (noise), and state in `rationale` why this bundle should clear +{epsilon}."""
 
 
+ATTRIBUTION_DIRECTIVE = """# ATTRIBUTION DIRECTIVE (harness policy, iteration {it})
+Change exactly ONE thing relative to the champion this iteration — one new field, one loss change, one training
+change — so that the measured delta is attributable to it and the next iteration knows what worked. The champion
+already contains everything previously proven; keep all of it untouched. Name that single component in the
+hypothesis, and in `rationale` say what its delta will tell you either way.
+(The exceptions are handled by the harness: iteration 1 and the last shot before convergence, where a single
++0.001-class lever cannot clear the +{epsilon} streak threshold and bundling is required.)"""
+
+
 class FinalizeError(RuntimeError):
     pass
 
@@ -200,7 +209,10 @@ class Harness:
         n_struct = int(self.run_cfg.get("structural_first_until_iter", 0) or 0)
         if it <= n_struct:
             parts.append(STRUCTURAL_DIRECTIVE.format(n=n_struct, it=it))
-        if self.limits.n_flat > 1 and state.streak >= self.limits.n_flat - 1:
+        last_shot = self.limits.n_flat > 1 and state.streak >= self.limits.n_flat - 1
+        if self.run_cfg.get("one_change_per_iteration", True) and it > 1 and not last_shot:
+            parts.append(ATTRIBUTION_DIRECTIVE.format(it=it, epsilon=self.limits.epsilon))
+        if last_shot:
             parts.append(STREAK_DIRECTIVE.format(streak=state.streak, n_flat=self.limits.n_flat, epsilon=self.limits.epsilon,
                                                  best=f"{state.best_primary:.4f}" if state.best_primary is not None else "n/a"))
         if state.consecutive_failures >= int(self.run_cfg.get("STALL_FAILURES", 3)):
@@ -307,7 +319,12 @@ class Harness:
         if dec.promoted:
             install_champion(self.run_dir, files, os.path.join(ws, tools.PREDS_VAL), score, it, ws)
             state.best_primary, state.best_gauc, state.best_ndcg5, state.best_iter = score.primary, score.gauc, score.ndcg5, it
-        state.streak = dec.streak_after
+        state.best_history.append(dec.best_primary_after)
+        if str(self.run_cfg.get("streak_mode", "iteration")) == "window":
+            from .promotion import window_streak
+            state.streak = window_streak(state.best_history, self.limits.n_flat, self.limits.epsilon)
+        else:
+            state.streak = dec.streak_after
         if status == "scored":
             state.consecutive_failures = 0
         else:

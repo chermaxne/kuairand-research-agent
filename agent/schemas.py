@@ -219,6 +219,7 @@ class RunState:
     stop_reason: Optional[str] = None
     phase0: Dict[str, Any] = field(default_factory=dict)
     finalize: Dict[str, Any] = field(default_factory=dict)
+    best_history: List[Optional[float]] = field(default_factory=list)   # champion score after each iteration (window streak mode)
     history: List[Dict[str, Any]] = field(default_factory=list)   # one compact dict per iteration
     warnings: List[str] = field(default_factory=list)
     config_snapshot: Dict[str, Any] = field(default_factory=dict)

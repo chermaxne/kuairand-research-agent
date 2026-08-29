@@ -187,6 +187,13 @@ run:
   leak_check_min_primary: 0.5      # feedback columns flipped; those users' TRUE labels scored below this (random) = the
                                    # code reads validation labels -> LEAK, never promoted. A crash on the 10% copy retries
                                    # at 2%; crashes on both = inconclusive, not promoted. (leak_check: off disables)
+  one_change_per_iteration: true   # attribution: every iteration changes exactly ONE thing on top of the champion, so the
+                                   # measured delta is attributable. The harness exempts iteration 1 and the last shot
+                                   # before convergence, where a single +0.001-class lever cannot clear EPSILON.
+  streak_mode: iteration           # iteration = spec §6 pseudocode (each iteration vs the champion at its start; three
+                                   # +0.001 promotions in a row still converge). window = spec §2.5 prose / kit README /
+                                   # standard early stopping (best score vs the best N iterations ago, so stacked small
+                                   # gains keep the run alive). HUMANS: ask the organizers which reading applies.
   # Briefing depth: the context window is ~1M tokens and a briefing costs ~6k, so detail is nearly free. The Researcher
   # gets the full hypothesis, change spec, rationale, code diff and training curve of the last N iterations, so it can
   # tell WHICH component of a bundled change worked and decide whether to continue it.

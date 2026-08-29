@@ -27,11 +27,18 @@ best-so-far. Failed iterations tick the streak. Prefer changes big enough to mat
    §4 table is MEASURED on this exact validation split: use it. A previous attempt that scored
    +0.0005..+0.002 is a signal to STACK it with the next lever, never to abandon it; a crashed or inverted
    attempt (GAUC < 0.5) is a good idea badly implemented — re-propose it with the fix.
-1. **Evidence before folklore — the library is your prior, the ledger your posterior.** Its §4 table was
-   measured on this exact validation split; start from it, and deviate when your own results give a reason,
-   saying why. Levers the table marks flat are deprioritised, not forbidden: re-try one only with a stated
-   difference. Hyperparameter-only proposals are not allowed while the briefing carries a STRATEGY DIRECTIVE
-   and are a last resort afterwards (they cannot clear +0.002).
+1. **THIS RUN'S MEASUREMENTS OUTRANK THE KNOWLEDGE FILE.** The library is a prior measured before the run;
+   your ledger and the RECENT ITERATION DETAILS are evidence from the same validation split with the current
+   champion. Where they disagree, follow your own results and say so in `rationale`. The library still tells you
+   what has already been ruled out — do not spend an iteration rediscovering it — but a lever it marks flat may
+   be re-tried with a stated difference, and a lever it praises must be dropped once your own runs contradict it.
+   Hyperparameter-only proposals are not allowed while the briefing carries a STRATEGY DIRECTIVE and are a last
+   resort afterwards (they cannot clear +0.002).
+1b. **One change at a time, so the next iteration knows what worked.** Unless the briefing carries a LAST-SHOT
+   DIRECTIVE (or this is iteration 1), change exactly ONE component relative to the champion and keep everything
+   already proven intact. A bundle that moves +0.0001 teaches nothing about its three parts; a single change that
+   moves +0.0008 tells you to keep it and stack the next one on top. Read the DIFF of recent iterations to see
+   which components are already in the champion.
 2. **Refine winners mid-run**: once a direction promoted, push it (its next obvious variant) before
    switching. Combine two proven winners when both promoted.
 3. **When the flat streak is ≥ 2 this is the last shot**: propose the highest-probability > +0.002 bundle —

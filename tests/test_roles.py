@@ -704,3 +704,30 @@ def test_training_tail_collapses_repeated_lines(tmp_path, base_cfg, mini_data):
     tail = h.training_log_tail(str(ws))
     assert tail.count("Number of pairs this epoch") <= 2                                  # repeats collapsed
     assert "epoch 8" in tail and "epoch 7" in tail                                        # the curve survives
+
+
+def test_attribution_directive_appears_except_on_iteration_1_and_the_last_shot(tmp_path, base_cfg, mini_data):
+    briefings = []
+
+    def researcher(role, system, messages):
+        briefings.append(messages[-1]["content"])
+        return default_mock_handlers()["researcher"](role, system, messages)
+    handlers = default_mock_handlers()
+    handlers["researcher"] = researcher
+    handlers["engineer"] = lambda r, s, m: render_file_blocks(parse_file_blocks(
+        m[-1]["content"].split("# Current champion files", 1)[-1].split("# Pipeline contract", 1)[0]))   # flat -> streak climbs
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 3, "N_FLAT": 3, "structural_first_until_iter": 0, "one_change_per_iteration": True}})
+    st = h.init_or_resume()
+    h.phase0()
+    for it in (1, 2, 3):
+        h.run_iteration(it)
+    assert "ATTRIBUTION DIRECTIVE" not in briefings[0]                     # iteration 1 may bundle
+    assert "ATTRIBUTION DIRECTIVE" in briefings[1] and "exactly ONE thing" in briefings[1]
+    assert "LAST-SHOT DIRECTIVE" in briefings[2] and "ATTRIBUTION DIRECTIVE" not in briefings[2]   # last shot may bundle
+
+
+def test_researcher_prompt_puts_run_evidence_above_the_library():
+    sys_p, _ = load_prompt(os.path.join(ROOT, "prompts"), "researcher")
+    assert "THIS RUN'S MEASUREMENTS OUTRANK THE KNOWLEDGE FILE" in sys_p
+    assert "One change at a time" in sys_p

@@ -402,6 +402,25 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   boilerplate lines (keeping each distinct line's last occurrence) so the 12-line budget carries the metric curve.
   History stores the full hypothesis. Cost: a briefing of roughly 15–25k tokens instead of 5.6k — still ~2% of context.
 
+### Attribution vs the convergence rule (2026-08-29, team proposal + assessment)
+* Team proposal: fewer changes per iteration so the next Researcher knows what helped, and run feedback should outweigh
+  the pre-injected knowledge file. Assessment: the attribution half is right — `ten7` it02 bundled three changes for
+  +0.0001 and it03 two more for −0.0002, teaching nothing about five distinct ideas. But pure one-change-per-iteration
+  is arithmetically fatal under our reading of the convergence rule: every measured lever here is ≈ +0.001, the streak
+  resets only on > +0.002 over the champion at iteration start, so three *successful, promoted* iterations totalling
+  +0.0039 still converge (simulated; see the table in this entry's commit).
+* Implemented synthesis: `run.one_change_per_iteration: true` injects an ATTRIBUTION DIRECTIVE requiring exactly ONE new
+  component on top of the champion — except on iteration 1 and on the last shot before convergence, where the harness
+  already requires a bundle because a single lever cannot clear ε. Researcher rule 1 now states that **this run's
+  measurements outrank the knowledge file** (the library still records what is already ruled out, so iterations are not
+  spent rediscovering it), and rule 1b requires naming the single component and what its delta will tell you.
+* Rules question surfaced by this: spec §6's pseudocode compares each iteration to the champion at its start
+  (implemented, default `streak_mode: iteration`), but spec §2.5's prose ("no improvement > EPSILON over N consecutive
+  iterations"), the kit README's wording, and standard early stopping (the kit's own FM baseline) all read cumulatively.
+  `streak_mode: window` implements the cumulative reading (`promotion.window_streak`, unit-tested): under it, five
+  stacked +0.001 changes keep the run alive (streak 1,1,2,2,2) instead of converging at iteration 3. **HUMANS: ask the
+  organizers which reading applies.** If cumulative, switch to `window` and one-change-per-iteration becomes fully viable.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

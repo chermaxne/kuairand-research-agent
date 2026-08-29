@@ -138,9 +138,11 @@ The statistic feature file is not "flat" — it is forbidden (§3, §7).
 1. **This file is the prior; your ledger is the posterior.** When your own measured iterations contradict a number
    here, trust the ledger and say so in the rationale. When an attempt failed for implementation reasons (crash,
    GAUC < 0.5, exploding loss), the idea is untested — fix it rather than move on.
-2. **Every iteration is a > +0.002 attempt — including the ones after a promotion.** Single levers on this data are
-   ≈ ±0.001; gains above +0.0005 are now banked as the new champion, but only a > +0.002 step resets the streak, so
-   three consecutive sub-threshold iterations still end the run even if each one was promoted. The run that reached 0.6044 died exactly this way: it tested one small
+2. **Rhythm: bundle where the rule forces it, single changes everywhere else.** Single levers here are ≈ ±0.001 and
+   only a > +0.002 step resets the streak, so iteration 1 and the last shot before convergence must bundle
+   complementary levers. In between, change exactly ONE thing per iteration: gains above +0.0005 are banked as the
+   new champion, and a single change's delta is the only way to learn which component actually works. A bundle that
+   moves +0.0001 has taught you nothing about its parts — that happened twice in this project. The run that reached 0.6044 died exactly this way: it tested one small
    lever per iteration after the bundle. After a promotion, bundle again — several complementary UNTESTED levers
    plus more seeds in one pipeline (e.g. 5 seeds + a new field type + a loss variant kept alongside the proven
    loss, not instead of it).
