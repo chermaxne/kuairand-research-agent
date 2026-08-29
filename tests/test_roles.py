@@ -651,7 +651,7 @@ def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
     run, llm = base_cfg["run"], base_cfg["llm"]
     assert run["sizing_directive"] is True and run["implausible_gauc_below"] == 0.5
     assert run["EXPERIMENT_TIMEOUT_S"] >= 1200 and "one_change_per_iteration" not in run and "structural_first_until_iter" not in run
-    assert llm["researcher_model"] == "z-ai/glm-5.2" and llm["engineer_model"] == "deepseek/deepseek-v4-flash"
+    assert llm["researcher_model"] == "google/gemini-3.1-pro-preview" and llm["engineer_model"] == "google/gemini-3.1-pro-preview"
     assert llm["debugger_model"] == "deepseek/deepseek-v4-flash"
     # GLM-5.2 as Engineer returned ZERO visible output (whole budget spent reasoning): never put it back in this seat
     assert "z-ai/glm-5.2" not in llm["fallback_models"]["engineer"] + [llm["engineer_model"]]

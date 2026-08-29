@@ -656,6 +656,13 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   iterations. The Gemini trial produced no failures in the calls that were logged; the `ten15` run directory was
   removed before it wrote any state, so there is no run-level evidence either way.
 
+### Gemini-3.1-Pro trial for Researcher + Engineer (2026-08-29, user's call)
+* `google/gemini-3.1-pro-preview`, $2.00/$12.00 per M — the dearest model tried here, and the one behind the top four
+  MLE-bench leaderboard entries. Estimated ~$3.8 per 10-iteration run at our measured token usage, ~$7 if it is
+  verbose. Fallbacks: researcher GLM-5.2 then V4 Flash; engineer V4 Flash then qwen3-coder.
+* Risk to watch: a mute call (all budget spent on hidden reasoning, `stop=length`) costs ~$0.58 in the Engineer seat
+  at 48k output tokens — three times what a GLM-5.2 mute call cost. The fallback chain still protects the iteration.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)
