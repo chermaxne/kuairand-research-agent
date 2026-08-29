@@ -642,7 +642,9 @@ def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
     lib = open(os.path.join(ROOT, "knowledge", "library.md")).read()
     # background only: mechanics, public findings, traps, budget — never our own experiment results
     for must in ("What the organizers have already published", "Leave-one-out target", "1.9% of valid users",
-                 "bootstrap standard error", "video_features_statistic_pure.csv", "Trap list"):
+                 "bootstrap standard error", "video_features_statistic_pure.csv", "Trap list",
+                 "Recommender-systems domain knowledge", "BPR", "DIN", "ESMM", "SASRec", "MMoE", "DeepFM", "CWM",
+                 "Unbiased LTR", "How to use this section"):
         assert must in lib, must
     for forbidden in ("Directions that have repaid effort", "R1. Pairwise within-user loss", "R3. Seed rank-average",
                       "0.6042", "0.6044", "0.6049"):
@@ -733,4 +735,5 @@ def test_attribution_directive_appears_except_on_iteration_1_and_the_last_shot(t
 def test_researcher_prompt_puts_run_evidence_above_the_library():
     sys_p, _ = load_prompt(os.path.join(ROOT, "prompts"), "researcher")
     assert "YOUR MEASUREMENTS ARE THE ONLY EVIDENCE OF WHAT WORKS" in sys_p
+    assert "Ground every proposal in published work" in sys_p and "name the method and paper" in sys_p
     assert "One change at a time" in sys_p

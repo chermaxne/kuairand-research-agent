@@ -150,16 +150,97 @@ any gain is, or in what order to try them: measure, read your ledger, and follow
 - Memory: the encoded train matrix is 1.14M × F int32 — trivial. Libraries: numpy, pandas, scikit-learn, lightgbm,
   torch (CPU). IDs are strings in the CSVs; echo them as read.
 
-## 8. Literature notes (what transfers, what does not)
-- Watch-time prediction & duration bias — D2Q (KDD'22), TPM (KDD'23), CWM (KDD'24; evaluated on KuaiRand-Pure
-  and cited by the organizers' evaluate.py), DML (CIKM'23), D2Co (RecSys'23): they debias a *continuous* watch-time
-  target; our label is already a duration-normalised threshold, so only the ordinal-decomposition idea transfers.
-- Multi-task — MMoE (KDD'18), PLE (RecSys'20), ESMM (SIGIR'18): gains need related-but-different tasks; ours are
-  nested thresholds of one variable. Seesaw/negative transfer is the documented failure mode.
-- Ranking losses — pairwise/listwise objectives are ranking-calibrated for AUC (Uematsu & Lee, JASA 2017);
-  within-user pairwise losses raise GAUC in industry; softmax-family losses are tighter DCG surrogates
-  (PSL 2024; sampled softmax, TOIS 2024).
-- Long-sequence interest models — DIN, MIMN, SIM, TWIN-V2 (Kuaishou): large gains with long histories; here
-  histories are short (median 31) and the catalogue tiny, so the cheap form is R4.
-- Tabular ML — GBDTs are strong on tabular data in general (McElfresh 2023; Borisov 2021), but within-user ranking
-  rewards user × item embeddings over aggregate rates: measured worse here in every form.
+## 8. Recommender-systems domain knowledge — published methods, and where each applies to THIS task
+Ground every proposal in a published method or a documented industry practice, and say in `rationale` which one and
+why its assumptions hold for this data. The organizers' list in §4 tells you what is untried; this section tells you
+what the field knows about each of those directions. Citations are venue + year so the Engineer can look them up.
+
+### 8.1 Objectives aligned with ranking metrics (organizers' direction #1)
+- **Pairwise / BPR** — Rendle et al., *BPR: Bayesian Personalized Ranking from Implicit Feedback*, UAI 2009: optimise
+  `−log σ(s_pos − s_neg)` over (user, positive, negative) triples. Pairwise losses are ranking-calibrated for AUC
+  (Uematsu & Lee, JASA 2017): their minimiser induces the same ordering as the likelihood ratio, which is exactly what
+  GAUC rewards. Within-user pairs (both items from the SAME user) are the form that targets a *grouped* AUC; a
+  Meituan industry paper (PDAOM, arXiv 2023) reports GAUC gains from exactly that construction. Because all-positive
+  and all-negative users contribute no pairs, ~40% of users here (§1) provide no gradient under a pure pairwise loss —
+  a hybrid pointwise+pairwise objective or a pointwise warm-up are the documented remedies.
+- **Listwise / softmax families** — sampled softmax is a tighter surrogate for top-k metrics than BPR and mines hard
+  negatives implicitly (Wu et al., *On the Effectiveness of Sampled Softmax Loss for Item Recommendation*, TOIS 2024);
+  PSL (Yang et al., 2024) generalises softmax loss to a family whose members bound DCG more tightly. For within-user
+  ranking the natural list is the user's impressions (median 4 in validation, tens in train), so a per-user softmax
+  over each user's rows is cheap. Metric-specific losses (LambdaRank-style, RBP-inspired) exist but optimising the
+  evaluation metric directly is not always best (Li et al., SIGIR 2021).
+- **Negative sampling matters as much as the loss** (Ma et al., *Negative Sampling in Recommendation: A Survey*,
+  TOIS 2024; Yang et al., TPAMI 2024). Here negatives are *observed* impressions with label 0 — not missing data — so
+  the classic implicit-feedback problem (unseen ≠ disliked) does not arise, and uniform within-user sampling is
+  well-founded. Hard-negative and popularity-aware sampling (Prakash et al., 2024; Liu et al., 2023) change what the
+  model learns and can reinforce or reduce popularity bias; popular-item negatives push the model toward user-specific
+  preference rather than global popularity.
+
+### 8.2 Sequential / user-interest models (organizers' direction #2)
+- **Target attention over history** — DIN (Zhou et al., KDD 2018): represent the user by attending over their past
+  items *with the candidate as the query*, so the same history yields a different user vector per candidate. This is a
+  user × item interaction by construction, so it survives the within-user no-op rule (§2). DIEN adds interest
+  evolution (AAAI 2019).
+- **Self-attention over sequences** — SASRec (Kang & McAuley, ICDM 2018) and BERT4Rec (Sun et al., CIKM 2019) model
+  next-item prediction; SASRec is noted to work on both sparse and dense data. On short histories (median 31 train
+  impressions per user here), simpler models are competitive: the session-based evaluation of Ludewig & Jannach
+  (UMUAI 2018) found nearest-neighbour and factorised-Markov methods matching or beating GRU4Rec. Start simple.
+- **Long-sequence retrieval** — SIM (Pi et al., CIKM 2020), MIMN (KDD 2019), TWIN-V2 (Kuaishou, CIKM 2024) retrieve the
+  relevant subset of very long histories; overkill at this dataset's history lengths, but the idea of restricting the
+  history to items *related to the candidate* (same author, same tag) is cheap to borrow.
+- Sequence features must be built past-only (§6): the user's history at row t = rows with earlier `time_ms`.
+
+### 8.3 Multi-task and multi-behaviour learning (organizers' direction #3)
+- **Shared-bottom → MMoE → PLE** — Ma et al., KDD 2018 (MMoE: per-task gates over shared experts) and Tang et al.,
+  RecSys 2020 (PLE: explicit shared vs task-specific experts, addressing the *seesaw* effect where one task improves
+  at another's expense). Gains require tasks that are related but different; negative transfer is the documented
+  failure mode.
+- **Entire-space / funnel modelling** — ESMM (Ma et al., SIGIR 2018): when behaviours are nested
+  (impression → click → conversion), model p(later | earlier) over the entire impression space via the product
+  p(click) · p(later | click). Read §2: `is_click` and `long_view` ARE nested thresholds of play time, so ESMM is the
+  principled form here, while a naive auxiliary click head largely restates the main label. The sparse behaviours
+  (like 1.9%, follow 0.1%, comment 0.3%) are the genuinely different signals, and they are sparse.
+
+### 8.4 Watch time as a signal (organizers' direction #4)
+- D2Q (Zhan et al., KDD 2022) deconfounds duration bias by quantile-normalising watch time within duration groups;
+  TPM (Lin et al., KDD 2023) decomposes watch time into ordinal classification tasks arranged as a tree; CWM
+  (Zhao et al., KDD 2024) treats complete plays as *censored* observations of the latent watch time — this is the
+  paper whose evaluation protocol the organizers' `evaluate.py` follows, and it evaluates on KuaiRand-Pure; DML
+  (Zhang et al., CIKM 2023) builds quantile-based labels; D2Co (RecSys 2023) separates interest from duration bias and
+  noisy watching. The transferable ideas for a *thresholded* label: ordinal decomposition (predict several thresholds
+  jointly) and censoring-aware losses; the duration-debiasing machinery targets a bias the label definition already
+  normalises (§2).
+
+### 8.5 Feature-interaction models (organizers' direction #5 — ranked low by them)
+- FM (Rendle, ICDM 2010) is the champion's family. DeepFM (Guo et al., IJCAI 2017) adds an MLP over the same
+  embeddings; xDeepFM (Lian et al., KDD 2018) adds explicit vector-wise high-order crosses (CIN); DCN/DCN-v2
+  (Wang et al., 2017/2021) learn bounded-degree crosses cheaply; FiBiNET (Huang et al., RecSys 2019) adds
+  SENET feature-importance gating and bilinear interactions; AutoFIS (Liu et al., KDD 2020) learns which field pairs
+  to keep. Field-aware variants (FFM, FwFM, FEFM — Pande 2020) give each field pair its own interaction weight. The
+  organizers found capacity (k) and static features flat for the plain FM; these models change the *form* of the
+  interaction rather than its size, which is the only version of "more model" worth an iteration.
+- Tabular ML comparisons (McElfresh et al., 2023; Borisov et al., TNNLS 2021; Gorishniy et al., 2021): GBDTs are
+  strong on tabular data in general and are the classic pairing with FMs (Wang et al., 2019). Whether aggregate
+  features can substitute for id-embedding interactions in a *within-user* ranking is an open question for you.
+
+### 8.6 Bias and drift in logged feeds (organizers' directions #6–#7)
+- **Position / exposure bias** — clicks depend on where and among what an item was shown (Joachims et al., WSDM 2017;
+  Wang et al., WSDM 2018; Wu et al., *Unbiased LTR in Feeds Recommendation*, WSDM 2021 — context bias from
+  surrounding items; Oosterhuis, TOIS 2022 — doubly-robust correction). Two consequences here: (i) an impression's
+  position within the session is a legitimate, label-free context feature (`time_ms` order), and (ii) the
+  random-exposure log (`log_random_*`, organizers' direction #7) is the textbook unbiased set for checking whether a
+  gain reflects preference or the logging policy — KuaiRand exists precisely for this (Gao et al., CIKM 2022).
+- **Temporal drift** — validation follows train in time (§1, §3); the standard remedies are time-aware training
+  (recency weighting, fine-tuning on the latest days) and time-aware features; whether they help here is unmeasured.
+
+### 8.7 Ensembling and variance reduction
+- Rank-averaging or score-averaging several models is the most reliable gain in ranking competitions when the members
+  are individually strong and different in kind; seed-averaging the same model is the cheapest variance reduction
+  (Dietterich, 2000 on ensemble diversity; standard Kaggle practice). Within-user *rank* normalisation before averaging
+  keeps the ensemble aligned with a within-user metric.
+
+### How to use this section
+Pick the direction, name the paper, state which of its assumptions this dataset satisfies (§1–§3) and which it does
+not, then design the smallest faithful version and measure it. "DIN-style target attention over the user's past items,
+because the metric is within-user and attention makes the user vector candidate-dependent" is a grounded proposal;
+"add a deep network" is not.

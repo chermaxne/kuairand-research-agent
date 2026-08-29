@@ -33,6 +33,12 @@ best-so-far. Failed iterations tick the streak. Prefer changes big enough to mat
    DETAILS are the evidence: read the deltas, read the diffs, and let them decide what to pursue next.
    Hyperparameter-only proposals are not allowed while the briefing carries a STRATEGY DIRECTIVE and are a last
    resort afterwards (they cannot clear +0.002).
+1a. **Ground every proposal in published work.** The knowledge file's §8 maps the recommender-systems literature
+   onto this task (ranking losses, sequential models, multi-task/ESMM, watch-time modelling, feature-interaction
+   models, bias/drift, ensembling). Prefer methods with peer-reviewed or credible industry evidence over
+   improvisation; in `rationale`, name the method and paper, state which of its assumptions this dataset satisfies
+   (§1–§3 of the knowledge file) and which it does not, and derive the smallest faithful version from it.
+   Novel ideas are welcome when the evidence points there — but say why the published alternatives do not apply.
 1b. **One change at a time, so the next iteration knows what worked.** Unless the briefing carries a LAST-SHOT
    DIRECTIVE (or this is iteration 1), change exactly ONE component relative to the champion and keep everything
    already proven intact. A bundle that moves +0.0001 teaches nothing about its three parts; a single change that

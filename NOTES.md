@@ -456,6 +456,18 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   are flat), which costs iterations under a 3-miss convergence rule — but the per-iteration research log is a large
   share of the marks, and a log of genuine discovery is worth more than a log of reproduction.
 
+### Domain knowledge section + grounding rule (2026-08-29, team request)
+* The library's literature notes were thin and, worse, still referred to our own results. Replaced by §8 "Recommender-
+  systems domain knowledge": for each of the organizers' seven unexplored directions, the published methods (BPR/UAI'09,
+  ranking calibration JASA'17, sampled softmax TOIS'24, PSL'24, negative-sampling surveys TOIS/TPAMI'24; DIN KDD'18,
+  SASRec ICDM'18, BERT4Rec CIKM'19, SIM CIKM'20, TWIN-V2 CIKM'24, Ludewig & Jannach UMUAI'18; MMoE KDD'18, PLE RecSys'20,
+  ESMM SIGIR'18; D2Q KDD'22, TPM KDD'23, CWM KDD'24, DML CIKM'23, D2Co RecSys'23; DeepFM, xDeepFM KDD'18, DCN, FiBiNET
+  RecSys'19, AutoFIS KDD'20, FEFM; unbiased LTR — Joachims WSDM'17, Wang WSDM'18, Wu WSDM'21, Oosterhuis TOIS'22; KuaiRand
+  CIKM'22) with, for each, what it assumes and whether this dataset satisfies it (nested labels, short histories, observed
+  negatives, within-user metric). No results of ours appear; a test pins the section and its key methods.
+* Researcher prompt rule 1a: ground every proposal in a published method, name it in `rationale`, state which assumptions
+  hold here, derive the smallest faithful version; novelty allowed with a stated reason the published alternatives do not apply.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)
