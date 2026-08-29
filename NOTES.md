@@ -634,6 +634,12 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   `--set llm.engineer_model=deepseek/deepseek-v4-flash`. What to watch in the first iteration: an engineer line
   with `stop=length` or a `served by fallback` note means 5.3 has the same reasoning-runaway problem as 5.2.
 
+### Gemini-3-flash-preview trial for Researcher + Engineer (2026-08-29, user's call)
+* `google/gemini-3-flash-preview`: $0.50/$3.00 per M, 65k max output, both OpenRouter routes >99% uptime; the model
+  behind LoongFlow's 62.7% on MLE-bench (with test-set feedback, so discounted). Estimated ~$1.0 per 10-iteration run
+  vs ~$1.6 for GLM-5.3 in both seats. Researcher fallbacks: GLM-5.3, then V4 Flash; Engineer fallbacks unchanged
+  (V4 Flash first). The GLM-5.3 trial ran two iterations before this switch (ten13 it01-02) without a mute call.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)
