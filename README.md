@@ -102,11 +102,14 @@ Banking (`config.yaml` → `run`): `PROMOTE_MARGIN: 0.0002` (seed-noise level) s
 tracked as `best_measured` and finalize builds the submission from it when it beats the champion, so a gain that
 missed the margin is never lost.
 
-Attribution (`config.yaml` → `run`): `one_change_per_iteration: true` makes every iteration change exactly one
-component on top of the champion, so its delta is attributable — except iteration 1 and the last shot before
-convergence, where a single +0.001-class lever cannot clear ε and the harness requires a bundle. `streak_mode`
-selects the reading of the convergence rule: `iteration` (spec §6 pseudocode, default) or `window` (spec §2.5 prose /
-kit README / standard early stopping — stacked small gains keep the run alive). See NOTES.md; ask the organizers.
+Sizing and in-run attribution (`config.yaml` → `run`): convergence is the organizers' rule verbatim (each
+iteration vs best-so-far, ε = 0.002, N = 3; there is no alternative reading in the code), so every briefing carries
+a **SIZING DIRECTIVE**: one hypothesis sized to clear ε on its own, a numeric `expected_gain` with evidence, every
+validated rider stacked, and an `ablation_plan`. The pipeline scores the ablation variants itself and prints
+`ABLATION <name> primary=…` lines; the harness parses them into the digest next to the sealed result (marked
+pipeline-reported / unsealed) and reports the Researcher's prediction-vs-measurement calibration, so attribution
+costs runtime, not iterations. Posture is streak-aware: boldest structural bet at streak 0 ("new information beats
+capacity"), best-evidence variant at streak 1, LAST-SHOT bundle at streak 2.
 
 Research strategy knobs (`config.yaml` → `run`): `structural_first_until_iter: 10` injects a briefing directive
 that restricts the first 10 iterations to the knowledge library's measured, ranked recipes (pairwise within-user

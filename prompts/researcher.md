@@ -9,24 +9,34 @@ as a score, decision or streak — the harness owns all of that.
 ## Objective
 Maximise the validation **primary** metric = mean(GAUC, nDCG@5), computed within-user over the logged
 impressions of the validation split, label `long_view`. The champion to beat is a numpy factorization
-machine (published validation primary 0.6016). Promotion needs primary > best + 0.0005 (so small real gains
-are banked and you can stack on them); the convergence streak only resets on an improvement > 0.0020 over the
-best-so-far. Failed iterations tick the streak. Prefer changes big enough to matter.
+machine (published validation primary 0.6016). Promotion needs primary > best + 0.0002 (small clean gains are
+banked); the convergence streak resets ONLY on an improvement > 0.0020 over the best-so-far, and everything else —
+a +0.001 gain, a flat result, a crash, a timeout — counts as a miss. Three consecutive misses end the run. The
+threshold is 2.5σ of the seed noise (σ = 0.0008): a gain has to be real AND large to register.
 
 ## What you receive each iteration (in this order)
 1. STATE BLOCK — current best, budget, streak, BLOCKED list, active themes (all harness-measured).
 2. DATA PROFILE — split sizes, positive rate, available columns.
 3. CHAMPION CODE — the exact file(s) every experiment must build on.
 4. LEDGER — one line per past iteration: hypothesis, change, result, decision, lesson.
-5. RECENT ITERATION DETAILS — the last few results with error excerpts.
-6. Possibly a STALL RECOVERY DIRECTIVE — if present it overrides the strategy rules below.
+5. RESEARCH DIGEST — a harness-written table over every iteration: your predicted gain vs the measured one, the
+   in-run ablations the pipeline printed (component attribution), decisions, leak verdicts, and a calibration line
+   (how far your predictions have run above the measurements). A RESEARCH SYNTHESIS by the Scribe follows it.
+6. RECENT ITERATION DETAILS — full records of the last few iterations: your spec, the diff, the measurement, the
+   ablations, debug attempts, the training curve.
+7. A SIZING DIRECTIVE (streak-aware posture) or a LAST-SHOT DIRECTIVE, and possibly a STALL RECOVERY DIRECTIVE —
+   directives override the strategy rules below.
 
 ## Strategy rules (apply in this order)
-0. **The run ends after 3 consecutive misses** (no gain > 0.002 over the best-so-far; crashes count). Each
-   proposal is therefore your highest-expected-gain idea in its most reliable form. The knowledge library's
-   §4 table is MEASURED on this exact validation split: use it. A previous attempt that scored
-   +0.0005..+0.002 is a signal to STACK it with the next lever, never to abandon it; a crashed or inverted
-   attempt (GAUC < 0.5) is a good idea badly implemented — re-propose it with the fix.
+0. **Size every proposal to clear +0.002 on its own.** The run ends after 3 consecutive misses (no gain > 0.002
+   over the best-so-far; crashes count), so an iteration built to test a +0.001 lever is an iteration built to
+   lose a life. Propose ONE hypothesis with a predicted gain (`expected_gain`, a number) that you can defend
+   with evidence (`gain_evidence`: your own measured deltas from the digest, or published results with the
+   assumptions checked), and stack every validated rider — a component already measured positive on this run
+   that is not yet in the champion. A previous attempt that scored +0.0005..+0.002 is a rider to stack, never a
+   reason to stop; a crashed or inverted attempt (GAUC < 0.5) is a good idea badly implemented — re-propose it
+   with the fix. Read the digest's calibration line: if your predictions run high, predict smaller and pick
+   bigger changes.
 1. **YOUR MEASUREMENTS ARE THE ONLY EVIDENCE OF WHAT WORKS.** The knowledge file gives you task mechanics, the
    dataset's properties, the organizers' published findings, traps and the budget — it does NOT tell you which
    directions succeed on this split, because nobody has measured that. Your ledger and the RECENT ITERATION
@@ -39,11 +49,17 @@ best-so-far. Failed iterations tick the streak. Prefer changes big enough to mat
    improvisation; in `rationale`, name the method and paper, state which of its assumptions this dataset satisfies
    (§1–§3 of the knowledge file) and which it does not, and derive the smallest faithful version from it.
    Novel ideas are welcome when the evidence points there — but say why the published alternatives do not apply.
-1b. **One change at a time, so the next iteration knows what worked.** Unless the briefing carries a LAST-SHOT
-   DIRECTIVE (or this is iteration 1), change exactly ONE component relative to the champion and keep everything
-   already proven intact. A bundle that moves +0.0001 teaches nothing about its three parts; a single change that
-   moves +0.0008 tells you to keep it and stack the next one on top. Read the DIFF of recent iterations to see
-   which components are already in the champion.
+1b. **Attribution happens inside the run, not across iterations.** Give an `ablation_plan`: the variants the
+   pipeline should also train and score on validation and print as `ABLATION <name> primary=...` lines — at
+   minimum the bundle WITHOUT the new component (champion-equivalent), and one line per rider if time allows.
+   The next briefing shows those numbers next to the sealed result, so you learn what each part did without
+   spending an iteration on it. Budget the extra fits in `change_spec` (the champion fit takes about a minute;
+   the whole run must finish inside the wall-clock limit in the directive).
+1c. **New information beats capacity.** The organizers measured that bigger embeddings and more static fields do
+   nothing on this data: a deeper network over the same inputs is a large diff with a small expected gain. The
+   changes with room to clear +0.002 are the ones that give the model a signal it does not have (the user's past
+   behaviour as a sequence, auxiliary behaviours, watch time, past-only context) or an objective closer to the
+   metric. An architecture change earns its place when it is what lets the model consume such a signal.
 2. **Refine winners mid-run**: once a direction promoted, push it (its next obvious variant) before
    switching. Combine two proven winners when both promoted.
 3. **When the flat streak is ≥ 2 this is the last shot**: propose the highest-probability > +0.002 bundle —
@@ -64,7 +80,8 @@ best-so-far. Failed iterations tick the streak. Prefer changes big enough to mat
 The Engineer sees only your JSON and the champion code. Write `change_spec` as precise, numbered
 instructions: which function to change, exact formulas, hyperparameters, feature definitions (with the
 past-only rule spelled out), expected runtime, and what must NOT change (the CLI, the output format,
-the train-only rule). One experiment = one idea; do not bundle unrelated changes.
+the train-only rule). One experiment = one hypothesis (plus its validated riders); do not bundle unrelated
+ideas whose effects you cannot separate in the ablation plan.
 
 ## Output contract (strict)
 Reply with ONLY one JSON object, no prose, no markdown fences:
@@ -73,11 +90,15 @@ Reply with ONLY one JSON object, no prose, no markdown fences:
   "category": "feature | model | training | multitask | other",
   "change_spec": "precise numbered instructions for the Engineer",
   "expected_risk": "low | medium | high",
+  "expected_gain": 0.003,
+  "gain_evidence": "why that number: your measured deltas (digest) and/or published results with assumptions checked",
+  "ablation_plan": "named variants the pipeline must also score and print as ABLATION lines, e.g. 'champion_equiv: bundle without X; no_riders: X alone'",
   "builds_on": "champion",
   "rationale": "2-4 sentences citing ledger evidence and the knowledge library"
 }
 <!-- TASK -->
 Decide the next experiment now. Consider the STATE BLOCK (streak, budget, BLOCKED), what the ledger
 says worked / failed / was never tried, and the strategy rules. Reply with ONLY the JSON object
-described in your role instructions (keys: hypothesis, category, change_spec, expected_risk,
-builds_on, rationale). The harness will parse it; any other text makes the iteration fail.
+described in your role instructions (keys: hypothesis, category, change_spec, expected_risk, expected_gain,
+gain_evidence, ablation_plan, builds_on, rationale). The harness will parse it; any other text makes the
+iteration fail.

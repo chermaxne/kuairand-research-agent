@@ -274,7 +274,9 @@ class Roles:
     @staticmethod
     def engineer_message(plan: ResearcherPlan, champion_files: Dict[str, str], task: str, contract_note: str = "") -> str:
         return (f"# Change specification (from the Researcher)\nHYPOTHESIS: {plan.hypothesis}\nCATEGORY: {plan.category}\n"
-                f"EXPECTED RISK: {plan.expected_risk}\nCHANGE SPEC:\n{plan.change_spec}\n\n"
+                f"EXPECTED RISK: {plan.expected_risk}\nEXPECTED GAIN (Researcher's prediction): {plan.expected_gain}\n"
+                f"ABLATION PLAN (variants to also score and print as ABLATION lines): {plan.ablation_plan or '(none given: print at least the champion-equivalent variant if time allows)'}\n"
+                f"CHANGE SPEC:\n{plan.change_spec}\n\n"
                 f"# Current champion files\n{render_file_blocks(champion_files)}\n\n"
                 f"# Pipeline contract\n{contract_note}\n\n# TASK\n{task}")
 

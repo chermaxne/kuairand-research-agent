@@ -35,7 +35,7 @@ def stub_researcher(role: str, system: List[str], messages: List[Dict[str, str]]
     plan = {"hypothesis": f"Shift THETA by {delta:+.2f} to rebalance video vs author popularity (stub it{it:02d})",
             "category": CATS[(it - 1) % len(CATS)],
             "change_spec": f"In pipeline.py change the line `THETA = <x>` to THETA = x{delta:+.2f} (clamp to [0,1]). delta={delta:+.2f}",
-            "expected_risk": "low", "builds_on": "champion",
+            "expected_risk": "low", "builds_on": "champion", "expected_gain": 0.003,
             "rationale": "Stub agent: random tiny perturbation of the dummy pipeline (Phase 1 skeleton)."}
     return json.dumps(plan)
 
@@ -125,7 +125,7 @@ def kuairand_researcher(role: str, system: List[str], messages: List[Dict[str, s
     plan = {"hypothesis": step["hypothesis"], "category": step["category"],
             "change_spec": f"In pipeline.py apply exactly these line substitutions (leave everything else untouched): {edits}. "
                            f"Keep the CLI, the train-only rule and the output format. [mock it{it:02d}]",
-            "expected_risk": step["risk"], "builds_on": "champion", "rationale": step["rationale"] + f" (mock, it{it:02d})"}
+            "expected_risk": step["risk"], "builds_on": "champion", "expected_gain": 0.003, "rationale": step["rationale"] + f" (mock, it{it:02d})"}
     return json.dumps(plan)
 
 

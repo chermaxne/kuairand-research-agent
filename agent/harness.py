@@ -25,7 +25,7 @@ import yaml
 
 from . import tools
 from .llm_client import CallLog, make_client
-from .memory import (append_intervention, append_ledger, fmt_elapsed, init_interventions, init_ledger, ledger_line, load_run_state,
+from .memory import (format_ablations, parse_ablations, append_intervention, append_ledger, fmt_elapsed, init_interventions, init_ledger, ledger_line, load_run_state,
                      one_line, read_iteration_detail, read_ledger, render_state_block, research_digest, result_string,
                      save_run_state, synthesis_numbers_ok, write_iteration_log, write_iteration_narrative, write_state_block)
 from .phase0 import Phase0Error, install_champion, run_phase0
@@ -41,7 +41,10 @@ PIPELINE_CONTRACT_NOTE = """`python pipeline.py --data <data_dir> --split val --
 - `--split test` must keep working unchanged (it is used once, at finalize, on the champion).
 - Exit 0 on success. Single process, no network, no package installs, only pre-installed libraries
   (numpy, pandas, scikit-learn, lightgbm, torch-cpu). Same-row feedback columns are NOT features (leakage).
-- Hard wall-clock limit: {timeout}s for the whole run (load + train + predict)."""
+- Hard wall-clock limit: {timeout}s for the whole run (load + train + predict).
+- In-run attribution: for each variant in the ablation plan, also score it on validation with the official `evaluate()`
+  and print one line `ABLATION <name> primary=<f> gauc=<f> ndcg5=<f>` (real numbers from real fits only; skip variants
+  that would not fit in the time limit and say so in a printed line). The written predictions are the full bundle."""
 
 STALL_DIRECTIVE = """# STALL RECOVERY DIRECTIVE (injected by the harness)
 The last {n} iterations ALL failed (crash / timeout / rejected output). Do NOT propose anything ambitious now.
@@ -50,31 +53,38 @@ hyperparameter, one well-understood feature, a smaller model variant). Requireme
 new files, runtime well under the limit, minimal diff. State in `rationale` why it cannot fail the same way."""
 
 
-STRUCTURAL_DIRECTIVE = """# STRATEGY DIRECTIVE (harness policy, iteration {it} of the first {n})
-Three consecutive misses end the run and every single lever measured on this data is about +0.001, so this
-iteration must aim at > +0.002: combine complementary changes or make a structural one, with the knowledge
-library's measured table as your prior and the ledger as your evidence. Hyperparameter-only proposals (learning
-rate, embedding size, epochs, patience, regularisation, batch size, bucket counts) are not allowed in these first
-{n} iterations unless they are part of a structural change. State the expected gain, why it should exceed +0.002,
-and the self-check the code will print. Re-trying something the library marks flat is allowed if you say what is
-different about your version."""
+SIZING_DIRECTIVE = """# SIZING DIRECTIVE (harness policy: flat streak {streak} of {n_flat} — {lives} more miss(es) end the run)
+The convergence rule is per iteration: only a gain > +{epsilon} over the best-so-far ({best}) resets the streak. A
++0.001 gain is promoted and banked, but it still counts as a miss. So every proposal must be SIZED to clear
++{epsilon} on its own: ONE hypothesis whose expected gain you state as a number with evidence (`expected_gain`,
+`gain_evidence`), plus every validated rider (a component already measured positive on this run that is not yet in
+the champion). Hyperparameter-only proposals cannot clear +{epsilon} and are not allowed.
+{posture}
+Attribution is free and happens INSIDE the run, never across iterations: write an `ablation_plan` naming the
+variants the pipeline should also train and score on validation (at minimum the bundle WITHOUT the new
+component, i.e. the champion-equivalent), printed as `ABLATION <name> primary=... gauc=... ndcg5=...`. The
+written predictions are the full bundle; only the sealed score counts. The wall-clock limit is {timeout}s, so
+budget the extra fits explicitly (the champion fit takes about a minute)."""
+
+POSTURE_BOLD = """Posture at streak 0: take your boldest well-grounded structural bet — a change that gives the model NEW
+INFORMATION (the user's past behaviour as a sequence, auxiliary behaviours, watch time, past-only context) or an
+objective closer to the metric. Capacity alone is not information: the organizers measured that bigger embeddings
+and more static fields do nothing, so a deeper network over the same inputs is a large diff with a small expected
+gain. An architecture change earns its place when it is what lets the model consume a new signal (e.g. attention
+over the user's history)."""
+
+POSTURE_STEADY = """Posture at streak {streak}: still structural, but choose the variant with the best evidence rather than the highest
+ceiling, stack every validated rider, keep the champion's seed averaging, and prefer the implementation with the
+fewest new moving parts — a crash or timeout costs a miss just like a flat result."""
 
 
 STREAK_DIRECTIVE = """# LAST-SHOT DIRECTIVE (harness policy: flat streak {streak} of {n_flat})
 One more iteration without a gain > +{epsilon} over the best-so-far ({best}) ENDS THE RUN. Choose the
 highest-probability bundle: keep every component of the champion that produced its gain (its loss, its fields,
-its seed averaging) exactly as is, add more seeds if the champion uses fewer than 5, and add ONE genuinely new
-signal. Do NOT replace or remove a proven component, do NOT re-try a lever kind whose last result was within
-±0.0006 (noise), and state in `rationale` why this bundle should clear +{epsilon}."""
-
-
-ATTRIBUTION_DIRECTIVE = """# ATTRIBUTION DIRECTIVE (harness policy, iteration {it})
-Change exactly ONE thing relative to the champion this iteration — one new field, one loss change, one training
-change — so that the measured delta is attributable to it and the next iteration knows what worked. The champion
-already contains everything previously proven; keep all of it untouched. Name that single component in the
-hypothesis, and in `rationale` say what its delta will tell you either way.
-(The exceptions are handled by the harness: iteration 1 and the last shot before convergence, where a single
-+0.001-class lever cannot clear the +{epsilon} streak threshold and bundling is required.)"""
+its seed averaging) exactly as is, add more seeds if the champion uses fewer than 5, stack EVERY validated rider
+not yet in the champion, and add ONE genuinely new signal. Do NOT replace or remove a proven component, do NOT
+re-try a lever kind whose last result was within ±0.0006 (noise), and state in `rationale` and `gain_evidence`
+why this bundle should clear +{epsilon}. Keep the `ablation_plan` minimal (champion-equivalent only)."""
 
 
 class FinalizeError(RuntimeError):
@@ -212,12 +222,13 @@ class Harness:
                 parts.append("# RESEARCH SYNTHESIS (written by the Scribe from the digest above — interpretive; verify any claim "
                              "against the table)\n" + state.synthesis)
         parts.append(self.render_recent_iterations(state))
-        n_struct = int(self.run_cfg.get("structural_first_until_iter", 0) or 0)
-        if it <= n_struct:
-            parts.append(STRUCTURAL_DIRECTIVE.format(n=n_struct, it=it))
         last_shot = self.limits.n_flat > 1 and state.streak >= self.limits.n_flat - 1
-        if self.run_cfg.get("one_change_per_iteration", True) and it > 1 and not last_shot:
-            parts.append(ATTRIBUTION_DIRECTIVE.format(it=it, epsilon=self.limits.epsilon))
+        best_s = f"{state.best_primary:.4f}" if state.best_primary is not None else "n/a"
+        if not last_shot and self.run_cfg.get("sizing_directive", True):
+            posture = POSTURE_BOLD if state.streak == 0 else POSTURE_STEADY.format(streak=state.streak)
+            parts.append(SIZING_DIRECTIVE.format(streak=state.streak, n_flat=self.limits.n_flat, lives=self.limits.n_flat - state.streak,
+                                                 epsilon=self.limits.epsilon, best=best_s, posture=posture,
+                                                 timeout=int(self.run_cfg["EXPERIMENT_TIMEOUT_S"])))
         if last_shot:
             parts.append(STREAK_DIRECTIVE.format(streak=state.streak, n_flat=self.limits.n_flat, epsilon=self.limits.epsilon,
                                                  best=f"{state.best_primary:.4f}" if state.best_primary is not None else "n/a"))
@@ -262,6 +273,15 @@ class Harness:
                 status, score, error_reason, attempts, files, runtime_s, blocked_reason = self.execute_with_debugging(ws, plan, files)
 
         primary = score.primary if (score is not None and status == "scored") else None
+        ablations: List[Dict[str, Any]] = []
+        if status == "scored":
+            try:
+                with open(os.path.join(ws, "stdout.txt"), encoding="utf-8", errors="replace") as fh:
+                    ablations = parse_ablations(fh.read())
+            except OSError:
+                ablations = []
+            if ablations:
+                self.log(f"[it{it:02d}] in-run ablations (pipeline-reported): {format_ablations(ablations, primary)}")
         result = HarnessResult(status=status, gauc=score.gauc if score else 0.0, ndcg5=score.ndcg5 if score else 0.0,
                                primary=score.primary if score else 0.0, runtime_s=runtime_s,
                                error_excerpt="" if status == "scored" else error_reason[-4000:],
@@ -371,7 +391,8 @@ class Harness:
                         "error_short": one_line(error_reason.splitlines()[-1] if error_reason else "", 200)}
         if self.cfg["llm"].get("scribe_digest", True):
             digest_now = research_digest(state.history + [hist_preview], lambda n: read_iteration_detail(self.run_dir, n) if n != it else
-                                         {"hypothesis": plan_for_scribe.hypothesis, "harness_extra": {"best_at_iteration_start": best_at_start, "leak_test": leak or None}})
+                                         {"hypothesis": plan_for_scribe.hypothesis, "harness_extra": {"best_at_iteration_start": best_at_start, "leak_test": leak or None,
+                                                                                                        "expected_gain": plan_for_scribe.expected_gain, "ablations": ablations}})
             synth = self.roles.scribe_digest(digest_now)
             if synth and synthesis_numbers_ok(synth, digest_now):
                 state.synthesis = synth
@@ -397,6 +418,8 @@ class Harness:
                                             "llm_calls": self.roles.calls_this_iteration, "iteration_wall_s": round(self.clock() - t_iter, 1),
                                             "blocked_added": blocked_reason or None, "consecutive_failures": state.consecutive_failures,
                                             "leak_test": leak or None,
+                                            "expected_gain": plan_for_scribe.expected_gain, "gain_evidence": plan_for_scribe.gain_evidence,
+                                            "ablation_plan": plan_for_scribe.ablation_plan, "ablations": ablations,
                                             "workspace": os.path.relpath(ws, self.run_dir)})
         write_iteration_log(self.run_dir, entry)
 
@@ -439,6 +462,9 @@ class Harness:
                      if (best_before is not None and r.get("status") == "scored") else "n/a")
             out.append(f"\n## it{it:02d} [{h.get('category')}] — {h.get('decision')} ({r.get('status')}), {delta}")
             out.append(f"HYPOTHESIS: {d.get('hypothesis') or h.get('hypothesis')}")
+            if isinstance(x.get("expected_gain"), (int, float)):
+                measured = (f"; measured {r.get('primary') - best_before:+.4f}" if (best_before is not None and r.get("status") == "scored") else "")
+                out.append(f"YOUR PREDICTED GAIN: {x['expected_gain']:+.4f}{measured}" + (f" — evidence given: {one_line(x.get('gain_evidence', ''), 300)}" if x.get("gain_evidence") else ""))
             if d.get("rationale"):
                 out.append(f"RATIONALE (yours, at the time): {one_line(d['rationale'], 600)}")
             plan_path = os.path.join(self.iteration_dir(it), "plan.json")
@@ -455,6 +481,11 @@ class Harness:
                 out.append("DIFF (champion -> attempt):\n```diff\n" + diff[:diff_chars] + ("\n… (diff truncated)" if len(diff) > diff_chars else "") + "\n```")
             if r.get("status") == "scored":
                 out.append(f"MEASURED: primary {r.get('primary'):.4f} (GAUC {r.get('gauc'):.4f} / nDCG@5 {r.get('ndcg5'):.4f}), runtime {r.get('runtime_s')}s")
+                if x.get("ablations"):
+                    out.append("IN-RUN ABLATIONS (pipeline-reported on validation, unsealed — component attribution): " +
+                               format_ablations(x["ablations"], r.get("primary")))
+                elif x.get("ablation_plan"):
+                    out.append("IN-RUN ABLATIONS: none printed although an ablation plan was given — attribution for this iteration is missing.")
             else:
                 out.append(f"OUTCOME: {r.get('status')} — {one_line(r.get('error_excerpt', ''), 400)}")
             for a in d.get("errors_and_recovery", []):

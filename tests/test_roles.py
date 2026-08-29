@@ -14,6 +14,7 @@ from agent.stub_roles import default_mock_handlers
 from tests.conftest import ROOT, make_toy_harness
 
 GOOD = {"hypothesis": "Use BPR loss", "category": "training", "change_spec": "1. ...", "expected_risk": "medium",
+        "expected_gain": 0.003, "gain_evidence": "organizers' direction #1", "ablation_plan": "champion_equiv: pointwise loss",
         "builds_on": "champion", "rationale": "organizers' top pick"}
 
 
@@ -32,8 +33,11 @@ def test_researcher_contract_validation():
     assert isinstance(p, ResearcherPlan) and p.rationale == "organizers' top pick"
     p2 = parse_researcher(json.dumps({**GOOD, "category": " Training ", "expected_risk": "LOW", "rationale": None}))
     assert p2.category == "training" and p2.expected_risk == "low" and p2.rationale == "1. ..."   # rationale falls back
+    p3 = parse_researcher(json.dumps({**GOOD, "expected_gain": "+0.0025"}))
+    assert p3.expected_gain == 0.0025 and p3.ablation_plan.startswith("champion_equiv")
     for bad in ({**GOOD, "category": "magic"}, {k: v for k, v in GOOD.items() if k != "change_spec"},
-                {**GOOD, "hypothesis": ""}, {**GOOD, "expected_risk": "extreme"}, [GOOD]):
+                {**GOOD, "hypothesis": ""}, {**GOOD, "expected_risk": "extreme"}, [GOOD],
+                {k: v for k, v in GOOD.items() if k != "expected_gain"}, {**GOOD, "expected_gain": "large"}):
         with pytest.raises(ContractError):
             parse_researcher(json.dumps(bad))
 
@@ -61,7 +65,7 @@ def test_prompt_files_exist_and_split_into_system_and_task():
         sys_p, task = load_prompt(os.path.join(ROOT, "prompts"), role)
         assert sys_p and task and "<!-- TASK -->" not in sys_p
     sys_p, task = load_prompt(os.path.join(ROOT, "prompts"), "researcher")
-    for key in ("hypothesis", "category", "change_spec", "expected_risk", "builds_on"):
+    for key in ("hypothesis", "category", "change_spec", "expected_risk", "expected_gain", "gain_evidence", "ablation_plan", "builds_on"):
         assert key in sys_p and key in task
     assert os.path.getsize(os.path.join(ROOT, "knowledge", "library.md")) > 4000
 
@@ -617,29 +621,10 @@ def test_scribe_prompt_forbids_causal_claims():
     assert "never WHY" in sys_p and "causal" in sys_p and "training log" in sys_p.lower()
 
 
-def test_structural_directive_in_early_briefings_only(tmp_path, base_cfg, mini_data):
-    briefings = []
-
-    def researcher(role, system, messages):
-        briefings.append(messages[-1]["content"])
-        return default_mock_handlers()["researcher"](role, system, messages)
-    handlers = default_mock_handlers()
-    handlers["researcher"] = researcher
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
-                         overrides={"run": {"MAX_ITERS": 3, "N_FLAT": 99, "structural_first_until_iter": 2}})
-    h.init_or_resume()
-    h.phase0()
-    for it in (1, 2, 3):
-        h.run_iteration(it)
-    assert "STRATEGY DIRECTIVE" in briefings[0] and "iteration 1 of the first 2" in briefings[0]
-    assert "STRATEGY DIRECTIVE" in briefings[1]
-    assert "STRATEGY DIRECTIVE" not in briefings[2]
-    assert "iteration 1 of the first 2" in briefings[0] and "library marks flat is allowed" in briefings[0]
-
-
 def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
     run, llm = base_cfg["run"], base_cfg["llm"]
-    assert 1 <= run["structural_first_until_iter"] <= 5 and run["implausible_gauc_below"] == 0.5
+    assert run["sizing_directive"] is True and run["implausible_gauc_below"] == 0.5
+    assert run["EXPERIMENT_TIMEOUT_S"] >= 1200 and "one_change_per_iteration" not in run and "structural_first_until_iter" not in run
     assert llm["researcher_model"] == "z-ai/glm-5.2" and llm["engineer_model"] == "deepseek/deepseek-v4-flash"
     assert "minimax" not in json.dumps([llm[f"{r}_model"] for r in ("researcher", "engineer", "debugger", "scribe")])
     for role in ("researcher", "engineer", "debugger", "scribe"):          # initial phase: no Claude-priced model anywhere
@@ -716,7 +701,9 @@ def test_training_tail_collapses_repeated_lines(tmp_path, base_cfg, mini_data):
     assert "epoch 8" in tail and "epoch 7" in tail                                        # the curve survives
 
 
-def test_attribution_directive_appears_except_on_iteration_1_and_the_last_shot(tmp_path, base_cfg, mini_data):
+def test_sizing_directive_every_iteration_except_the_last_shot(tmp_path, base_cfg, mini_data):
+    """Under the organizers' per-iteration rule every proposal must be sized to clear EPSILON on its own: the harness says so in
+    every briefing (streak-aware posture), and hands over to the LAST-SHOT directive at streak N-1."""
     briefings = []
 
     def researcher(role, system, messages):
@@ -726,22 +713,42 @@ def test_attribution_directive_appears_except_on_iteration_1_and_the_last_shot(t
     handlers["researcher"] = researcher
     handlers["engineer"] = lambda r, s, m: render_file_blocks(parse_file_blocks(
         m[-1]["content"].split("# Current champion files", 1)[-1].split("# Pipeline contract", 1)[0]))   # flat -> streak climbs
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
-                         overrides={"run": {"MAX_ITERS": 3, "N_FLAT": 3, "structural_first_until_iter": 0, "one_change_per_iteration": True}})
-    st = h.init_or_resume()
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 3, "N_FLAT": 3}})
+    h.init_or_resume()
     h.phase0()
     for it in (1, 2, 3):
         h.run_iteration(it)
-    assert "ATTRIBUTION DIRECTIVE" not in briefings[0]                     # iteration 1 may bundle
-    assert "ATTRIBUTION DIRECTIVE" in briefings[1] and "exactly ONE thing" in briefings[1]
-    assert "LAST-SHOT DIRECTIVE" in briefings[2] and "ATTRIBUTION DIRECTIVE" not in briefings[2]   # last shot may bundle
+    assert "SIZING DIRECTIVE (harness policy: flat streak 0 of 3 — 3 more miss(es)" in briefings[0] and "Posture at streak 0" in briefings[0]
+    assert "boldest" in briefings[0] and "ablation_plan" in briefings[0] and "ATTRIBUTION DIRECTIVE" not in briefings[0]
+    assert "flat streak 1 of 3" in briefings[1] and "Posture at streak 1" in briefings[1]
+    assert "LAST-SHOT DIRECTIVE" in briefings[2] and "SIZING DIRECTIVE" not in briefings[2]
+    # the Engineer is told the predicted gain and the ablation plan
+    eng = h.roles.engineer_message(parse_researcher(json.dumps(GOOD)), {"pipeline.py": "x"}, "T", "C")
+    assert "EXPECTED GAIN (Researcher's prediction): 0.003" in eng and "ABLATION PLAN" in eng and "champion_equiv" in eng
+
+
+def test_in_run_ablations_are_parsed_and_shown_with_calibration():
+    from agent.memory import parse_ablations, research_digest
+    out = "epoch 1 | primary 0.60\nABLATION champion_equiv primary=0.6031 gauc=0.6690 ndcg5=0.5372\nABLATION no_riders primary=0.6040\n" \
+          "ABLATION champion_equiv primary=0.6033 gauc=0.6691 ndcg5=0.5375\nABLATION bad skipped: out of time\n"
+    abl = parse_ablations(out)
+    assert [a["name"] for a in abl] == ["champion_equiv", "no_riders"]
+    assert abl[0]["primary"] == 0.6033 and abl[1]["gauc"] is None            # later line wins; optional fields tolerated
+    hist = [{"iteration": 1, "category": "training", "hypothesis": "ListNet + position", "primary": 0.6045, "status": "scored",
+             "decision": "promoted", "promoted": True, "lesson": "ok"}]
+    detail = {1: {"hypothesis": "ListNet + position", "harness_extra": {"best_at_iteration_start": 0.6015, "expected_gain": 0.005, "ablations": abl}}}
+    d = research_digest(hist, lambda n: detail.get(n))
+    assert "| +0.0050 | +0.0030 |" in d                                        # predicted vs measured, side by side
+    assert "champion_equiv 0.6033 (-0.0012 vs the full run)" in d               # component attribution from inside the run
+    assert "Calibration: over 1 scored iterations your predicted gain exceeded the measured one by +0.0020" in d
 
 
 def test_researcher_prompt_puts_run_evidence_above_the_library():
     sys_p, _ = load_prompt(os.path.join(ROOT, "prompts"), "researcher")
     assert "YOUR MEASUREMENTS ARE THE ONLY EVIDENCE OF WHAT WORKS" in sys_p
     assert "Ground every proposal in published work" in sys_p and "name the method and paper" in sys_p
-    assert "One change at a time" in sys_p
+    assert "Size every proposal to clear +0.002" in sys_p and "Attribution happens inside the run" in sys_p
+    assert "New information beats capacity" in sys_p and "One change at a time" not in sys_p
 
 
 
@@ -799,7 +806,7 @@ def test_digest_is_deterministic_and_never_llm_authored_except_lessons():
     details = {1: {"hypothesis": "add X (full)", "harness_extra": {"best_at_iteration_start": 0.6}},
                2: {"hypothesis": "loss Y (full)", "harness_extra": {"best_at_iteration_start": 0.61, "leak_test": None}}}
     d = research_digest(hist, lambda n: details[n])
-    assert "| it01 | feature | add X (full) | +0.0100 | promoted | scored | X helped |" in d
-    assert "| it02 | training | loss Y (full) | n/a | failed | failed: ValueError: boom | crashed |" in d
+    assert "| it01 | feature | add X (full) | n/a | +0.0100 | promoted | scored | — | X helped |" in d
+    assert "| it02 | training | loss Y (full) | n/a | n/a | failed | failed: ValueError: boom | — | crashed |" in d
     assert "promoted 1 (it01)" in d and "never attempted: model, multitask, other" in d
     assert research_digest(hist, lambda n: details[n]) == d
