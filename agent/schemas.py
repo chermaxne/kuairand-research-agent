@@ -56,8 +56,11 @@ class ResearcherPlan:
     expected_risk: str
     builds_on: str = "champion"
     rationale: str = ""           # optional superset field; falls back to change_spec
+    expected_gain: Optional[float] = None   # the Researcher's predicted primary delta (a number, checked against the measurement)
+    gain_evidence: str = ""       # why that number: own measured deltas and/or published results
+    ablation_plan: str = ""       # variants the pipeline should also score and print as ABLATION lines (in-run attribution)
 
-    REQUIRED = ("hypothesis", "category", "change_spec", "expected_risk", "builds_on")
+    REQUIRED = ("hypothesis", "category", "change_spec", "expected_risk", "builds_on", "expected_gain")
 
     @classmethod
     def from_obj(cls, obj: Any) -> "ResearcherPlan":
@@ -78,10 +81,21 @@ class ResearcherPlan:
         rationale = obj.get("rationale") or ""
         if not isinstance(rationale, str):
             rationale = json.dumps(rationale)
+        try:
+            gain = float(str(obj["expected_gain"]).strip().replace("+", "").rstrip("%"))
+        except (TypeError, ValueError):
+            raise ContractError(f"expected_gain must be a number (predicted primary delta, e.g. 0.003), got {obj['expected_gain']!r}")
+        if not (-1.0 <= gain <= 1.0):
+            raise ContractError(f"expected_gain must be a primary delta in [-1, 1], got {gain}")
+        evidence = obj.get("gain_evidence") or ""
+        ablation = obj.get("ablation_plan") or ""
         return cls(hypothesis=obj["hypothesis"].strip(), category=category,
                    change_spec=obj["change_spec"].strip(), expected_risk=risk,
                    builds_on=str(obj.get("builds_on", "champion")).strip() or "champion",
-                   rationale=rationale.strip() or obj["change_spec"].strip())
+                   rationale=rationale.strip() or obj["change_spec"].strip(),
+                   expected_gain=gain,
+                   gain_evidence=(evidence if isinstance(evidence, str) else json.dumps(evidence)).strip(),
+                   ablation_plan=(ablation if isinstance(ablation, str) else json.dumps(ablation)).strip())
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

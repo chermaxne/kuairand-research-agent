@@ -139,7 +139,8 @@ def research_digest(history: Iterable[Dict[str, Any]], read_detail=None) -> str:
     for h in rows:
         by_cat.setdefault(h.get("category") or "other", []).append(h)
     out = ["# RESEARCH DIGEST — every iteration so far, grouped by direction (harness-measured facts)",
-           "| it | direction | what changed | Δ vs then-champion | decision | status | lesson |", "|---|---|---|---|---|---|---|"]
+           "| it | direction | what changed | predicted Δ | measured Δ vs then-champion | decision | status | in-run ablations (pipeline-reported, unsealed) | lesson |",
+           "|---|---|---|---|---|---|---|---|---|"]
     for cat in sorted(by_cat):
         for h in by_cat[cat]:
             it = h["iteration"]
@@ -154,15 +155,52 @@ def research_digest(history: Iterable[Dict[str, Any]], read_detail=None) -> str:
                 status += f" ({lt.split(' ')[0]})"
             if h.get("error_short") and status != "scored":
                 status += f": {one_line(h['error_short'], 60)}"
-            out.append(f"| it{it:02d} | {cat} | {one_line(hyp, 220)} | {delta} | {h.get('decision')} | {status} | {one_line(h.get('lesson', ''), 120)} |")
+            eg = x.get("expected_gain")
+            predicted = f"{eg:+.4f}" if isinstance(eg, (int, float)) else "n/a"
+            abl = format_ablations(x.get("ablations") or [], h.get("primary") if h.get("status") == "scored" else None) or "—"
+            out.append(f"| it{it:02d} | {cat} | {one_line(hyp, 220)} | {predicted} | {delta} | {h.get('decision')} | {status} | {one_line(abl, 200)} | {one_line(h.get('lesson', ''), 120)} |")
     promoted = [h for h in rows if h.get("promoted")]
     tried = {c: len(v) for c, v in by_cat.items()}
     out.append("")
+    calib = [(read_detail(h["iteration"]) or {}).get("harness_extra", {}) if read_detail else {} for h in rows]
+    calib = [(c.get("expected_gain"), h.get("primary") - c.get("best_at_iteration_start"))
+             for c, h in zip(calib, rows)
+             if isinstance(c.get("expected_gain"), (int, float)) and h.get("primary") is not None and c.get("best_at_iteration_start") is not None]
+    if calib:
+        bias = sum(p - m for p, m in calib) / len(calib)
+        out.append(f"Calibration: over {len(calib)} scored iterations your predicted gain exceeded the measured one by {bias:+.4f} on "
+                   f"average (predicted − measured); size the next prediction accordingly.")
     out.append(f"Totals: {len(rows)} iterations; promoted {len(promoted)}" +
                (f" (it{', it'.join(f'{h['iteration']:02d}' for h in promoted)})" if promoted else "") +
                "; attempts per direction: " + ", ".join(f"{c} {n}" for c, n in sorted(tried.items())) +
                "; never attempted: " + (", ".join(c for c in CATEGORIES if c not in by_cat) or "none") + ".")
     return "\n".join(out)
+
+
+ABLATION_RE = re.compile(r"^\s*ABLATION\s+(\S+)\s+primary=([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)"
+                         r"(?:\s+gauc=([-+]?\d*\.?\d+))?(?:\s+ndcg5=([-+]?\d*\.?\d+))?", re.M)
+
+
+def parse_ablations(stdout: str) -> List[Dict[str, Any]]:
+    """In-run attribution: the pipeline may score named variants on validation itself and print
+    `ABLATION <name> primary=<f> [gauc=<f>] [ndcg5=<f>]`. These are PIPELINE-REPORTED (unsealed) diagnostics for the
+    Researcher; promotion and convergence never read them. Later lines with the same name win."""
+    found: Dict[str, Dict[str, Any]] = {}
+    for m in ABLATION_RE.finditer(stdout or ""):
+        name, primary, gauc, ndcg = m.groups()
+        found[name] = {"name": name, "primary": float(primary),
+                       "gauc": float(gauc) if gauc else None, "ndcg5": float(ndcg) if ndcg else None}
+    return list(found.values())
+
+
+def format_ablations(ablations: List[Dict[str, Any]], full_primary: Optional[float] = None) -> str:
+    if not ablations:
+        return ""
+    parts = []
+    for a in ablations:
+        d = f" ({a['primary'] - full_primary:+.4f} vs the full run)" if full_primary is not None else ""
+        parts.append(f"{a['name']} {a['primary']:.4f}{d}")
+    return "; ".join(parts)
 
 
 def synthesis_numbers_ok(synthesis: str, digest: str) -> bool:

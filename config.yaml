@@ -184,7 +184,7 @@ run:
                                    # 2026-08-29: 0.0002 ≈ the seed noise of a 3-seed-averaged pipeline. 0.0005 discarded two
                                    # real +0.0004 gains in one run, so nothing compounded. Spec default was 0.0010.
   DEBUG_RETRIES: 3                 # debugger attempts per iteration; retries never consume iterations
-  EXPERIMENT_TIMEOUT_S: 900        # hard kill for one pipeline run (train + predict val)
+  EXPERIMENT_TIMEOUT_S: 1500       # hard kill for one pipeline run (train + predict val + in-run ablation fits)
   FINALIZE_TIMEOUT_S: 1800         # hard kill for the single champion --split test pass
   STALL_FAILURES: 3                # N consecutive failed iterations -> canned recovery directive in next briefing
   implausible_gauc_below: 0.5      # a scored GAUC below this = inverted ranking (random is 0.5): one Debugger pass for a
@@ -197,9 +197,12 @@ run:
   leak_check_min_primary: 0.5      # feedback columns flipped; those users' TRUE labels scored below this (random) = the
                                    # code reads validation labels -> LEAK, never promoted. A crash on the 10% copy retries
                                    # at 2%; crashes on both = inconclusive, not promoted. (leak_check: off disables)
-  one_change_per_iteration: true   # attribution: every iteration changes exactly ONE thing on top of the champion, so the
-                                   # measured delta is attributable. The harness exempts iteration 1 and the last shot
-                                   # before convergence, where a single +0.001-class lever cannot clear EPSILON.
+  sizing_directive: true           # every briefing (except the last shot) carries the SIZING DIRECTIVE: under the
+                                   # per-iteration rule a proposal must be sized to clear EPSILON on its own — one
+                                   # hypothesis + validated riders, a numeric expected_gain with evidence, and an
+                                   # ablation_plan so attribution happens INSIDE the run (ABLATION lines in stdout)
+                                   # instead of costing iterations. Streak 0 = boldest structural bet (new information
+                                   # beats capacity); streak 1 = best-evidence structural variant + riders.
   # Convergence is the organizers' rule verbatim (kit README, baseline_scores.json): three consecutive iterations whose
   # validation primary improves by <= EPSILON over the best-so-far -> converged; failed iterations count. No other
   # reading is implemented (a cumulative "window" variant was tried on 2026-08-29 and reverted; see NOTES.md).
@@ -209,8 +212,6 @@ run:
   briefing_recent_iterations: 5
   briefing_diff_chars: 2500
   briefing_spec_chars: 1200
-  structural_first_until_iter: 3   # briefing directive for the first N iterations (the window in which three misses
-                                   # end the run): aim for > +0.002, no hyperparameter-only proposals (0 disables)
   retry_timeouts_with_debugger: true    # a timeout usually IS a bug (a Python loop over users x rows): one Debugger pass
                                         # with the training-log tail before the iteration counts as lost
   mask_test_period_in_loop: true   # experiments see a derived data dir WITHOUT test-period rows

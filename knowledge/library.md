@@ -98,11 +98,14 @@ any gain is, or in what order to try them: measure, read your ledger, and follow
    find out, and let your own measurements decide what to pursue.
    When an attempt failed for implementation reasons (crash, GAUC < 0.5, exploding loss), the idea is untested —
    fix it rather than move on.
-2. **Rhythm: single changes by default, bundles only where the rule forces them.** A change worth less than the
-   streak threshold cannot keep the run alive on its own, so iteration 1 and the last shot before convergence may
-   need to combine several changes. Everywhere else, change exactly ONE thing per iteration: a single change's delta
-   is the only way to learn whether that component works. **Never bundle components whose individual effects you have
-   not measured** — a bundle that moves a hair teaches you nothing about its parts.
+2. **Rhythm: size every iteration to clear the threshold; attribute inside the run.** The rule is per iteration
+   (each result vs the best-so-far; a +0.001 promotion still counts as a miss), so a lever worth less than the
+   threshold cannot keep the run alive on its own. Propose one hypothesis big enough to matter, stack the riders you
+   have already measured positive, and let the pipeline score the ablations (the bundle without the new component,
+   each rider alone) on validation in the same run. Runtime is cheap; iterations are not.
+2b. **New information beats capacity.** The organizers' negative results (§4) are about adding capacity and static
+   fields to the same inputs. The directions they left open all add a signal the model does not have (§8.1–§8.4) or
+   change the objective; treat "a deeper network over the same five ids" as the lowest-yield large change.
 3. **Respect the noise floor.** A delta smaller than the seed-to-seed spread of your own pipeline is not evidence.
    Measure that spread once (same configuration, different seeds) and use it to decide what counts as a signal.
 4. **Streak ≥ 2 is the last shot.** Take your highest-probability option and never replace a component that is part

@@ -522,6 +522,25 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   leak-clean +0.003 is a legitimate outcome under the rule, not a harness bug.
 * The it03 gains themselves sit at 2.0 sigma and 1.75 sigma of seed noise; treat them as promising, not proven.
 
+### Agent logic under the per-iteration rule: sizing + in-run attribution (2026-08-29)
+* The rule makes a run a three-lives game: every iteration without a > 0.002 gain over best-so-far costs a life,
+  including promoted +0.001 gains. Wall-clock is abundant (4–7 min per iteration of a 6 h budget); lives are not.
+* Removed `one_change_per_iteration` and `structural_first_until_iter`; every briefing (except the last shot) now
+  carries a SIZING DIRECTIVE: one hypothesis sized to clear ε, numeric `expected_gain` + `gain_evidence` (new
+  required plan fields), validated riders stacked, streak-aware posture (streak 0: boldest structural bet, "new
+  information beats capacity" — the organizers' own negative results are about capacity; streak 1: best-evidence
+  variant, fewest moving parts).
+* Attribution moved INSIDE the run: the plan carries an `ablation_plan`; the pipeline trains the variants and prints
+  `ABLATION <name> primary=… gauc=… ndcg5=…` (official `evaluate()` on validation, the same call the champion's early
+  stopping uses). The harness parses them (`memory.parse_ablations`) into the iteration record, the digest (new
+  columns: predicted Δ, in-run ablations) and the recent-iteration records, all marked pipeline-reported/unsealed;
+  promotion and convergence never read them. `EXPERIMENT_TIMEOUT_S` 900 → 1500 to pay for the extra fits.
+* The digest also prints a calibration line (mean predicted − measured gain) so the Researcher learns to size.
+* Library §5 rewritten to match (rule 2: size to clear the threshold, attribute in-run; 2b: new information beats
+  capacity). The organizers' unexplored list was already in §4 in their order with their reasoning and in §8 mapped to
+  the literature; no gain numbers exist from them, and our own measurements stay out of the file by decision — the
+  agent gets those from its digest.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)
