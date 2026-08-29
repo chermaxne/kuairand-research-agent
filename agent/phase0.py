@@ -66,6 +66,21 @@ def run_phase0(task, run_dir: str, state: RunState, cfg: Dict[str, Any], log=pri
         if not ok and task.assert_rungs:
             failures.append(f"{name}: got {value:.4f}, expected {expected:.4f} ± {tolerance}")
 
+    # 0. convergence rule: our EPSILON / N_FLAT must BE the organizers' published numbers ------------------
+    # The kit ships the rule as data (baseline_scores.json -> convergence_rule), not as code, so faithfulness means
+    # asserting our configuration equals theirs rather than trusting a hand-copied constant.
+    run_cfg = cfg.get("run", {})
+    kit_eps, kit_n = task.expected.get("epsilon"), task.expected.get("N")
+    our_eps, our_n = float(run_cfg.get("EPSILON")), int(run_cfg.get("N_FLAT"))
+    ok_rule = (kit_eps is None or abs(our_eps - float(kit_eps)) < 1e-12) and (kit_n is None or our_n == int(kit_n))
+    res["checks"].append({"name": "convergence_rule_matches_kit", "value": f"EPSILON={our_eps} N_FLAT={our_n}",
+                          "expected": f"epsilon={kit_eps} N={kit_n}", "ok": ok_rule})
+    log(f"[phase0] convergence rule: EPSILON={our_eps} N_FLAT={our_n} vs kit baseline_scores.json "
+        f"epsilon={kit_eps} N={kit_n} -> {'match' if ok_rule else 'MISMATCH'}")
+    if not ok_rule:
+        failures.append(f"convergence rule differs from the kit: ours EPSILON={our_eps}/N_FLAT={our_n}, "
+                        f"kit epsilon={kit_eps}/N={kit_n}")
+
     # 1. rungs ---------------------------------------------------------
     rows_valid = task.rows_valid
     rnd_path = os.path.join(p0, "random_valid.csv")

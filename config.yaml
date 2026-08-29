@@ -7,30 +7,27 @@ llm:
   # DEFAULT PROVIDER: OpenRouter (one key, every model). Switch with --llm-profile <anthropic|gemini|groq|...>.
   provider: openrouter             # -> https://openrouter.ai/api/v1 (OpenAI-compatible Chat Completions)
   api_key_env: OPENROUTER_API_KEY  # key from https://openrouter.ai/keys — put it in .env, never in git
-  # Model choice (2026-08-28): quality where it matters, cost where it does not.
-  #   Researcher  z-ai/glm-5.2               best plans seen in this project (precise specs, cites the ledger and the
-  #                                           playbook); reasons 15-30k chars per call, so ~1-2 min; ~$0.02 per call.
-  #   Engineer    deepseek/deepseek-v4-flash  ~2.5 min per full-pipeline rewrite (it reasons first), the only model
-  #   Debugger                                here that produced correct non-trivial code unaided (qwen3-coder: 2/6).
-  #   Scribe      mistralai/codestral-2508    0.4 s, $0.0028.
-  # ≈ $0.03 per iteration; ~6 min per iteration -> 50 iterations in ~5 h. Faster/cheaper coder: --llm-profile fast.
-  researcher_model: z-ai/glm-5.2
-  engineer_model: deepseek/deepseek-v4-flash
+  # Model choice (2026-08-29, user's call): google/gemini-3.1-pro-preview drives BOTH research and engineering.
+  #   $2.00/$12.00 per M, 65k max output, the model behind the top four MLE-bench leaderboard entries.
+  #   Reasoning effort medium for both. Fallbacks keep a run alive if a call comes back empty:
+  #   researcher -> GLM-5.2 -> V4 Flash; engineer -> V4 Flash -> qwen3-coder. Debugger/Scribe unchanged (fast + cheap).
+  researcher_model: google/gemini-3.1-pro-preview
+  engineer_model: google/gemini-3.1-pro-preview
   debugger_model: deepseek/deepseek-v4-flash
   scribe_model: mistralai/codestral-2508
   fallback_models:                 # tried in order when the primary stalls, is rate-limited (429) or unavailable
-    researcher: [deepseek/deepseek-v4-flash, qwen/qwen3-coder]
-    engineer:   [qwen/qwen3-coder, mistralai/codestral-2508]
+    researcher: [z-ai/glm-5.2, deepseek/deepseek-v4-flash]
+    engineer:   [deepseek/deepseek-v4-flash, qwen/qwen3-coder]
     debugger:   [qwen/qwen3-coder, mistralai/codestral-2508]
     scribe:     [qwen/qwen3-coder]
   reasoning:                       # OpenRouter unified parameter (`effort` works on every model here; Claude 5 rejects
-    researcher: {effort: high}     # team decision 2026-08-29; NOTE run `ten` showed GLM ignoring a reasoning token cap, so this may be soft
-    engineer: {effort: low}        # reasoning helps correctness; low keeps the call ~2-3 min
+    researcher: {effort: medium}   # team decision 2026-08-29 (user's call): medium for both driving roles
+    engineer: {effort: medium}     # reasoning helps correctness on a whole-file rewrite
     debugger: {effort: low}
     scribe: {}
   # researcher 40000: GLM-5.2's hidden reasoning on a ~25k-char briefing exhausted 12000 (50k reasoning chars, zero
   # visible plan) in 9 of 11 calls; the cap covers reasoning + visible output. Worst case ~4 min / ~$0.15 per call.
-  max_output_tokens: {researcher: 40000, engineer: 24000, debugger: 24000, scribe: 600}   # includes any thinking
+  max_output_tokens: {researcher: 40000, engineer: 40000, debugger: 24000, scribe: 600}   # includes any thinking
   # Streaming timeouts (OpenAI-compatible providers): a stalled generation is abandoned after inactivity_timeout_s
   # without a token, every call is capped at call_timeout_s, one retry, then the next fallback model.
   inactivity_timeout_s: 120
@@ -197,6 +194,12 @@ run:
   leak_check_min_primary: 0.5      # feedback columns flipped; those users' TRUE labels scored below this (random) = the
                                    # code reads validation labels -> LEAK, never promoted. A crash on the 10% copy retries
                                    # at 2%; crashes on both = inconclusive, not promoted. (leak_check: off disables)
+  cross_run_memory: true           # the briefing carries every experiment measured in EARLIER runs, split into what
+                                   # worked / what did not / what broke (harness-written from their run_state.json, the
+                                   # agent's own sealed measurements — never hand-authored advice). Without it each run
+                                   # spends its one productive iteration rediscovering the same lever: the ranking-loss
+                                   # bundle was re-proposed in 9 of 13 runs.
+  cross_run_max_rows: 60
   sizing_directive: true           # every briefing (except the last shot) carries the SIZING DIRECTIVE: under the
                                    # per-iteration rule a proposal must be sized to clear EPSILON on its own — one
                                    # hypothesis + validated riders, a numeric expected_gain with evidence, and an

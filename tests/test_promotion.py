@@ -125,18 +125,21 @@ def test_config_matches_kit_convergence_rule(project_root, base_cfg):
 
 
 # ---------------------------------------------------------------- streak readings (spec §6 vs §2.5 / kit README)
-def test_window_streak_keeps_stacked_small_gains_alive():
-    from agent.promotion import window_streak
-    # three promoted +0.001-class gains: per-iteration reading converges, cumulative reading does not
-    best = [0.6015, 0.6028, 0.6036, 0.6046]
-    # +0.0031 over the 3-iteration window -> streak stays below n_flat, i.e. the run does NOT converge
-    assert window_streak(best, n_flat=3, epsilon=0.002) == 2 < 3
-    flat = [0.6015, 0.6016, 0.6017, 0.6018]
-    assert window_streak(flat, n_flat=3, epsilon=0.002) == 3          # +0.0003 over the window -> converged
-    assert window_streak([0.6015], n_flat=3, epsilon=0.002) == 0      # not enough history
 
 
-def test_window_streak_matches_iteration_mode_on_a_flat_run():
-    from agent.promotion import window_streak
-    flat = [0.6015] * 5
-    assert window_streak(flat, n_flat=3, epsilon=0.002) == 3
+
+def test_convergence_rule_is_the_kit_s_published_numbers():
+    """Faithfulness: the kit ships the rule as data (baseline_scores.json -> convergence_rule), so our configured
+    EPSILON / N_FLAT must equal it, and Phase 0 asserts that before a single iteration runs."""
+    import json, os, yaml
+    from tests.conftest import ROOT
+    kit = json.load(open(os.path.join(ROOT, "starter_kit", "baseline_scores.json")))["convergence_rule"]
+    cfg = yaml.safe_load(open(os.path.join(ROOT, "config.yaml")))["run"]
+    assert float(cfg["EPSILON"]) == float(kit["epsilon"]) == 0.002
+    assert int(cfg["N_FLAT"]) == int(kit["N"]) == 3
+    # and the rule itself: reset only on a gain > epsilon over best-so-far; everything else ticks
+    from agent.promotion import next_streak
+    assert next_streak(0.6040, 0.6015, 0, 0.002) == 0        # +0.0025 > epsilon -> reset
+    assert next_streak(0.6030, 0.6015, 0, 0.002) == 1        # +0.0015 promoted but still a miss
+    assert next_streak(0.6035, 0.6015, 2, 0.002) == 3        # exactly at the boundary is NOT an improvement
+    assert next_streak(None, 0.6015, 1, 0.002) == 2          # a crash ticks it too

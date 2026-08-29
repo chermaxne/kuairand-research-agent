@@ -128,6 +128,102 @@ def active_themes(history: Iterable[Dict[str, Any]], categories: Iterable[str] =
     return f"winning: {fmt(winning)}; losing/flat: {fmt(losing)}; untried: {', '.join(untried) or 'none'}"
 
 
+PLAUSIBILITY_CEILING = 0.70          # no honest model on this task reaches here (oracle 0.8484, baseline 0.6015)
+
+
+def prior_runs_digest(runs_root: str, current_run_dir: str, max_rows: int = 60) -> str:
+    """Cross-run memory: every iteration this agent has ever measured, in EARLIER runs, split into what worked and
+    what did not. Harness-written from run_state.json + logs/iter_NN.json — these are the agent's own sealed
+    measurements, never hand-authored advice. Without this each run rediscovers the same lever from scratch."""
+    import glob
+    rows = []
+    cur = os.path.abspath(current_run_dir)
+    for rd in sorted(glob.glob(os.path.join(runs_root, "*"))):
+        if os.path.abspath(rd) == cur or not os.path.isdir(rd):
+            continue
+        if any(k in os.path.basename(rd) for k in ("toy", "gate", "dryrun", "example")):
+            continue
+        sp = os.path.join(rd, "run_state.json")
+        if not os.path.exists(sp):
+            continue
+        try:
+            st = read_json(sp) or {}
+        except (OSError, ValueError):
+            continue
+        for h in st.get("history", []):
+            it = h.get("iteration")
+            d = read_iteration_detail(rd, it) or {}
+            x = d.get("harness_extra", {})
+            base = x.get("best_at_iteration_start")
+            delta = (h["primary"] - base) if (h.get("primary") is not None and base is not None) else None
+            rows.append({"run": os.path.basename(rd), "iter": it, "cat": h.get("category") or "?",
+                         "hyp": d.get("hypothesis") or h.get("hypothesis", ""), "primary": h.get("primary"),
+                         "delta": delta, "status": h.get("status"), "decision": h.get("decision"),
+                         "lesson": h.get("lesson", ""), "leak": (x.get("leak_test") or {}).get("verdict"),
+                         "err": h.get("error_short", "")})
+    if not rows:
+        return ""
+    # A score above the plausibility ceiling is a label leak by construction on this task (the validation oracle is
+    # 0.8484 and the best honest lever ever measured is +0.003), as is an explicit LEAK verdict. These must never
+    # appear as things that "worked" — an agent reading them would go looking for the leak.
+    def leaked(r):
+        return (r.get("leak") in ("LEAK",) or (r.get("primary") is not None and r["primary"] > PLAUSIBILITY_CEILING))
+    honest = [r for r in rows if not leaked(r)]
+    leaks = [r for r in rows if leaked(r)]
+    scored = [r for r in honest if r["status"] == "scored" and r["delta"] is not None]
+    worked = sorted([r for r in scored if r["delta"] > 0], key=lambda r: -r["delta"])
+    didnt = sorted([r for r in scored if r["delta"] <= 0], key=lambda r: r["delta"])
+    broke = [r for r in honest if r["status"] != "scored"]
+    best = max((r for r in honest if r.get("primary") is not None), key=lambda r: r["primary"], default=None)
+
+    out = ["# PRIOR RUNS — every experiment this agent has already measured (harness-recorded, earlier runs only)",
+           "These are YOUR OWN sealed measurements from previous runs of this same task, not advice. Do not spend an",
+           "iteration re-measuring something below unless you state what is different about your version. The deltas are",
+           "against the champion at that iteration's start, so a small delta on top of a strong champion is not the same",
+           "as a small delta on top of the baseline.", ""]
+    if best:
+        out.append(f"Best score ever recorded across all runs: **{best['primary']:.4f}** ({best['run']} it{best['iter']:02d})"
+                   + (f" — {one_line(best['hyp'], 150)}" if best.get("hyp") else ""))
+        out.append("")
+    def table(title, items, cap):
+        if not items:
+            return
+        out.append(f"## {title} ({len(items)} of them)")
+        out.append("| Δ vs then-champion | direction | what was tried | result |")
+        out.append("|---|---|---|---|")
+        for r in items[:cap]:
+            out.append(f"| {r['delta']:+.4f} | {r['cat']} | {one_line(r['hyp'], 180)} | "
+                       f"{r['primary']:.4f} {r['decision']}"
+                       f"{' [leak test: ' + r['leak'] + ']' if r.get('leak') in ('LEAK',) or (r.get('leak') or '').startswith('INCONCLUSIVE') else ''} |")
+        if len(items) > cap:
+            out.append(f"| … | | {len(items) - cap} more not listed | |")
+        out.append("")
+    half = max(6, max_rows // 2)
+    table("WHAT WORKED — measured gains, largest first", worked, half)
+    table("WHAT DID NOT WORK — measured losses or no movement", didnt, half)
+    if broke:
+        out.append(f"## WHAT BROKE — {len(broke)} iterations never produced a score (an implementation failure costs the same as a bad idea)")
+        for r in broke[:12]:
+            out.append(f"- {r['cat']}: {one_line(r['hyp'], 140)} — {r['status']}: {one_line(r['err'], 90)}")
+        out.append("")
+    if leaks:
+        out.append(f"## CAUGHT AS A LABEL LEAK — {len(leaks)} iteration(s), scores that were NOT real")
+        out.append("The harness rejected these: a score above the plausibility ceiling, or predictions that collapsed when")
+        out.append("validation labels were flipped. They are listed so the trap is recognisable, never as a result to chase.")
+        for r in leaks[:6]:
+            out.append(f"- scored {r['primary']:.4f} ({r['cat']}): {one_line(r['hyp'], 150)}")
+        out.append("")
+
+    cats = {}
+    for r in scored:
+        c = cats.setdefault(r["cat"], [0, 0])
+        c[0] += 1
+        if r["delta"] > 0: c[1] += 1
+    out.append("Attempts per direction across all prior runs: " +
+               ", ".join(f"{c} {v[0]} ({v[1]} positive)" for c, v in sorted(cats.items())) + ".")
+    return "\n".join(out)
+
+
 def research_digest(history: Iterable[Dict[str, Any]], read_detail=None) -> str:
     """Harness-written fact table over EVERY iteration, grouped by category: what was changed, the delta against the
     champion at that time, the decision and the failure/leak status. Deterministic; nothing here is LLM-authored

@@ -25,7 +25,7 @@ import yaml
 
 from . import tools
 from .llm_client import CallLog, make_client
-from .memory import (format_ablations, parse_ablations, append_intervention, append_ledger, fmt_elapsed, init_interventions, init_ledger, ledger_line, load_run_state,
+from .memory import (prior_runs_digest, format_ablations, parse_ablations, append_intervention, append_ledger, fmt_elapsed, init_interventions, init_ledger, ledger_line, load_run_state,
                      one_line, read_iteration_detail, read_ledger, render_state_block, research_digest, result_string,
                      save_run_state, synthesis_numbers_ok, write_iteration_log, write_iteration_narrative, write_state_block)
 from .phase0 import Phase0Error, install_champion, run_phase0
@@ -224,6 +224,11 @@ class Harness:
         parts.append("# CHAMPION CODE (current best pipeline; every experiment builds on it)\n" +
                      "\n".join(f"--- {n} ---\n{c}" for n, c in sorted(champ.items())))
         parts.append("# LEDGER (full history, oldest first)\n" + (read_ledger(self.run_dir) or "(empty)"))
+        if self.run_cfg.get("cross_run_memory", True):
+            prior = prior_runs_digest(os.path.dirname(os.path.abspath(self.run_dir)), self.run_dir,
+                                      int(self.run_cfg.get("cross_run_max_rows", 60)))
+            if prior:
+                parts.append(prior)
         digest = research_digest(state.history, lambda n: read_iteration_detail(self.run_dir, n))
         if digest:
             parts.append(digest)
@@ -362,11 +367,8 @@ class Harness:
             install_champion(self.run_dir, files, os.path.join(ws, tools.PREDS_VAL), score, it, ws)
             state.best_primary, state.best_gauc, state.best_ndcg5, state.best_iter = score.primary, score.gauc, score.ndcg5, it
         state.best_history.append(dec.best_primary_after)
-        if str(self.run_cfg.get("streak_mode", "iteration")) == "window":
-            from .promotion import window_streak
-            state.streak = window_streak(state.best_history, self.limits.n_flat, self.limits.epsilon)
-        else:
-            state.streak = dec.streak_after
+        state.streak = dec.streak_after            # organizers' rule (kit README + baseline_scores.json): each
+                                                   # iteration vs best-so-far; gains <= EPSILON and failures tick
         if status == "scored":
             state.consecutive_failures = 0
         else:
