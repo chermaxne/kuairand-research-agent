@@ -565,7 +565,8 @@ def test_fallback_reasons_are_recorded(monkeypatch, tmp_path):
     c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
     resp = c.complete(role="researcher", model="a", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
     assert resp.text == "fine"
-    assert resp.fallback_notes == ["a: APIStatusError 429 after 1 attempts", "mute: empty response (finish_reason='stop', 25 output tokens, 0 reasoning chars)"]
+    assert resp.fallback_notes[0] == "a: APIStatusError 429 after 1 attempts"
+    assert resp.fallback_notes[1].startswith("mute: empty response (finish_reason='stop', 25 output tokens, 0 reasoning chars,") and "wasted" in resp.fallback_notes[1]
     log = CallLog(str(tmp_path / "calls.jsonl"))
     log.record(1, "researcher", resp)
     assert json.loads(open(log.path).read())["fallback_notes"] == resp.fallback_notes
