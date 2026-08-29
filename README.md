@@ -9,6 +9,23 @@ every guarantee: sealed scoring, promotion, convergence, budgets, logging, resum
 
 Read `IMPLEMENTATION_SPEC.md` for the design contract and `NOTES.md` for every discrepancy/decision.
 
+## Relation to prior work
+The problem statement frames this track against MLE-Bench [1], AIDE [2] and AI-Scientist-v2 [3]. Where this
+system sits relative to them, and what it borrows or deliberately drops:
+
+| | AIDE [2] / AI-Scientist-v2 [3] | This harness |
+|---|---|---|
+| Search | tree search over whole solution scripts; a node's parent is chosen among all evaluated nodes (draft / debug / improve policies) | a *degenerate* tree: every node's parent is the single sealed champion — a hill-climb. Chosen on purpose: a 6 h clock at ~7 min per experiment buys ~40 nodes, too few to spend on branches, and one champion + one change per iteration makes every measured delta attributable to one idea |
+| Debug edge | a failing node spawns a debug child | same: a Debugger role, ≤3 retries per iteration, retries do not consume iterations; timeouts get a runtime diagnosis |
+| Who reads the metric | the agent runs its own evaluation and reads the number it computed | the LLM never sees anything it graded: a sealed `evaluate.py` is executed by the harness, and promotion / convergence / budgets are pure functions of its output |
+| Validity of the submission | MLE-Bench [1] found that agents most often fail by not producing a valid submission at all | the organizers' own `submit.py --check` runs at finalize; a valid `submission.csv` is written from the best leak-clean checkpoint even if the run is interrupted |
+| Rule violations | MLE-Bench [1] grades for plagiarism / contamination after the fact | a label-leak test runs *inside* the loop: flip 10 % of validation users' feedback columns, re-score their true labels; a pipeline that peeks at labels scores below random and is never promoted |
+| Memory / reflection | AI-Scientist-v2 [3] keeps an experiment journal and an experiment-manager agent | a three-tier memory (append-only ledger, regenerated state block, full per-iteration JSON) plus a harness-computed digest of every iteration; the Scribe's synthesis is rejected if it cites a number not in that table |
+
+[1] Chan et al., *MLE-Bench: Evaluating Machine Learning Agents on Machine Learning Engineering*, 2024.
+[2] Jiang et al., *AIDE: AI-Driven Exploration in the Space of Code*, 2025.
+[3] Yamada et al., *The AI Scientist-v2: Workshop-Level Automated Scientific Discovery via Agentic Tree Search*, 2025.
+
 ## What is guaranteed (competition rules encoded as code)
 | Rule | Where it lives |
 |---|---|
@@ -16,8 +33,8 @@ Read `IMPLEMENTATION_SPEC.md` for the design contract and `NOTES.md` for every d
 | The LLM never grades itself | scores/promotion/streaks/budgets computed only in `agent/promotion.py` + `agent/harness.py` from measured values |
 | The checkpoint is sacred | only `install_champion()` (harness) writes `runs/RUN_ID/best/`; failed/worse experiments leave it byte-identical (test) |
 | No external training data; hidden-test rows are invisible during the loop | experiments run on a derived train+valid-only data dir and are read-denied on the full dir (macOS `sandbox-exec`) |
-| Stopping rules: streak ≥ 3 flat (ε = 0.002), 50 iterations, 6 h wall clock, token spend guard | `agent/promotion.py: stop_reason()`; failed iterations tick the streak |
-| Promotion (margin 0.0010) ≠ convergence (ε 0.002) | two separate pure functions, unit-tested |
+| Stopping rules: no > ε = 0.002 improvement over the last 3 iterations (`run.streak_mode: window`; the literal per-iteration reading is one flag away), 50 iterations, 6 h wall clock, token spend guard | `agent/promotion.py: stop_reason()`, `window_streak()`; failed iterations tick the streak |
+| Promotion (margin 0.0002, so small leak-clean gains bank and compound) ≠ convergence (ε 0.002) | two separate pure functions, unit-tested |
 | One timestamped run directory holds everything | `runs/<RUN_ID>/` — ledger, state block, per-iteration JSON, workspaces, best/, submission, interventions, token log |
 | Honest accounting | token usage from API `usage` fields per call (`llm_calls.jsonl`), wall clock from the run's start timestamp, manual-intervention log with a counter (restarts are auto-recorded) |
 
@@ -198,24 +215,23 @@ iterations, ≈42k tokens over 13 LLM calls (mock usage is estimated from charac
 0 interventions. Note how it01 shows the two separate judgments: promoted, yet the flat streak advanced.
 
 ## Limitations
-* **No real-API run yet.** No working key was available while this was built, so both clients are verified only
-  against fake transports (request shape, usage parsing, refusal/truncation handling, model fallback). Before the
-  official run, put the key in `.env` and execute `.venv/bin/python -m agent.harness --llm-check` then
-  `.venv/bin/python -m agent.harness --max-iters 1 --label smoke`, and check `llm_calls.jsonl` (real token counts,
-  `estimated_usage: false`). On the native Anthropic profile, set `llm.refusal_fallbacks: false` if the account
-  rejects the server-side-fallback beta.
-* **Prompt quality with real models is untested** — whether Researcher change specs are precise enough and
-  whether the Engineer keeps diffs minimal. The prompts live in `prompts/` and are meant to be tuned by humans.
+* **Real-API runs are short so far.** Runs on OpenRouter (GLM-5.2 Researcher, DeepSeek V4 Flash Engineer) reach
+  0.6045 on validation in three iterations (+0.0029 over the baseline); no full 6 h run has been completed yet.
+  Before the official run: `.venv/bin/python -m agent.harness --llm-check`, then a 1-iteration smoke run, and check
+  `llm_calls.jsonl` for real token counts (`estimated_usage: false`).
+* **Prompt quality is model-dependent.** Cheaper Engineers produced label leaks and wrong tuple indexing
+  (caught by the leak test); the prompts in `prompts/` are meant to be tuned by humans.
 * **OS-level sandboxing is macOS-only** (`sandbox-exec`): no network, writes confined to the workspace,
   full data dir read-denied during the loop. On Linux the harness records a warning and relies on the static
   code guard + env stripping only; a container/`unshare -n` wrapper is a known gap.
-* **One experiment per iteration**, sequential; no parallel candidates.
-* **Timeouts are terminal** for an iteration by default (no Debugger retry); flip
-  `run.retry_timeouts_with_debugger` if you prefer the retry.
+* **One experiment per iteration**, sequential, one parent (the champion); no tree search or parallel candidates.
+* **Convergence reading**: the spec's prose and its pseudocode disagree on whether three consecutive +0.0015
+  promotions count as "converged"; the default is the cumulative reading and the question is open with the
+  organizers (`NOTES.md`).
 * **Mock usage numbers are estimates** (characters / 4) and flagged `estimated_usage: true`; only real runs
   carry API-reported usage.
-* The knowledge library is a hand-written playbook derived from the kit README and the spec; it is not
-  validated by experiments beyond the organizers' published ones.
+* The knowledge library is background only (task mechanics, data facts, organizers' published findings, cited
+  recommender-systems literature); the agent's own measurements are the only evidence it gets about what works.
 * Hidden-test rows are masked from experiments (derived data dir + read denial); the champion's final
   `--split test` pass is the only time test-period rows are read, and it is a prediction-only pass.
 
