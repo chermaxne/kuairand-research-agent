@@ -606,6 +606,12 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Engineer is back to `deepseek/deepseek-v4-flash` (effort low, 32k budget), fallbacks qwen3-coder -> codestral, with
   GLM-5.2 deliberately absent from the coding chain (asserted in tests). GLM-5.2 stays the Researcher, where its long
   reasoning produces good plans and the visible output is ~2k tokens.
+* Should the Engineer cap be raised? Measured over all 28 V4-Flash Engineer calls in this project: median 8,782
+  output tokens, p90 14,653, and **not one call was ever truncated** (every `stop_reason` is `end_turn`; the only 3
+  truncations in the whole project are the Researcher on GLM at the old 12k cap). Three outliers (29k / 44k / 48k
+  tokens, 164-618 s) completed even when the cap was 24,000 — OpenRouter did not enforce `max_tokens` on that route,
+  so a bigger number would not have changed them; they were slow because of reasoning, not short of room. 32k stays:
+  ~2x p90, and it acts as a brake on a 10-minute call. Raise it only if a call ever logs `stop=length`.
 * Same failure mode as the Researcher at a 12k budget in run `ten`: with these models, reasoning effort has to be
   budgeted against how much VISIBLE output the role must produce, not against how hard the task feels.
 
