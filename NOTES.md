@@ -591,6 +591,13 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   before any history signal has been shown to exist; a crash there is a lost life. The Debugger's three free retries
   and the 1500 s limit are the mitigation.
 
+### Engineer -> GLM-5.2 (2026-08-29, team choice)
+* Researcher and Engineer both `z-ai/glm-5.2`; Debugger stays `deepseek/deepseek-v4-flash`; `deepseek-v4-flash` is the
+  Engineer's first fallback. Rationale: with the FM retired, each experiment is a whole new model (torch/GBDT), not a
+  200-line edit — the stronger coder buys reliability where a crash costs a life. Engineer reasoning effort low ->
+  medium, output budget 24k -> 40k (GLM reasons before writing and once ignored a token cap). Expect ~3-5 min per
+  Engineer call and ~2-4x the per-iteration LLM cost (still well under $1).
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

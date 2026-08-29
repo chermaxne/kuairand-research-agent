@@ -73,7 +73,8 @@ Shipped model choice (settled after the first live test on 2026-08-28 — see NO
 | role | model | why |
 |---|---|---|
 | Researcher | `z-ai/glm-5.2` | best plans seen in this project (precise specs that cite the ledger and playbook); ~1–2 min and ~$0.02 per call |
-| Engineer / Debugger | `deepseek/deepseek-v4-flash` | ~2.5 min per rewrite, but the only model here that produced correct non-trivial code unaided (qwen3-coder: 2/6, including a label leak) |
+| Engineer | `z-ai/glm-5.2` | with the FM retired every experiment is a new torch/GBDT model, so the stronger coder is worth its extra minutes; `deepseek-v4-flash` is the first fallback |
+| Debugger | `deepseek/deepseek-v4-flash` | fast and correct on tracebacks; the only cheap model that produced correct non-trivial code unaided (qwen3-coder: 2/6, including a label leak) |
 | Scribe | `mistralai/codestral-2508` | 0.4 s per call |
 | automatic fallbacks | `qwen3-coder` → `codestral-2508` (Engineer/Debugger); `qwen3-coder` → `glm-5.3-flash` (Researcher) | used when the primary stalls, returns 429 or disappears |
 
