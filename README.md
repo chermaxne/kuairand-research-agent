@@ -116,7 +116,8 @@ iterations — direction, what changed, delta vs the then-champion, decision, fa
 
 Banking (`config.yaml` → `run`): `PROMOTE_MARGIN: 0.0002` (seed-noise level) so small real gains compound;
 `leak_check: on_improvement` verifies every iteration that beats the champion (on the pipeline's fast path,
-`KUAIRAND_FAST=1`, so it costs about one fit; `leak_check_min_delta` can restrict it to large jumps), after two
+`KUAIRAND_FAST=1`, so it costs about one fit) when the jump is ≥ `leak_check_min_delta` (0.005; set 0.0 to verify
+every improvement), after two
 front-line guards — the Engineer's printed `LEAK AUDIT` feature-provenance lines and a static check that refuses
 any feedback column named in a field list before the code runs; the best leak-clean measurement is
 tracked as `best_measured` and finalize builds the submission from it when it beats the champion, so a gain that

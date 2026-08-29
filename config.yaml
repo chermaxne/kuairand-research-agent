@@ -194,12 +194,13 @@ run:
   leak_check: on_improvement       # every iteration that beats the champion (promoted or not) is re-run on a copy where 10%
                                    # of validation users have their feedback columns flipped; clean improvements below the
                                    # margin are still recorded as best_measured and used at finalize (never lost)
-  leak_check_min_delta: 0.0        # re-run the flipped-label test only when the improvement over the champion is at
-                                   # least this (0.0 = every improvement). Team decision 2026-08-29: guards move to the
-                                   # front (Engineer self-audit + static feedback-column check) and the re-run runs on the
-                                   # pipeline's fast path (KUAIRAND_FAST=1: no ablations/sweeps/extra seeds), so it costs
-                                   # about one fit. Raise this (e.g. 0.005) to test only large jumps — a small leak
-                                   # (+0.003 from a same-day aggregate) then reaches the submission unverified.
+  leak_check_min_delta: 0.005      # re-run the flipped-label test only when the improvement over the champion is at
+                                   # least this. Team decision 2026-08-29: leaks are PREVENTED up front (Engineer
+                                   # self-audit + LEAK AUDIT lines + static feedback-column check) and the re-run is
+                                   # reserved for large jumps — 0.005 exceeds every honest single lever measured on this
+                                   # data. Improvements below it are promoted on the front-line guards alone (recorded
+                                   # as verdict "skipped"). 0.0 = verify every improvement (the re-run costs ~one fit
+                                   # on the pipeline's fast path, KUAIRAND_FAST=1).
   leak_check_min_primary: 0.5      # feedback columns flipped; those users' TRUE labels scored below this (random) = the
                                    # code reads validation labels -> LEAK, never promoted. A crash on the 10% copy retries
                                    # at 2%; crashes on both = inconclusive, not promoted. (leak_check: off disables)

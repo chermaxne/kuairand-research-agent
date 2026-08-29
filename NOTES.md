@@ -555,7 +555,8 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   pipeline skips ablations/sweeps/extra seeds — about one fit instead of a whole iteration's compute;
   (4) `run.leak_check_min_delta` (default 0.0 = every improvement) implements the "only large improvements"
   policy as a knob: skipped tests are recorded as verdict `skipped` with the reason, never silent, and
-  `best_measured` still updates. Recommendation stays: keep 0.0 now that the re-run is cheap.
+  `best_measured` still updates. Team decision: default 0.005 (the re-run fires only for jumps larger than any
+  honest single lever measured here); my recommendation of 0.0 is on record, one flag away.
 
 ## 5. What works, what is untested against real data, what the humans must verify next
 

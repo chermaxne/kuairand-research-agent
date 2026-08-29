@@ -448,7 +448,7 @@ def test_legitimate_improvement_passes_the_leak_test(tmp_path, base_cfg, mini_da
     from agent.stub_roles import default_mock_handlers as dmh
     handlers = dmh()
     handlers["engineer"] = _engineer_transform(lambda c: c.replace("THETA = 0.50", "THETA = 0.55"))
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "leak_check_min_delta": 0.0}})
     st = h.init_or_resume()
     h.phase0()
     hist = h.run_iteration(1)
@@ -473,7 +473,7 @@ def test_strict_validation_assertion_does_not_cause_a_false_leak(tmp_path, base_
         return render_file_blocks(files)
     handlers = default_mock_handlers()
     handlers["engineer"] = engineer
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "leak_check_min_delta": 0.0}})
     st = h.init_or_resume()
     h.phase0()
     hist = h.run_iteration(1)
@@ -492,7 +492,7 @@ def test_crash_on_both_flipped_copies_is_inconclusive_and_not_promoted(tmp_path,
         return render_file_blocks(files)
     handlers = default_mock_handlers()
     handlers["engineer"] = engineer
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "leak_check_min_delta": 0.0}})
     st = h.init_or_resume()
     h.phase0()
     hist = h.run_iteration(1)
@@ -545,7 +545,7 @@ def test_improvement_below_margin_is_leak_tested_recorded_and_used_at_finalize(t
     handlers = default_mock_handlers()
     handlers["engineer"] = _engineer_transform(lambda c: c.replace("THETA = 0.50", "THETA = 0.55"))
     h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
-                         overrides={"run": {"MAX_ITERS": 1, "PROMOTE_MARGIN": 0.05, "leak_check": "on_improvement"}})
+                         overrides={"run": {"MAX_ITERS": 1, "PROMOTE_MARGIN": 0.05, "leak_check": "on_improvement", "leak_check_min_delta": 0.0}})
     st = h.run()
     assert st.best_iter == 0 and st.history[0]["decision"] == "kept_champion"            # not promoted (margin 0.05)
     assert st.best_measured and st.best_measured["iteration"] == 1 and st.best_measured["primary"] > st.best_primary
@@ -564,7 +564,7 @@ def test_best_measured_never_records_a_leak(tmp_path, base_cfg, mini_data):
     handlers = default_mock_handlers()
     handlers["engineer"] = leaky
     h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
-                         overrides={"run": {"MAX_ITERS": 1, "leak_check": "on_improvement", "implausible_primary_above": None}})
+                         overrides={"run": {"MAX_ITERS": 1, "leak_check": "on_improvement", "leak_check_min_delta": 0.0, "implausible_primary_above": None}})
     st = h.run()
     assert not st.best_measured and st.finalize["champion_iteration"] == 0
 
@@ -607,4 +607,4 @@ def test_leak_check_min_delta_skips_small_improvements_but_records_it(tmp_path, 
         if lt:                                                                   # only an improvement triggers the branch
             assert lt["verdict"] == "skipped" and "below leak_check_min_delta 0.5" in lt["reason"] and lt["ran"] is False
             assert not os.path.exists(os.path.join(h.run_dir, "iterations", "it01", "leaktest_10pct_stdout.txt"))
-    assert base_cfg["run"]["leak_check_min_delta"] == 0.0                        # default: every improvement is verified
+    assert base_cfg["run"]["leak_check_min_delta"] == 0.005                      # team policy: re-run only for large jumps
