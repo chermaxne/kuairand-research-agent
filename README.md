@@ -88,6 +88,11 @@ Other providers (`--llm-profile <name>`, key in `.env`):
 .venv/bin/python -m agent.harness --llm-check              # 1 tiny request per role model
 .venv/bin/python -m agent.harness --max-iters 1 --label smoke
 ```
+Briefing depth (`config.yaml` → `run`): `briefing_recent_iterations: 5`, `briefing_diff_chars`, `briefing_spec_chars`
+control how much of each recent iteration the Researcher sees — full hypothesis, change spec, rationale, code diff,
+delta vs the then-champion, debug attempts, leak verdict and training curve, so it can judge which component of a
+bundled change worked. A briefing costs ~15–25k tokens of a ~1M-token context window.
+
 Research strategy knobs (`config.yaml` → `run`): `structural_first_until_iter: 10` injects a briefing directive
 that restricts the first 10 iterations to the knowledge library's measured, ranked recipes (pairwise within-user
 loss, session-context field, seed averaging, past-only history fields — bundled first) and forbids

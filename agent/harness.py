@@ -26,8 +26,8 @@ import yaml
 from . import tools
 from .llm_client import CallLog, make_client
 from .memory import (append_intervention, append_ledger, fmt_elapsed, init_interventions, init_ledger, ledger_line, load_run_state,
-                     one_line, read_ledger, render_state_block, result_string, save_run_state, write_iteration_log,
-                     write_iteration_narrative, write_state_block)
+                     one_line, read_iteration_detail, read_ledger, render_state_block, result_string, save_run_state,
+                     write_iteration_log, write_iteration_narrative, write_state_block)
 from .phase0 import Phase0Error, install_champion, run_phase0
 from .promotion import RunLimits, judge_iteration, stop_reason, vs_best_string
 from .roles import Roles
@@ -196,17 +196,7 @@ class Harness:
         parts.append("# CHAMPION CODE (current best pipeline; every experiment builds on it)\n" +
                      "\n".join(f"--- {n} ---\n{c}" for n, c in sorted(champ.items())))
         parts.append("# LEDGER (full history, oldest first)\n" + (read_ledger(self.run_dir) or "(empty)"))
-        recent = [h for h in state.history[-3:]]
-        if recent:
-            lines = ["# RECENT ITERATION DETAILS (harness-measured; the training-log tail is the experiment's own stdout)"]
-            for h in recent:
-                lines.append(f"- it{h['iteration']:02d} [{h['category']}] {h['hypothesis']}\n  result: {h['status']} primary={h.get('primary')} "
-                             f"decision={h['decision']} runtime={h.get('runtime_s')}s\n  lesson: {h.get('lesson', '')}")
-                if h.get("error_short"):
-                    lines.append(f"  error: {h['error_short']}")
-                if h.get("training_log_tail"):
-                    lines.append("  training log tail:\n" + "\n".join("    " + l for l in h["training_log_tail"].splitlines()))
-            parts.append("\n".join(lines))
+        parts.append(self.render_recent_iterations(state))
         n_struct = int(self.run_cfg.get("structural_first_until_iter", 0) or 0)
         if it <= n_struct:
             parts.append(STRUCTURAL_DIRECTIVE.format(n=n_struct, it=it))
@@ -366,7 +356,7 @@ class Harness:
                                             "workspace": os.path.relpath(ws, self.run_dir)})
         write_iteration_log(self.run_dir, entry)
 
-        hist = {"iteration": it, "hypothesis": one_line(plan_for_scribe.hypothesis, 160), "category": plan_for_scribe.category,
+        hist = {"iteration": it, "hypothesis": one_line(plan_for_scribe.hypothesis, 0), "category": plan_for_scribe.category,
                 "training_log_tail": train_tail,
                 "status": status, "primary": primary, "gauc": score.gauc if (score and status == "scored") else None,
                 "ndcg5": score.ndcg5 if (score and status == "scored") else None, "decision": dec.decision, "promoted": dec.promoted,
@@ -380,6 +370,60 @@ class Harness:
                  f"| streak {dec.streak_after}/{self.limits.n_flat} | tokens {usage.total} | {runtime_s:.0f}s")
         return hist
 
+    def render_recent_iterations(self, state: RunState) -> str:
+        """Full record of the most recent iterations: what was proposed (hypothesis + change spec + rationale), what
+        the Engineer actually changed (diff), what was measured (delta vs the champion at the time), what went wrong
+        (debug attempts, leak verdict) and the training curve. Everything here is harness-measured or previously
+        LLM-authored; the point is that the Researcher can judge WHICH PART of a bundled change worked."""
+        n = int(self.run_cfg.get("briefing_recent_iterations", 5))
+        diff_chars = int(self.run_cfg.get("briefing_diff_chars", 2500))
+        spec_chars = int(self.run_cfg.get("briefing_spec_chars", 1200))
+        recent = state.history[-n:]
+        if not recent:
+            return ""
+        out = ["# RECENT ITERATION DETAILS (harness-measured facts + what was actually changed)",
+               "Use these to decide whether to CONTINUE an idea: when a bundled change moved little, the diff shows which",
+               "components were in it, so you can keep the part that plausibly worked and drop the rest. State which",
+               "component you are keeping or dropping, and why, in `rationale`."]
+        for h in recent:
+            it = h["iteration"]
+            d = read_iteration_detail(self.run_dir, it) or {}
+            x = d.get("harness_extra", {})
+            r = d.get("result", {})
+            best_before = x.get("best_at_iteration_start")
+            delta = (f"{r.get('primary', 0) - best_before:+.4f} vs the then-champion {best_before:.4f}"
+                     if (best_before is not None and r.get("status") == "scored") else "n/a")
+            out.append(f"\n## it{it:02d} [{h.get('category')}] — {h.get('decision')} ({r.get('status')}), {delta}")
+            out.append(f"HYPOTHESIS: {d.get('hypothesis') or h.get('hypothesis')}")
+            if d.get("rationale"):
+                out.append(f"RATIONALE (yours, at the time): {one_line(d['rationale'], 600)}")
+            plan_path = os.path.join(self.iteration_dir(it), "plan.json")
+            if os.path.exists(plan_path):
+                try:
+                    spec = json.load(open(plan_path)).get("change_spec", "")
+                    if spec:
+                        out.append(f"CHANGE SPEC you gave the Engineer:\n{spec[:spec_chars]}" + ("…" if len(spec) > spec_chars else ""))
+                except (OSError, ValueError):
+                    pass
+            out.append(f"WHAT CHANGED: {x.get('change_summary', 'n/a')}")
+            diff = d.get("code_diff") or ""
+            if diff:
+                out.append("DIFF (champion -> attempt):\n```diff\n" + diff[:diff_chars] + ("\n… (diff truncated)" if len(diff) > diff_chars else "") + "\n```")
+            if r.get("status") == "scored":
+                out.append(f"MEASURED: primary {r.get('primary'):.4f} (GAUC {r.get('gauc'):.4f} / nDCG@5 {r.get('ndcg5'):.4f}), runtime {r.get('runtime_s')}s")
+            else:
+                out.append(f"OUTCOME: {r.get('status')} — {one_line(r.get('error_excerpt', ''), 400)}")
+            for a in d.get("errors_and_recovery", []):
+                out.append(f"  debug attempt {a['attempt']}: {one_line(a.get('error'), 160)} -> fix: {one_line(a.get('fix_summary'), 160)} ({a.get('status_after')})")
+            lt = x.get("leak_test")
+            if lt:
+                out.append(f"  leak test: {lt.get('verdict')}" + (f" (flipped users scored {lt['subset_primary']:.4f} on their true labels)"
+                                                                  if lt.get("subset_primary") is not None else ""))
+            if h.get("training_log_tail"):
+                out.append("TRAINING CURVE (the experiment's own stdout):\n" + "\n".join("  " + l for l in h["training_log_tail"].splitlines()))
+            out.append(f"LESSON: {h.get('lesson', '')}")
+        return "\n".join(out)
+
     def training_log_tail(self, ws: str, n_lines: int = 12, max_chars: int = 1500) -> str:
         """Last lines of the experiment's stdout (epoch curve, early-stop message) — lets the Scribe and the
         Researcher see HOW a run behaved, not just its final score. Empty when nothing ran."""
@@ -391,7 +435,16 @@ class Harness:
                 lines = [l.rstrip() for l in fh.read().splitlines() if l.strip()]
         except OSError:
             return ""
-        tail = "\n".join(lines[-n_lines:])
+        # drop repeated boilerplate (e.g. "Number of pairs this epoch: 765158" printed every epoch), keeping each
+        # distinct line's LAST occurrence, so the line budget is spent on the metric curve rather than on repeats
+        seen, kept = set(), []
+        for l in reversed(lines):
+            if l in seen:
+                continue
+            seen.add(l)
+            kept.append(l)
+        dedup = list(reversed(kept))
+        tail = "\n".join(dedup[-n_lines:])
         return tail[-max_chars:]
 
     # ------------------------------------------------------------------ run + debug loop

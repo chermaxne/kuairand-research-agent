@@ -592,7 +592,7 @@ def test_training_log_tail_reaches_scribe_and_next_briefing(tmp_path, base_cfg, 
     assert "TRAINING LOG TAIL" in seen["scribe"] and "wrote preds_val.csv" in seen["scribe"]     # the dummy pipeline's stdout
     h.run_iteration(2)
     b = seen["briefings"][1]
-    assert "training log tail:" in b and "wrote preds_val.csv" in b
+    assert "TRAINING CURVE" in b and "wrote preds_val.csv" in b
     d = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
     assert "wrote preds_val.csv" in h.state.history[0]["training_log_tail"]
 
@@ -665,3 +665,42 @@ def test_last_shot_directive_appears_at_streak_n_minus_1(tmp_path, base_cfg, min
     assert "LAST-SHOT DIRECTIVE" not in briefings[0] and "LAST-SHOT DIRECTIVE" not in briefings[1]
     assert "LAST-SHOT DIRECTIVE (harness policy: flat streak 2 of 3)" in briefings[2]
     assert "ENDS THE RUN" in briefings[2] and "do NOT replace" in briefings[2].lower() or "Do NOT replace" in briefings[2]
+
+
+def test_briefing_carries_the_full_record_of_recent_iterations(tmp_path, base_cfg, mini_data):
+    """The Researcher must be able to see WHAT was changed, not just that something was: full hypothesis, the change
+    spec it wrote, the diff, the delta vs the then-champion, debug attempts and the training curve."""
+    briefings = []
+
+    def researcher(role, system, messages):
+        briefings.append(messages[-1]["content"])
+        return default_mock_handlers()["researcher"](role, system, messages)
+    handlers = default_mock_handlers()
+    handlers["researcher"] = researcher
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 2, "N_FLAT": 99, "structural_first_until_iter": 0}})
+    h.init_or_resume()
+    h.phase0()
+    h.run_iteration(1)
+    h.run_iteration(2)
+    b = briefings[1]
+    assert "# RECENT ITERATION DETAILS" in b and "## it01" in b
+    assert "HYPOTHESIS:" in b and "CHANGE SPEC you gave the Engineer:" in b and "RATIONALE (yours, at the time):" in b
+    assert "DIFF (champion -> attempt):" in b and "```diff" in b and "THETA" in b        # the actual code change is visible
+    assert "WHAT CHANGED: pipeline.py" in b and "MEASURED: primary" in b
+    assert "vs the then-champion" in b and "TRAINING CURVE" in b and "LESSON:" in b
+    hyp_line = next(l for l in b.splitlines() if l.startswith("HYPOTHESIS:"))
+    assert not hyp_line.endswith("…")                                                     # no 160-char truncation
+
+
+def test_training_tail_collapses_repeated_lines(tmp_path, base_cfg, mini_data):
+    h = make_toy_harness(tmp_path, base_cfg, mini_data)
+    ws = tmp_path / "ws_tail"
+    ws.mkdir()
+    lines = []
+    for e in range(1, 9):
+        lines += ["Number of pairs this epoch: 765158", f"epoch {e} | loss 0.5{e} | primary 0.60{e}"]
+    (ws / "stdout.txt").write_text("\n".join(lines) + "\n")
+    tail = h.training_log_tail(str(ws))
+    assert tail.count("Number of pairs this epoch") <= 2                                  # repeats collapsed
+    assert "epoch 8" in tail and "epoch 7" in tail                                        # the curve survives

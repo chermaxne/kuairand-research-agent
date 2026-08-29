@@ -187,6 +187,12 @@ run:
   leak_check_min_primary: 0.5      # feedback columns flipped; those users' TRUE labels scored below this (random) = the
                                    # code reads validation labels -> LEAK, never promoted. A crash on the 10% copy retries
                                    # at 2%; crashes on both = inconclusive, not promoted. (leak_check: off disables)
+  # Briefing depth: the context window is ~1M tokens and a briefing costs ~6k, so detail is nearly free. The Researcher
+  # gets the full hypothesis, change spec, rationale, code diff and training curve of the last N iterations, so it can
+  # tell WHICH component of a bundled change worked and decide whether to continue it.
+  briefing_recent_iterations: 5
+  briefing_diff_chars: 2500
+  briefing_spec_chars: 1200
   structural_first_until_iter: 3   # briefing directive for the first N iterations (the window in which three misses
                                    # end the run): aim for > +0.002, no hyperparameter-only proposals (0 disables)
   retry_timeouts_with_debugger: true    # a timeout usually IS a bug (a Python loop over users x rows): one Debugger pass
