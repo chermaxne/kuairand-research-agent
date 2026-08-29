@@ -503,7 +503,7 @@ def test_crash_on_both_flipped_copies_is_inconclusive_and_not_promoted(tmp_path,
 
 
 def test_leak_check_default_and_off_switch(tmp_path, base_cfg, mini_data):
-    assert base_cfg["run"]["leak_check"] == "on_promotion" and base_cfg["run"]["leak_check_min_primary"] == 0.5
+    assert base_cfg["run"]["leak_check"] == "on_improvement" and base_cfg["run"]["leak_check_min_primary"] == 0.5
     handlers = default_mock_handlers()
     handlers["engineer"] = _engineer_transform(lambda c: c.replace("THETA = 0.50", "THETA = 0.55"))
     h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "leak_check": "off"}})
