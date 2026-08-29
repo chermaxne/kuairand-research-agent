@@ -23,6 +23,14 @@ preds_val.csv` in a sandbox and scores the predictions with the organizers' seal
    worth nothing. Consequence for self-checks: print validation sanity numbers, but do NOT hard-assert on the
    validation metric (an `assert primary > 0.55` crashed that re-run once); assert on train-side quantities
    (train GAUC after epoch 1, pair count, vocabulary sizes) instead.
+   **Self-audit before you output** (leaks are prevented here, not caught later): (a) list every input field / feature
+   the model sees and its source column; (b) for each, confirm it is not `is_click`, `is_like`, `is_follow`,
+   `is_comment`, `is_forward`, `is_hate`, `long_view`, `is_profile_enter`, `play_time_ms` of the row being scored
+   and, for aggregates, that the rows it is computed from have strictly earlier dates than the row (for validation/test
+   rows: train dates only); (c) re-read every tuple/array index after changing the row layout — the label element
+   must never end up inside the encoded fields. The pipeline must PRINT this audit as one line per feature,
+   `LEAK AUDIT: <feature> <- <source columns> [<time window>]`, so the harness can record it. A pipeline whose
+   feature list names a feedback column is refused before it runs.
 5. Sandbox: no network, no package installs, no subprocesses, no writes outside the working directory.
    Only numpy, pandas, scikit-learn, lightgbm, torch (CPU) and the standard library are available.
    Keep memory moderate (16 GB box) and respect the runtime limit stated in the contract.
@@ -38,7 +46,10 @@ preds_val.csv` in a sandbox and scores the predictions with the organizers' seal
    copied. Do the full-bundle fit FIRST and write its predictions; run ablation fits afterwards, and skip any that
    would not fit in the time limit (print `ABLATION <name> skipped: <reason>` instead). The written predictions are
    always the full bundle.
-10. If a detail of the spec is impossible under these rules, implement the closest faithful version and
+10. Fast path: when the environment variable `KUAIRAND_FAST=1` is set (the harness sets it for its flipped-label
+   re-run), skip in-run ablations, sweeps and extra seeds (one seed, the full bundle only) — but NEVER change which
+   features or labels are used; the feature/label code path must be identical with and without the flag.
+11. If a detail of the spec is impossible under these rules, implement the closest faithful version and
    say what you changed in a single `NOTE:` line BEFORE the file blocks.
 
 ## Output format (strict)

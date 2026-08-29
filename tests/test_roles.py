@@ -720,6 +720,7 @@ def test_sizing_directive_every_iteration_except_the_last_shot(tmp_path, base_cf
         h.run_iteration(it)
     assert "SIZING DIRECTIVE (harness policy: flat streak 0 of 3 — 3 more miss(es)" in briefings[0] and "Posture at streak 0" in briefings[0]
     assert "boldest" in briefings[0] and "ablation_plan" in briefings[0] and "ATTRIBUTION DIRECTIVE" not in briefings[0]
+    assert "a better FM over the same five id fields" in briefings[0]          # steer away from FM-internal tweaks at streak 0
     assert "flat streak 1 of 3" in briefings[1] and "Posture at streak 1" in briefings[1]
     assert "LAST-SHOT DIRECTIVE" in briefings[2] and "SIZING DIRECTIVE" not in briefings[2]
     # the Engineer is told the predicted gain and the ablation plan

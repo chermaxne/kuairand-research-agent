@@ -541,6 +541,22 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   the literature; no gain numbers exist from them, and our own measurements stay out of the file by decision — the
   agent gets those from its digest.
 
+### Leak prevention moved to the front; the leak test made cheap and thresholdable (2026-08-29)
+* Proposal: run the flipped-label test only for large improvements and rely on prompt guards instead. Evaluation:
+  both leaks so far (the 0.8484 tuple-index leak, and qwen's label-in-features attempt) happened WITH a detailed
+  no-leak rule already in the Engineer prompt, and a leak is not necessarily large — a same-day aggregate can be
+  worth +0.003, exactly the gain we hunt, and a promoted leak becomes the submission (the test log file carries
+  labels, so a leaky pipeline "works" there: a rules violation, not just a bad score). Prompts lower the rate;
+  they do not make it zero, and the LLM cannot reliably audit its own code — same reason scoring is sealed.
+* Implemented, in this order of defence: (1) Engineer self-audit rule + printed `LEAK AUDIT: feature <- source
+  columns [window]` lines, recorded per iteration and shown to the Researcher; (2) static feedback-column guard
+  (`sandbox.feedback_columns`): a feedback column named inside a *FIELD*/*FEAT* list assignment is refused before
+  execution and goes to the Debugger (free retries); (3) the flipped-label re-run now sets `KUAIRAND_FAST=1` so the
+  pipeline skips ablations/sweeps/extra seeds — about one fit instead of a whole iteration's compute;
+  (4) `run.leak_check_min_delta` (default 0.0 = every improvement) implements the "only large improvements"
+  policy as a knob: skipped tests are recorded as verdict `skipped` with the reason, never silent, and
+  `best_measured` still updates. Recommendation stays: keep 0.0 now that the re-run is cheap.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

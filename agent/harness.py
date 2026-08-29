@@ -71,7 +71,10 @@ INFORMATION (the user's past behaviour as a sequence, auxiliary behaviours, watc
 objective closer to the metric. Capacity alone is not information: the organizers measured that bigger embeddings
 and more static fields do nothing, so a deeper network over the same inputs is a large diff with a small expected
 gain. An architecture change earns its place when it is what lets the model consume a new signal (e.g. attention
-over the user's history)."""
+over the user's history). Treat "a better FM over the same five id fields" as explored: the organizers swept its
+capacity and its static features to a plateau, so proposals whose only novelty lies inside that model (its loss,
+its regularisation, its seeds, fields derived from the same columns) are not structural bets — the open directions
+are the ones that add a signal the model does not have."""
 
 POSTURE_STEADY = """Posture at streak {streak}: still structural, but choose the variant with the best evidence rather than the highest
 ceiling, stack every validated rider, keep the champion's seed averaging, and prefer the implementation with the
@@ -282,6 +285,12 @@ class Harness:
                 ablations = []
             if ablations:
                 self.log(f"[it{it:02d}] in-run ablations (pipeline-reported): {format_ablations(ablations, primary)}")
+        leak_audit = ""
+        try:
+            with open(os.path.join(ws, "stdout.txt"), encoding="utf-8", errors="replace") as fh:
+                leak_audit = "\n".join(l.strip() for l in fh if l.lstrip().startswith("LEAK AUDIT"))[:1500]
+        except OSError:
+            leak_audit = ""
         result = HarnessResult(status=status, gauc=score.gauc if score else 0.0, ndcg5=score.ndcg5 if score else 0.0,
                                primary=score.primary if score else 0.0, runtime_s=runtime_s,
                                error_excerpt="" if status == "scored" else error_reason[-4000:],
@@ -297,17 +306,25 @@ class Harness:
             if leak_mode == "on_improvement":
                 would_promote = would_promote or improves            # verify every improvement so none is ever lost
             ceiling = self.run_cfg.get("implausible_primary_above")
+            min_delta = float(self.run_cfg.get("leak_check_min_delta", 0.0) or 0.0)
+            delta_vs_best = (score.primary - best_at_start) if best_at_start is not None else None
+            small = would_promote and delta_vs_best is not None and delta_vs_best < min_delta
             if would_promote and ceiling is not None and score.primary > float(ceiling):
                 # Free first line of defence: no honest model on this task reaches here (oracle 0.8484, baseline 0.6015,
                 # best known lever +0.003). Flag without spending a re-run.
                 leak = {"ran": False, "verdict": "LEAK", "reason": "implausible score ceiling",
                         "ceiling": float(ceiling), "primary": score.primary, "gauc": score.gauc}
+            elif small:
+                # Team policy (2026-08-29): re-run only when the improvement is at least leak_check_min_delta; smaller
+                # gains rely on the prompt-side guards and the static feedback-column check. Recorded, never silent.
+                leak = {"ran": False, "verdict": "skipped", "reason": f"improvement {delta_vs_best:+.4f} below leak_check_min_delta {min_delta}",
+                        "primary": score.primary}
             elif would_promote:
                 self.log(f"[leak-test] candidate {score.primary:.4f} would be promoted — re-running with 10% of validation users' labels flipped")
                 leak = self.task.leak_test(ws, float(self.run_cfg["EXPERIMENT_TIMEOUT_S"]))
             if leak:
                 floor = float(self.run_cfg.get("leak_check_min_primary", 0.5))
-                if leak.get("reason") == "implausible score ceiling":
+                if leak.get("reason") == "implausible score ceiling" or leak.get("verdict") == "skipped":
                     pass                                             # verdict already set
                 elif leak.get("ran") and leak.get("subset_primary") is not None:
                     leak["verdict"] = "clean" if leak["subset_primary"] >= floor else "LEAK"
@@ -332,7 +349,12 @@ class Harness:
                             f"of the validation labels; not promoted. Make the pipeline robust to partially corrupted validation labels "
                             f"(no strict assertions on the validation metric).\n{leak.get('error', '')}")
                     blocked_reason = "leak test inconclusive"
-                if leak["verdict"] != "clean":
+                if leak["verdict"] == "skipped":
+                    self.log(f"[leak-test] skipped: {leak['reason']} (prompt guards + static check only)")
+                    if score.primary > float((state.best_measured or {}).get("primary", -1)):
+                        state.best_measured = {"iteration": it, "primary": score.primary, "gauc": score.gauc, "ndcg5": score.ndcg5,
+                                               "workspace": os.path.relpath(ws, self.run_dir)}
+                elif leak["verdict"] != "clean":
                     self.log(f"[leak-test] {diag[:200]}")
                     status, primary, error_reason = "failed", None, diag
                     result = HarnessResult(status="failed", gauc=score.gauc, ndcg5=score.ndcg5, primary=score.primary,
@@ -416,6 +438,7 @@ class Harness:
                                             "leak_test": leak or None,
                                             "expected_gain": plan_for_scribe.expected_gain, "gain_evidence": plan_for_scribe.gain_evidence,
                                             "ablation_plan": plan_for_scribe.ablation_plan, "ablations": ablations,
+                                            "leak_audit": leak_audit or None,
                                             "workspace": os.path.relpath(ws, self.run_dir)})
         write_iteration_log(self.run_dir, entry)
 
@@ -489,7 +512,10 @@ class Harness:
             lt = x.get("leak_test")
             if lt:
                 out.append(f"  leak test: {lt.get('verdict')}" + (f" (flipped users scored {lt['subset_primary']:.4f} on their true labels)"
-                                                                  if lt.get("subset_primary") is not None else ""))
+                                                                  if lt.get("subset_primary") is not None else "") +
+                           (f" — {lt['reason']}" if lt.get("verdict") == "skipped" else ""))
+            if x.get("leak_audit"):
+                out.append("  feature provenance the pipeline printed:\n" + "\n".join("    " + l for l in x["leak_audit"].splitlines()))
             if h.get("training_log_tail"):
                 out.append("TRAINING CURVE (the experiment's own stdout):\n" + "\n".join("  " + l for l in h["training_log_tail"].splitlines()))
             out.append(f"LESSON: {h.get('lesson', '')}")

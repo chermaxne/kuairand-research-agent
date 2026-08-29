@@ -115,7 +115,10 @@ iterations — direction, what changed, delta vs the then-champion, decision, fa
 **Scribe synthesis** regenerated from that table each iteration and rejected if it contains a number not in the table.
 
 Banking (`config.yaml` → `run`): `PROMOTE_MARGIN: 0.0002` (seed-noise level) so small real gains compound;
-`leak_check: on_improvement` verifies every iteration that beats the champion; the best leak-clean measurement is
+`leak_check: on_improvement` verifies every iteration that beats the champion (on the pipeline's fast path,
+`KUAIRAND_FAST=1`, so it costs about one fit; `leak_check_min_delta` can restrict it to large jumps), after two
+front-line guards — the Engineer's printed `LEAK AUDIT` feature-provenance lines and a static check that refuses
+any feedback column named in a field list before the code runs; the best leak-clean measurement is
 tracked as `best_measured` and finalize builds the submission from it when it beats the champion, so a gain that
 missed the margin is never lost.
 

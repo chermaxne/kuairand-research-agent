@@ -567,3 +567,44 @@ def test_best_measured_never_records_a_leak(tmp_path, base_cfg, mini_data):
                          overrides={"run": {"MAX_ITERS": 1, "leak_check": "on_improvement", "implausible_primary_above": None}})
     st = h.run()
     assert not st.best_measured and st.finalize["champion_iteration"] == 0
+
+
+# ---------------------------------------------------------------- leak prevention in front of the leak test (2026-08-29)
+def test_static_guard_refuses_feedback_columns_in_field_lists(base_cfg):
+    from agent.sandbox import static_code_check
+    sb = base_cfg["sandbox"]
+    leaky = 'FIELDS = ["user_id", "video_id", "is_click", "tab"]\nLABEL = "long_view"\n'
+    problems = static_code_check({"pipeline.py": leaky}, sb)
+    assert len(problems) == 1 and "is_click" in problems[0] and "input field" in problems[0]
+    ok = ('FIELDS = ["user_id", "video_id", "tab"]\nLABEL = "long_view"\nAUX_TARGETS = ["is_click", "is_like"]\n'
+          '# past-only aggregate from earlier dates\nuser_hist_feat = past_only_rate(rows, "is_click")\n')
+    assert static_code_check({"pipeline.py": ok}, sb) == []                     # targets and past-only aggregates pass
+
+
+def test_leak_test_runs_the_pipeline_on_its_fast_path(tmp_path, base_cfg):
+    from agent.sandbox import run_pipeline
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "pipeline.py").write_text("import os, sys\nprint('FAST', os.environ.get('KUAIRAND_FAST'), os.environ.get('KUAIRAND_LEAK_CHECK'))\n"
+                                    "open(sys.argv[sys.argv.index('--out') + 1], 'w').write('row_id,user_id,video_id,score\\n')\n")
+    sb = {**base_cfg["sandbox"], "isolation": "none"}
+    res = run_pipeline(str(ws), str(tmp_path), "val", "p.csv", 60, sb, extra_env={"KUAIRAND_FAST": "1", "KUAIRAND_LEAK_CHECK": "1"})
+    assert res.ok and "FAST 1 1" in open(ws / "stdout.txt").read()
+    res = run_pipeline(str(ws), str(tmp_path), "val", "p.csv", 60, sb)
+    assert res.ok and "FAST None None" in open(ws / "stdout.txt").read()          # normal runs never see the flag
+
+
+def test_leak_check_min_delta_skips_small_improvements_but_records_it(tmp_path, base_cfg, mini_data):
+    handlers = default_mock_handlers()
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 1, "leak_check_min_delta": 0.5}})    # nothing honest jumps by 0.5
+    st = h.init_or_resume()
+    h.phase0()
+    h.run_iteration(1)
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    if log["result"]["status"] == "scored" and log["result"]["primary"] > st.phase0["champion_primary"] if "champion_primary" in st.phase0 else log["result"]["status"] == "scored":
+        lt = log["harness_extra"]["leak_test"]
+        if lt:                                                                   # only an improvement triggers the branch
+            assert lt["verdict"] == "skipped" and "below leak_check_min_delta 0.5" in lt["reason"] and lt["ran"] is False
+            assert not os.path.exists(os.path.join(h.run_dir, "iterations", "it01", "leaktest_10pct_stdout.txt"))
+    assert base_cfg["run"]["leak_check_min_delta"] == 0.0                        # default: every improvement is verified

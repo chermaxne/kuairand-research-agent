@@ -194,6 +194,12 @@ run:
   leak_check: on_improvement       # every iteration that beats the champion (promoted or not) is re-run on a copy where 10%
                                    # of validation users have their feedback columns flipped; clean improvements below the
                                    # margin are still recorded as best_measured and used at finalize (never lost)
+  leak_check_min_delta: 0.0        # re-run the flipped-label test only when the improvement over the champion is at
+                                   # least this (0.0 = every improvement). Team decision 2026-08-29: guards move to the
+                                   # front (Engineer self-audit + static feedback-column check) and the re-run runs on the
+                                   # pipeline's fast path (KUAIRAND_FAST=1: no ablations/sweeps/extra seeds), so it costs
+                                   # about one fit. Raise this (e.g. 0.005) to test only large jumps — a small leak
+                                   # (+0.003 from a same-day aggregate) then reaches the submission unverified.
   leak_check_min_primary: 0.5      # feedback columns flipped; those users' TRUE labels scored below this (random) = the
                                    # code reads validation labels -> LEAK, never promoted. A crash on the 10% copy retries
                                    # at 2%; crashes on both = inconclusive, not promoted. (leak_check: off disables)
@@ -243,6 +249,9 @@ sandbox:
   # Static guard on LLM-written code before it runs (defence in depth; the OS sandbox is the real wall).
   forbidden_imports: [subprocess, socket, urllib, requests, http, ftplib, smtplib, telnetlib, pip, ensurepip, ctypes]
   forbidden_patterns: ["pip install", "os.system(", "os.popen(", "os.execv", "shutil.rmtree(", "__import__("]
+  feedback_columns: [is_click, is_like, is_follow, is_comment, is_forward, is_hate, long_view, is_profile_enter, play_time_ms]
+                                   # named inside a *FIELD*/*FEAT* list assignment = label leak by construction -> code is
+                                   # not executed, the Debugger gets the reason (retries are free; a promoted leak is not)
 
 # Toy task (Phase-1 skeleton demo and tests): mini synthetic dataset in kit format + dummy pipeline.
 toy:

@@ -10,7 +10,8 @@ the smallest change that makes the code run correctly WITHOUT changing what the 
    inherently misaligned output), abandon instead.
 2. Same sandbox rules as the Engineer: pipeline contract (`--data`, `--split`, `--out`, every row of the
    split in data order as `row_id,user_id,video_id,score`, finite scores, exit 0), train-only fitting,
-   no leakage, no network, no installs, no subprocesses, only numpy / pandas / scikit-learn / lightgbm /
+   no leakage (a "policy violation" naming a feedback column in a field list must be fixed by REMOVING that column
+   from the inputs, never by renaming it), no network, no installs, no subprocesses, only numpy / pandas / scikit-learn / lightgbm /
    torch(cpu).
 3. Read the traceback carefully; fix the root cause, not the symptom. Check the surrounding code for the
    same mistake elsewhere.

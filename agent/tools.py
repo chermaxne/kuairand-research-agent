@@ -379,7 +379,7 @@ def make_official_baseline_preds(kit_dir: str, data_dir: str, out_path: str, spl
 
 
 def run_pipeline_in_sandbox(workspace: str, data_dir: str, split: str, out_name: str, timeout_s: float, sandbox_cfg: Dict,
-                            pythonpath: Sequence[str] = (), deny_read: Sequence[str] = (), log_prefix: str = ""):
+                            pythonpath: Sequence[str] = (), deny_read: Sequence[str] = (), log_prefix: str = "", extra_env=None):
     from .sandbox import run_pipeline
     return run_pipeline(workspace, data_dir, split, out_name, timeout_s, sandbox_cfg, pythonpath=pythonpath,
-                        deny_read=deny_read, log_prefix=log_prefix)
+                        deny_read=deny_read, log_prefix=log_prefix, extra_env=extra_env)
