@@ -24,11 +24,13 @@ llm:
     debugger:   [qwen/qwen3-coder, mistralai/codestral-2508]
     scribe:     [qwen/qwen3-coder]
   reasoning:                       # OpenRouter unified parameter (`effort` works on every model here; Claude 5 rejects
-    researcher: {effort: medium}   # GLM-5.2: medium keeps its reasoning to ~1-2 min per plan
+    researcher: {effort: high}     # team decision 2026-08-29; NOTE run `ten` showed GLM ignoring a reasoning token cap, so this may be soft
     engineer: {effort: low}        # reasoning helps correctness; low keeps the call ~2-3 min
     debugger: {effort: low}
     scribe: {}
-  max_output_tokens: {researcher: 12000, engineer: 24000, debugger: 24000, scribe: 600}   # includes any thinking
+  # researcher 40000: GLM-5.2's hidden reasoning on a ~25k-char briefing exhausted 12000 (50k reasoning chars, zero
+  # visible plan) in 9 of 11 calls; the cap covers reasoning + visible output. Worst case ~4 min / ~$0.15 per call.
+  max_output_tokens: {researcher: 40000, engineer: 24000, debugger: 24000, scribe: 600}   # includes any thinking
   # Streaming timeouts (OpenAI-compatible providers): a stalled generation is abandoned after inactivity_timeout_s
   # without a token, every call is capped at call_timeout_s, one retry, then the next fallback model.
   inactivity_timeout_s: 120

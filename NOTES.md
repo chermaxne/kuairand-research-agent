@@ -493,6 +493,16 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   numbers are not all present in the table (logged as a warning). Both appear in every briefing, the synthesis labelled
   interpretive. Cost: one small Scribe call per iteration. `llm.scribe_digest: false` disables the synthesis.
 
+### GLM-5.2 Researcher: output budget 12k → 40k, effort high (2026-08-29, team decision)
+* Diagnosis (independent agent, from the runs' records): once briefings grew to 19–35k chars (digest + full recent
+  records), GLM-5.2 exhausted its 12,000-token output cap on hidden reasoning (38–51k chars, zero visible plan) in 9 of
+  11 calls; V4 Flash silently wrote almost every plan via the fallback chain. In run `ten` a `reasoning: {max_tokens:
+  6000}` cap was ignored, so the reasoning parameter is soft on this provider. Fix chosen by the team: raise the
+  Researcher output budget to 40,000 tokens (room to finish) and set effort high (better plans, if the parameter is
+  honoured). Cost: up to ~4 min / ~$0.15 per call. Watch the first iterations' `[llm] researcher: … answered` lines; if
+  GLM still caps at 40k, `--set llm.researcher_model=deepseek/deepseek-v4-flash` is the fallback. Fallback notes now
+  record the wasted latency/tokens of a failed candidate.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)
