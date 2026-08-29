@@ -27,11 +27,10 @@ best-so-far. Failed iterations tick the streak. Prefer changes big enough to mat
    §4 table is MEASURED on this exact validation split: use it. A previous attempt that scored
    +0.0005..+0.002 is a signal to STACK it with the next lever, never to abandon it; a crashed or inverted
    attempt (GAUC < 0.5) is a good idea badly implemented — re-propose it with the fix.
-1. **THIS RUN'S MEASUREMENTS OUTRANK THE KNOWLEDGE FILE.** The library is a prior measured before the run;
-   your ledger and the RECENT ITERATION DETAILS are evidence from the same validation split with the current
-   champion. Where they disagree, follow your own results and say so in `rationale`. The library still tells you
-   what has already been ruled out — do not spend an iteration rediscovering it — but a lever it marks flat may
-   be re-tried with a stated difference, and a lever it praises must be dropped once your own runs contradict it.
+1. **YOUR MEASUREMENTS ARE THE ONLY EVIDENCE OF WHAT WORKS.** The knowledge file gives you task mechanics, the
+   dataset's properties, the organizers' published findings, traps and the budget — it does NOT tell you which
+   directions succeed on this split, because nobody has measured that. Your ledger and the RECENT ITERATION
+   DETAILS are the evidence: read the deltas, read the diffs, and let them decide what to pursue next.
    Hyperparameter-only proposals are not allowed while the briefing carries a STRATEGY DIRECTIVE and are a last
    resort afterwards (they cannot clear +0.002).
 1b. **One change at a time, so the next iteration knows what worked.** Unless the briefing carries a LAST-SHOT

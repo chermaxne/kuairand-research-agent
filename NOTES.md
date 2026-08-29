@@ -441,6 +441,21 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   `baseline_scores.json`, the noise floor (seed std 0.0003, validation bootstrap SE 0.0022), the traps, and the runtime
   budget.
 
+### Knowledge file stripped to background only (2026-08-29, team decision)
+* Team decision: remove our own experiment results from the file the agent reads, so the agent genuinely discovers
+  rather than reproduces. `knowledge/library.md` now contains only: task/metric mechanics, the label definition, the
+  dataset's measurable properties, **the organizers' own published findings and their ranked list of unexplored
+  directions** (from the kit README — public), the leakage/plausibility traps, the noise-floor methodology (measure
+  your own seed spread), the runtime budget and literature pointers. Removed: every "direction X gained +0.000Y"
+  statement, the R1–R6 reference implementations, and the plateau/frontier synthesis. A test fails if any of them
+  reappear. The Researcher prompt now says its own measurements are the only evidence of what works.
+* Provenance retained (the team's stated reason is agent autonomy, not concealment): the probe/evaluator/ablation
+  scripts and outputs stay in `knowledge/evidence/` and are described in this file, so "how was the playbook built"
+  has an honest answer. The library simply no longer hands the agent the answers.
+* Trade-off accepted knowingly: the agent will re-derive things we already know (e.g. that extra categorical fields
+  are flat), which costs iterations under a 3-miss convergence rule — but the per-iteration research log is a large
+  share of the marks, and a log of genuine discovery is worth more than a log of reproduction.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

@@ -640,15 +640,13 @@ def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
     for role in ("researcher", "engineer", "debugger", "scribe"):          # initial phase: no Claude-priced model anywhere
         assert not any("claude" in m for m in [llm[f"{role}_model"]] + llm["fallback_models"][role])
     lib = open(os.path.join(ROOT, "knowledge", "library.md")).read()
-    assert lib.index("R1. Pairwise within-user loss") < lib.index("R6. Multi-task")
-    for must in ("Directions that have repaid effort", "Directions that have not repaid effort here", "The open frontier",
-                 "Leave-one-out target", "1.9% of valid users", "bootstrap standard error",
-                 "train GAUC after epoch 1", "video_features_statistic_pure.csv"):
+    # background only: mechanics, public findings, traps, budget — never our own experiment results
+    for must in ("What the organizers have already published", "Leave-one-out target", "1.9% of valid users",
+                 "bootstrap standard error", "video_features_statistic_pure.csv", "Trap list"):
         assert must in lib, must
-    # guidance is directional: no expected-gain numbers that invite reproduction rather than measurement
-    import re as _re
-    guidance = lib[lib.index("## 4."):lib.index("## 6.")]
-    assert not _re.search(r"[+−-]0\.0[0-9]{3}", guidance), "expected-gain deltas leaked back into the guidance"
+    for forbidden in ("Directions that have repaid effort", "R1. Pairwise within-user loss", "R3. Seed rank-average",
+                      "0.6042", "0.6044", "0.6049"):
+        assert forbidden not in lib, f"our own experiment results leaked back into the library: {forbidden}"
 
 
 def test_last_shot_directive_appears_at_streak_n_minus_1(tmp_path, base_cfg, mini_data):
@@ -734,5 +732,5 @@ def test_attribution_directive_appears_except_on_iteration_1_and_the_last_shot(t
 
 def test_researcher_prompt_puts_run_evidence_above_the_library():
     sys_p, _ = load_prompt(os.path.join(ROOT, "prompts"), "researcher")
-    assert "THIS RUN'S MEASUREMENTS OUTRANK THE KNOWLEDGE FILE" in sys_p
+    assert "YOUR MEASUREMENTS ARE THE ONLY EVIDENCE OF WHAT WORKS" in sys_p
     assert "One change at a time" in sys_p
