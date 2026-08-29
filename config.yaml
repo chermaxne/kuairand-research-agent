@@ -37,10 +37,10 @@ llm:
   call_timeout_s: 900
   timeout_retries: 1
   heartbeat_s: 30                  # progress line while a long generation streams
-  show_reasoning: [researcher]     # print these roles' full reasoning stream on the console after each call (also saved
-                                   # in iterations/itNN/llm/<role>.md); [] = console shows only the heartbeat
-  console_plan: full               # full = print the Researcher's whole plan (hypothesis, evidence, rationale with
-                                   # citations, ablation plan, change spec) on the console; brief = one HYP line
+  show_reasoning: []               # roles whose full reasoning stream is printed on the console after each call
+                                   # (e.g. [researcher]); it is always saved in iterations/itNN/llm/<role>.md
+  console_plan: brief              # brief = HYP line + predicted gain/evidence + rationale (citations) + ablation plan,
+                                   # one line each; full = the whole plan incl. the change spec in a box; off = HYP only
   extra_headers: {HTTP-Referer: "https://github.com/", X-Title: "kuairand-research-agent"}
   # OpenRouter routes by PRICE by default; the same model then lands on whichever of ~17 backends is cheapest, and
   # one call ran at 7 tok/s vs 74 tok/s on the previous call (2026-08-29). Throughput sorting picks, per request,

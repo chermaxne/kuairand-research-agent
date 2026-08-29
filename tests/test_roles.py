@@ -848,6 +848,14 @@ def test_console_shows_the_full_researcher_plan_with_evidence_and_citations(tmp_
     h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}}, log=logs.append)
     h.init_or_resume(); h.phase0(); h.run_iteration(1)
     joined = "\n".join(logs)
+    assert base_cfg["llm"]["console_plan"] == "brief" and base_cfg["llm"]["show_reasoning"] == []
+    assert "[it01]   predicted gain +0.0030 — evidence: organizers' direction #1" in joined       # brief: one line each
+    assert "[it01]   rationale: BPR (Rendle et al., UAI 2009)" in joined and "CHANGE SPEC:" not in joined
+    logs.clear()
+    h2 = make_toy_harness(tmp_path / "full", base_cfg, mini_data, handlers=handlers,
+                          overrides={"run": {"MAX_ITERS": 1}, "llm": {"console_plan": "full"}}, log=logs.append)
+    h2.init_or_resume(); h2.phase0(); h2.run_iteration(1)
+    joined = "\n".join(logs)
     assert "RESEARCHER PLAN (training, risk medium, predicted gain +0.0030)" in joined
     assert "RATIONALE (citations):" in joined and "Rendle et al., UAI 2009" in joined
     assert "EVIDENCE FOR THE GAIN:" in joined and "organizers' direction #1" in joined

@@ -83,10 +83,11 @@ returns *empty* content while the provider still bills the generation. `llm.reas
 Every call is **streamed**: a stalled generation is abandoned after `inactivity_timeout_s` (120 s) without a
 token, capped at `call_timeout_s` (900 s), retried once, then the next fallback model is used — and the console
 shows a heartbeat (`[llm] engineer: qwen/qwen3-coder streaming — 6,120 chars, 30s`) plus one line per completed
-call, so you always know what the agent is doing. The Researcher's **full plan** (hypothesis, predicted gain and
-its evidence, rationale with citations, ablation plan, change spec) is printed in a box after every call
-(`llm.console_plan: full`), and so is its **reasoning stream** (`llm.show_reasoning: [researcher]`); both are also
-saved verbatim in `runs/<RUN_ID>/iterations/itNN/llm/researcher.md`. Cost ≈ $0.03 per iteration (~$1.50 for a full 50-iteration run); ~6 min per iteration (`--llm-profile fast` trades correctness for ~4 min).
+call, so you always know what the agent is doing. After each Researcher call the console prints a short plan
+summary — HYP line, predicted gain with its evidence, rationale with citations, ablation plan, one line each
+(`llm.console_plan: brief`; `full` prints the whole plan incl. the change spec). The full plan and the model's
+reasoning stream are saved verbatim in `runs/<RUN_ID>/iterations/itNN/llm/researcher.md`
+(`llm.show_reasoning: [researcher]` prints the stream on the console too). Cost ≈ $0.03 per iteration (~$1.50 for a full 50-iteration run); ~6 min per iteration (`--llm-profile fast` trades correctness for ~4 min).
 
 ```bash
 .venv/bin/python -m agent.harness --llm-profile openrouter_claude  # anthropic/claude-opus-4.8 + haiku-4.5, ~$10-20

@@ -572,7 +572,8 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Console: the Researcher's full plan (hypothesis, predicted gain + evidence, rationale with citations, ablation
   plan, change spec) is printed in a box after each call (`llm.console_plan: full`), and its reasoning stream is
   captured (`LLMResponse.reasoning`, OpenRouter `reasoning` / DeepSeek `reasoning_content` deltas), written to the
-  per-call transcript and printed for the roles in `llm.show_reasoning` (default `[researcher]`). Previously the
+  per-call transcript and printed for the roles in `llm.show_reasoning` (default `[]` — user preference: a short
+  console; the default `console_plan: brief` prints gain/evidence/rationale/ablation one line each). Previously the
   reasoning was only counted, never kept.
 * The quoted runtime numbers in the spec (900 s limit, FM epoch ≈ 2 s) are stale relative to config (1500 s); the
   briefing carries the live limit.

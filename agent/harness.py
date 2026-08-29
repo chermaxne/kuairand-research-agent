@@ -273,7 +273,14 @@ class Harness:
         else:
             atomic_write_json(os.path.join(ws, "plan.json"), plan.to_dict())
             self.log(f"[it{it:02d}] HYP ({plan.category}, risk {plan.expected_risk}): {one_line(plan.hypothesis, 200)}")
-            if str(self.cfg["llm"].get("console_plan", "full")) == "full":
+            mode = str(self.cfg["llm"].get("console_plan", "brief"))
+            if mode == "brief":
+                gain = f"{plan.expected_gain:+.4f}" if plan.expected_gain is not None else "n/a"
+                self.log(f"[it{it:02d}]   predicted gain {gain} — evidence: {one_line(plan.gain_evidence, 220) or 'none given'}")
+                self.log(f"[it{it:02d}]   rationale: {one_line(plan.rationale, 320)}")
+                if plan.ablation_plan:
+                    self.log(f"[it{it:02d}]   ablation plan: {one_line(plan.ablation_plan, 160)}")
+            elif mode == "full":
                 gain = f"{plan.expected_gain:+.4f}" if plan.expected_gain is not None else "n/a"
                 self.log(f"┌─ it{it:02d} RESEARCHER PLAN ({plan.category}, risk {plan.expected_risk}, predicted gain {gain}) ─────────")
                 for title, body in (("HYPOTHESIS", plan.hypothesis), ("EVIDENCE FOR THE GAIN", plan.gain_evidence),
