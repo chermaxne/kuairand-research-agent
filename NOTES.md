@@ -370,8 +370,8 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Open reading of the convergence rule, for the humans to raise with the organizers: we implement "no single iteration
   beats best-at-iteration-start by > ε for N iterations" (spec §6 pseudocode). The kit README's wording ("3 consecutive
   rounds without an improvement above 0.002") could also mean the cumulative improvement over the window — under which
-  three stacked +0.0008 promotions would NOT converge. A `streak_mode: window` option can be added if the organizers
-  confirm the cumulative reading; the conservative per-iteration reading stays the default.
+  three stacked +0.0008 promotions would NOT converge. Resolved 2026-08-29: the README defines ε as 2.5σ of
+  single-measurement seed noise, so the per-iteration reading is the organizers' rule and is the only one implemented.
 
 ### Leak test v2 after a false positive (2026-08-29)
 * Run `20260829_015947_ten6` it01: a legitimate R1+R2+R3 bundle (0.6046, +0.0031) was recorded as LEAK because the
@@ -415,11 +415,10 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   measurements outrank the knowledge file** (the library still records what is already ruled out, so iterations are not
   spent rediscovering it), and rule 1b requires naming the single component and what its delta will tell you.
 * Rules question surfaced by this: spec §6's pseudocode compares each iteration to the champion at its start
-  (implemented, default `streak_mode: iteration`), but spec §2.5's prose ("no improvement > EPSILON over N consecutive
+  (implemented), but spec §2.5's prose ("no improvement > EPSILON over N consecutive
   iterations"), the kit README's wording, and standard early stopping (the kit's own FM baseline) all read cumulatively.
-  `streak_mode: window` implements the cumulative reading (`promotion.window_streak`, unit-tested): under it, five
-  stacked +0.001 changes keep the run alive (streak 1,1,2,2,2) instead of converging at iteration 3. **HUMANS: ask the
-  organizers which reading applies.** If cumulative, switch to `window` and one-change-per-iteration becomes fully viable.
+  (Resolved 2026-08-29: the per-iteration reading is the organizers' rule - see "Convergence: organizers' rule only"
+  below; the `window` variant was removed.)
 
 ### Component ablations and the knowledge file's framing (2026-08-29)
 * Ran one-component-at-a-time ablations offline (numpy FM, no LLM cost, ~4 min; `knowledge/evidence/ablations*`) on top of
@@ -510,16 +509,18 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   `provider: {sort: throughput, allow_fallbacks: true}` in `llm.extra_body` — OpenRouter then picks the backend with the
   highest current tokens/s per request. Price impact: cents per million tokens. Applies to all OpenRouter profiles.
 
-### Convergence reading switched to `window` (2026-08-29, run ten10)
+### Convergence: organizers' rule only; the `window` reading was tried and reverted (2026-08-29)
 * Run `20260829_104603_ten10` promoted it02 (ListNet loss, +0.0016) and it03 (session-position field + seed averaging,
-  +0.0014; leak test clean at 0.6058 on flipped users) and then stopped as "converged" after 18 minutes: under the
-  per-iteration reading each gain is < EPSILON=0.002, so two consecutive PROMOTIONS ticked the streak to 3.
-* Default is now `run.streak_mode: window`: converged when the best score has not improved by > EPSILON over the best
-  N_FLAT=3 iterations ago (standard early stopping; matches spec §2.5's prose). The same history gives streak 1, so
-  the run continues. The per-iteration reading (spec §6 pseudocode) remains available via
-  `--set run.streak_mode=iteration`. Organizers' question stays open (§7).
-* Resume recomputes the streak from `best_history` under the configured mode, so a run that converged under the old
-  reading can be resumed: `python -m agent.harness --run-dir runs/20260829_104603_ten10 --max-iters 10`.
+  +0.0014; leak test clean) and stopped as "converged" after 18 minutes: each gain is <= EPSILON, so two consecutive
+  PROMOTIONS ticked the streak to 3. A cumulative "window" reading (best now vs best N iterations ago) was added as
+  the default for about an hour, then **reverted and deleted** after re-reading the sources: the kit README defines
+  epsilon as 2.5 sigma of the *single-measurement* seed noise ("连续 3 轮迭代 validation 主分提升不超过 0.002 即判定收敛"),
+  the kit's own early stopping compares each step to best-so-far, and the spec's §6 pseudocode does the same. The team
+  decision: the harness implements the organizers' rule verbatim and nothing else (`promotion.next_streak`).
+* Consequence: +0.0015-class gains promote (margin 0.0002) but do not keep the run alive. The Researcher directives
+  already respond to this (structural-first, last-shot bundling at streak N-1); a run that ends at iteration 3-5 with a
+  leak-clean +0.003 is a legitimate outcome under the rule, not a harness bug.
+* The it03 gains themselves sit at 2.0 sigma and 1.75 sigma of seed noise; treat them as promising, not proven.
 
 ## 5. What works, what is untested against real data, what the humans must verify next
 

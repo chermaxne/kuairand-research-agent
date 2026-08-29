@@ -33,7 +33,7 @@ system sits relative to them, and what it borrows or deliberately drops:
 | The LLM never grades itself | scores/promotion/streaks/budgets computed only in `agent/promotion.py` + `agent/harness.py` from measured values |
 | The checkpoint is sacred | only `install_champion()` (harness) writes `runs/RUN_ID/best/`; failed/worse experiments leave it byte-identical (test) |
 | No external training data; hidden-test rows are invisible during the loop | experiments run on a derived train+valid-only data dir and are read-denied on the full dir (macOS `sandbox-exec`) |
-| Stopping rules: no > ε = 0.002 improvement over the last 3 iterations (`run.streak_mode: window`; the literal per-iteration reading is one flag away), 50 iterations, 6 h wall clock, token spend guard | `agent/promotion.py: stop_reason()`, `window_streak()`; failed iterations tick the streak |
+| Stopping rules: 3 consecutive iterations with ≤ ε = 0.002 improvement over best-so-far (the kit's rule, 2.5σ of seed noise), 50 iterations, 6 h wall clock, token spend guard | `agent/promotion.py: next_streak()` + `stop_reason()`; failed iterations tick the streak |
 | Promotion (margin 0.0002, so small leak-clean gains bank and compound) ≠ convergence (ε 0.002) | two separate pure functions, unit-tested |
 | One timestamped run directory holds everything | `runs/<RUN_ID>/` — ledger, state block, per-iteration JSON, workspaces, best/, submission, interventions, token log |
 | Honest accounting | token usage from API `usage` fields per call (`llm_calls.jsonl`), wall clock from the run's start timestamp, manual-intervention log with a counter (restarts are auto-recorded) |
@@ -121,9 +121,9 @@ missed the margin is never lost.
 
 Attribution (`config.yaml` → `run`): `one_change_per_iteration: true` makes every iteration change exactly one
 component on top of the champion, so its delta is attributable — except iteration 1 and the last shot before
-convergence, where a single +0.001-class lever cannot clear ε and the harness requires a bundle. `streak_mode`
-selects the reading of the convergence rule: `iteration` (spec §6 pseudocode, default) or `window` (spec §2.5 prose /
-kit README / standard early stopping — stacked small gains keep the run alive). See NOTES.md; ask the organizers.
+convergence, where a single +0.001-class lever cannot clear ε and the harness requires a bundle. Convergence
+itself is the organizers' rule verbatim (each iteration vs best-so-far, ε = 0.002, N = 3); there is no alternative
+reading in the code.
 
 Research strategy knobs (`config.yaml` → `run`): `structural_first_until_iter: 10` injects a briefing directive
 that restricts the first 10 iterations to the knowledge library's measured, ranked recipes (pairwise within-user
@@ -225,9 +225,9 @@ iterations, ≈42k tokens over 13 LLM calls (mock usage is estimated from charac
   full data dir read-denied during the loop. On Linux the harness records a warning and relies on the static
   code guard + env stripping only; a container/`unshare -n` wrapper is a known gap.
 * **One experiment per iteration**, sequential, one parent (the champion); no tree search or parallel candidates.
-* **Convergence reading**: the spec's prose and its pseudocode disagree on whether three consecutive +0.0015
-  promotions count as "converged"; the default is the cumulative reading and the question is open with the
-  organizers (`NOTES.md`).
+* **Convergence is strict by design**: three consecutive promotions of +0.0015 still converge, because each is inside
+  the organizers' 2.5σ noise band. The agent has to land ≥ +0.002 single-iteration gains (structural changes, or a
+  bundle on its last shot) to keep a run alive; runs of only 3–5 iterations are the expected failure mode.
 * **Mock usage numbers are estimates** (characters / 4) and flagged `estimated_usage: true`; only real runs
   carry API-reported usage.
 * The knowledge library is background only (task mechanics, data facts, organizers' published findings, cited

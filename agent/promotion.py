@@ -54,24 +54,6 @@ def next_streak(primary: Optional[float], best_at_iter_start: Optional[float], s
     return streak + 1
 
 
-def window_streak(best_history: Sequence[Optional[float]], n_flat: int, epsilon: float) -> int:
-    """Cumulative ("window") reading of the convergence rule: how many of the last iterations have passed without the
-    BEST score improving by more than epsilon over the best n_flat iterations ago. Standard early-stopping semantics
-    (the kit's own FM baseline stops this way), and it matches spec §2.5's prose "no improvement > EPSILON over N
-    consecutive iterations"; spec §6's pseudocode instead compares each iteration to the champion at its start, which
-    is the default here. Selected with run.streak_mode: window. Returns a streak count comparable to next_streak()."""
-    hist = [b for b in best_history if b is not None]
-    if len(hist) < 2:
-        return 0
-    now = hist[-1]
-    streak = 0
-    for k in range(1, min(n_flat, len(hist) - 1) + 1):
-        if now > hist[-1 - k] + epsilon:
-            break
-        streak = k
-    return streak
-
-
 def decision_label(status: str, promoted: bool) -> str:
     if status != "scored":
         return "failed"

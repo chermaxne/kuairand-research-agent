@@ -124,31 +124,15 @@ def test_config_matches_kit_convergence_rule(project_root, base_cfg):
     assert RunLimits.from_config(base_cfg).promote_margin < RunLimits.from_config(base_cfg).epsilon
 
 
-# ---------------------------------------------------------------- streak readings (spec §6 vs §2.5 / kit README)
-def test_window_streak_keeps_stacked_small_gains_alive():
-    from agent.promotion import window_streak
-    # three promoted +0.001-class gains: per-iteration reading converges, cumulative reading does not
-    best = [0.6015, 0.6028, 0.6036, 0.6046]
-    # +0.0031 over the 3-iteration window -> streak stays below n_flat, i.e. the run does NOT converge
-    assert window_streak(best, n_flat=3, epsilon=0.002) == 2 < 3
-    flat = [0.6015, 0.6016, 0.6017, 0.6018]
-    assert window_streak(flat, n_flat=3, epsilon=0.002) == 3          # +0.0003 over the window -> converged
-    assert window_streak([0.6015], n_flat=3, epsilon=0.002) == 0      # not enough history
-
-
-def test_window_streak_matches_iteration_mode_on_a_flat_run():
-    from agent.promotion import window_streak
-    flat = [0.6015] * 5
-    assert window_streak(flat, n_flat=3, epsilon=0.002) == 3
-
-
-def test_window_streak_run_ten10_two_promotions_in_a_row_does_not_converge():
-    """Run 20260829_104603_ten10: it02 +0.0016 and it03 +0.0014 were both PROMOTED yet the per-iteration reading
-    declared convergence (each gain < EPSILON). Under the window reading the run stays alive (+0.003 over the window)."""
-    from agent.promotion import next_streak, window_streak
+# ---------------------------------------------------------------- organizers' rule on a real history
+def test_run_ten10_two_sub_epsilon_promotions_converge_under_the_organizers_rule():
+    """Run 20260829_104603_ten10: it02 +0.0016 and it03 +0.0014 were both PROMOTED (margin 0.0002) and yet the run
+    converged at iteration 3 - kit README: three consecutive iterations improving by <= 0.002 (2.5 sigma of seed
+    noise) over the best-so-far. Promotion and convergence stay separate; no cumulative/window reading exists."""
+    from agent.promotion import next_streak, should_promote
     best = [0.6015, 0.6015, 0.6031, 0.6045]           # champion after it00..it03
     s = 0
     for prev, cur in zip(best, best[1:]):
         s = next_streak(cur, prev, s, 0.002)
-    assert s == 3                                      # iteration reading: converged
-    assert window_streak(best, n_flat=3, epsilon=0.002) == 1 < 3   # window reading: continue
+    assert s == 3
+    assert should_promote(0.6045, 0.6031, 0.0002) and not should_promote(0.6015, 0.6015, 0.0002)
