@@ -75,11 +75,8 @@ class Task:
         data_dir = self.data_dir if full_data else self.loop_data_dir
         deny = [] if (full_data or not self.mask_test) else [self.data_dir]
         deny += self.secret_files()
-        # The pipeline gets the wall-clock limit as a NUMBER it can code against, so ablation/sweep budgeting is
-        # arithmetic rather than guesswork (run ten16 it01 queued six full LightGBM fits into a 1500 s limit).
         return tools.run_pipeline_in_sandbox(workspace, data_dir, split, out_name, timeout_s, self.sandbox_cfg,
-                                             pythonpath=[self.sealed_dir], deny_read=deny, log_prefix=log_prefix,
-                                             extra_env={"KUAIRAND_TIME_BUDGET_S": str(int(timeout_s))})
+                                             pythonpath=[self.sealed_dir], deny_read=deny, log_prefix=log_prefix)
 
     def secret_files(self) -> List[str]:
         """Files experiments must never read (API keys): the repo's .env variants and the harness's own env file."""
@@ -107,12 +104,8 @@ class Task:
         for frac in fractions:
             flipped_dir = f"{self.loop_data_dir}_flipped_{int(round(frac * 100)):02d}pct"
             info = tools.ensure_flipped_labels_dir(self.loop_data_dir, flipped_dir, train_end, flip_fraction=frac)
-            # Fast path: the leak test only has to show whether the predictions depend on the validation labels, so the
-            # pipeline may skip its in-run ablations / sweeps and extra seeds (KUAIRAND_FAST=1) — same feature and label
-            # code path, a fraction of the runtime. KUAIRAND_LEAK_CHECK=1 is informational (never branch features on it).
             res = tools.run_pipeline_in_sandbox(workspace, flipped_dir, "val", out_name, timeout_s, self.sandbox_cfg,
-                                                pythonpath=[self.sealed_dir], deny_read=deny, log_prefix=f"leaktest_{int(round(frac * 100)):02d}pct_",
-                                                extra_env={"KUAIRAND_FAST": "1", "KUAIRAND_LEAK_CHECK": "1"})
+                                                pythonpath=[self.sealed_dir], deny_read=deny, log_prefix=f"leaktest_{int(round(frac * 100)):02d}pct_")
             att: Dict[str, Any] = {"fraction": frac, "ran": res.ok, "runtime_s": round(res.runtime_s, 1), "n_flipped_users": len(info["flipped_users"])}
             if not res.ok:
                 att["error"] = res.error_excerpt(12)

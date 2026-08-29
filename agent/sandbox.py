@@ -150,15 +150,12 @@ def run_command(cmd: List[str], workspace: str, timeout_s: float, env: Dict[str,
 
 def run_pipeline(workspace: str, data_dir: str, split: str, out_name: str, timeout_s: float, sandbox_cfg: Dict,
                  pythonpath: Sequence[str] = (), deny_read: Sequence[str] = (), python: Optional[str] = None,
-                 log_prefix: str = "", extra_env: Optional[Dict[str, str]] = None) -> SandboxResult:
-    """Spec §5.2 invocation: python pipeline.py --data <dir> --split <val|test> --out <preds.csv>.
-    `extra_env` adds harness-owned variables (e.g. the leak test's fast-path flag) on top of the stripped environment."""
+                 log_prefix: str = "") -> SandboxResult:
+    """Spec §5.2 invocation: python pipeline.py --data <dir> --split <val|test> --out <preds.csv>."""
     py = python or sandbox_cfg.get("python") or sys.executable
     isolation = detect_isolation(sandbox_cfg.get("isolation", "auto"))
     cmd = [py, "pipeline.py", "--data", os.path.realpath(data_dir), "--split", split, "--out", out_name]
     env = make_env(sandbox_cfg, pythonpath)
-    for k, v in (extra_env or {}).items():
-        env[str(k)] = str(v)
     return run_command(cmd, workspace, timeout_s, env, isolation=isolation, deny_read=deny_read, log_prefix=log_prefix)
 
 
@@ -182,34 +179,6 @@ def static_code_check(files: Dict[str, str], sandbox_cfg: Dict) -> List[str]:
         for pat in patterns:
             if pat in code:
                 problems.append(f"{name}: forbidden pattern {pat!r}")
-        # Import ORDER: on macOS two OpenMP runtimes in one process abort the interpreter (SIGSEGV, no traceback).
-        # Measured on this box: `import torch` before `import lightgbm` -> exit 139 / "OMP: Error #179"; the reverse
-        # order survives. Refusing it here costs 0s; letting it run costs a full training run and a debug retry.
-        for first, second in (sandbox_cfg.get("import_order") or []):
-            pos = {}
-            for m in imp_re.finditer(code):
-                root = m.group(1).split(".")[0]
-                if root in (first, second) and root not in pos:
-                    pos[root] = m.start()
-            if first in pos and second in pos and pos[second] < pos[first]:
-                problems.append(f"{name}: `import {second}` appears before `import {first}` — on this machine that combination "
-                                f"crashes the process with SIGSEGV (two OpenMP runtimes; 'OMP: Error #179'). Import {first} "
-                                f"FIRST (before {second}) at the top of the file, or use only one of the two libraries.")
-        # Leak prevention, first line: a same-row feedback column named inside a feature/field list is a label leak by
-        # construction (the label long_view is a threshold of play_time_ms; is_click is nested in it). Narrow on purpose:
-        # only assignments whose target looks like a field/feature list, so legitimate uses (reading the label column,
-        # past-only aggregates built from earlier dates, multi-task targets) are not flagged.
-        feedback = list(sandbox_cfg.get("feedback_columns", []))
-        if feedback:
-            # only list/tuple LITERALS assigned to a field/feature-named variable (not function calls, which build
-            # aggregates from a column and are legitimate when past-only)
-            for m in re.finditer(r"^[ \t]*((?:[A-Za-z_]\w*?)?(?:FIELD|FEAT|field|feat)\w*)\s*(?:[:=]|\+=)\s*[\[(][^\n]*$", code, re.M):
-                line = m.group(0)
-                hit = [c for c in feedback if re.search(r"['\"]" + re.escape(c) + r"['\"]", line)]
-                if hit:
-                    problems.append(f"{name}: feedback column(s) {hit} listed as input field(s) in `{m.group(1)}` — same-row feedback is the label "
-                                    f"(long_view is a threshold of play_time_ms; is_click is nested in it). Feedback may only be a training "
-                                    f"TARGET or a past-only aggregate from strictly earlier dates.")
         if re.search(r"--split\s+test|['\"]test['\"]\s*\]", code) and re.search(r"long_view|label", code):
             # Not a hard violation (the champion legitimately handles --split test at finalize); flag only.
             pass

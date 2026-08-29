@@ -10,7 +10,7 @@ No LLM output ever reaches these functions — only harness-measured numbers.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Sequence
+from typing import Optional
 
 STOP_CONVERGED = "converged"
 STOP_ITER_CAP = "iter_cap"

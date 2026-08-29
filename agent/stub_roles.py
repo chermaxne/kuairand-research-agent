@@ -35,7 +35,7 @@ def stub_researcher(role: str, system: List[str], messages: List[Dict[str, str]]
     plan = {"hypothesis": f"Shift THETA by {delta:+.2f} to rebalance video vs author popularity (stub it{it:02d})",
             "category": CATS[(it - 1) % len(CATS)],
             "change_spec": f"In pipeline.py change the line `THETA = <x>` to THETA = x{delta:+.2f} (clamp to [0,1]). delta={delta:+.2f}",
-            "expected_risk": "low", "builds_on": "champion", "expected_gain": 0.003, "model_family": "toy popularity blend",
+            "expected_risk": "low", "builds_on": "champion",
             "rationale": "Stub agent: random tiny perturbation of the dummy pipeline (Phase 1 skeleton)."}
     return json.dumps(plan)
 
@@ -71,16 +71,9 @@ def stub_scribe_logentry(role: str, system: List[str], messages: List[Dict[str, 
     return "Stub narrative: see the JSON facts for this iteration (numbers are harness-measured)."
 
 
-def stub_scribe_digest(role: str, system: List[str], messages: List[Dict[str, str]]) -> str:
-    user = _last_user(messages)
-    m = re.search(r"Totals: (\d+) iterations; promoted (\d+)", user)
-    return (f"Stub synthesis: {m.group(1)} iterations so far, {m.group(2)} promoted; see the table for per-direction outcomes."
-            if m else "Stub synthesis: see the table.")
-
-
 def default_mock_handlers() -> Dict[str, Callable]:
     return {"researcher": stub_researcher, "engineer": stub_engineer, "debugger": stub_debugger,
-            "scribe_lesson": stub_scribe_lesson, "scribe_logentry": stub_scribe_logentry, "scribe_digest": stub_scribe_digest}
+            "scribe_lesson": stub_scribe_lesson, "scribe_logentry": stub_scribe_logentry}
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +118,7 @@ def kuairand_researcher(role: str, system: List[str], messages: List[Dict[str, s
     plan = {"hypothesis": step["hypothesis"], "category": step["category"],
             "change_spec": f"In pipeline.py apply exactly these line substitutions (leave everything else untouched): {edits}. "
                            f"Keep the CLI, the train-only rule and the output format. [mock it{it:02d}]",
-            "expected_risk": step["risk"], "builds_on": "champion", "expected_gain": 0.003, "model_family": "toy popularity blend", "rationale": step["rationale"] + f" (mock, it{it:02d})"}
+            "expected_risk": step["risk"], "builds_on": "champion", "rationale": step["rationale"] + f" (mock, it{it:02d})"}
     return json.dumps(plan)
 
 
@@ -181,4 +174,4 @@ def kuairand_scribe_logentry(role: str, system: List[str], messages: List[Dict[s
 
 def kuairand_mock_handlers() -> Dict[str, Callable]:
     return {"researcher": kuairand_researcher, "engineer": kuairand_engineer, "debugger": kuairand_debugger,
-            "scribe_lesson": kuairand_scribe_lesson, "scribe_logentry": kuairand_scribe_logentry, "scribe_digest": stub_scribe_digest}
+            "scribe_lesson": kuairand_scribe_lesson, "scribe_logentry": kuairand_scribe_logentry}

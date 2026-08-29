@@ -15,10 +15,8 @@ import argparse
 import copy
 import json
 import os
-import re
 import shutil
 import sys
-import textwrap
 import time
 import traceback
 from typing import Any, Dict, List, Optional, Tuple
@@ -27,9 +25,9 @@ import yaml
 
 from . import tools
 from .llm_client import CallLog, make_client
-from .memory import (canonical_family, family_stats, format_ablations, parse_ablations, render_family_status, append_intervention, append_ledger, fmt_elapsed, init_interventions, init_ledger, ledger_line, load_run_state,
-                     one_line, read_iteration_detail, read_ledger, render_state_block, research_digest, result_string,
-                     save_run_state, synthesis_numbers_ok, write_iteration_log, write_iteration_narrative, write_state_block)
+from .memory import (append_intervention, append_ledger, fmt_elapsed, init_interventions, init_ledger, ledger_line, load_run_state,
+                     one_line, read_ledger, render_state_block, result_string, save_run_state, write_iteration_log,
+                     write_iteration_narrative, write_state_block)
 from .phase0 import Phase0Error, install_champion, run_phase0
 from .promotion import RunLimits, judge_iteration, stop_reason, vs_best_string
 from .roles import Roles
@@ -43,19 +41,7 @@ PIPELINE_CONTRACT_NOTE = """`python pipeline.py --data <data_dir> --split val --
 - `--split test` must keep working unchanged (it is used once, at finalize, on the champion).
 - Exit 0 on success. Single process, no network, no package installs, only pre-installed libraries
   (numpy, pandas, scikit-learn, lightgbm, torch-cpu). Same-row feedback columns are NOT features (leakage).
-- Hard wall-clock limit: {timeout}s for the whole run (load + train + predict).
-- TIME BUDGET (hard): `KUAIRAND_TIME_BUDGET_S` is in the environment ({timeout}s here) and the process is killed at it.
-  Budget it explicitly with arithmetic, not hope:
-  1. Fit the FULL bundle first and WRITE ITS PREDICTIONS before anything else. It must finish inside 40% of the budget.
-  2. Only then run ablations, and before each one check `time.time() - t0` against the budget: start a variant only if
-     at least 25% of the budget remains, else print `ABLATION <name> skipped: <reason>` and move on.
-  3. Ablation variants are DIAGNOSTICS, not submissions: make them cheap (a subsample of the training rows, or a fixed
-     small number of rounds/epochs, or one seed). A variant must never cost as much as the full fit.
-- In-run attribution: for each variant you do run, score it on validation with the official `evaluate()` and print one
-  line `ABLATION <name> primary=<f> gauc=<f> ndcg5=<f>` (real numbers from real fits only). The written predictions are
-  always the full bundle.
-- Evaluating the metric is expensive (~125k rows). For early stopping, score at most every ~50 boosting rounds or once
-  per epoch — NOT every few rounds. Scoring after every 10 rounds turned a 30 s fit into 6 minutes in run ten16."""
+- Hard wall-clock limit: {timeout}s for the whole run (load + train + predict)."""
 
 STALL_DIRECTIVE = """# STALL RECOVERY DIRECTIVE (injected by the harness)
 The last {n} iterations ALL failed (crash / timeout / rejected output). Do NOT propose anything ambitious now.
@@ -64,75 +50,22 @@ hyperparameter, one well-understood feature, a smaller model variant). Requireme
 new files, runtime well under the limit, minimal diff. State in `rationale` why it cannot fail the same way."""
 
 
-FAMILY_DIRECTIVE = """# MODEL FAMILY RULE (harness-enforced: run.family_commitment)
-{table}
-
-You are developing ONE alternative architecture at a time. {instruction}
-A family becomes a DEAD END when {deadend_after} consecutive iterations on it fail to improve its own best by more
-than +{epsilon} (crashes and timeouts count) — the harness decides that from measurements, never you. Deepening the
-active family means: new inputs for it, a better objective for it, more capacity where it helps, fixing what its
-training log shows going wrong. Adding a SECOND model (an ensemble, a blend) counts as leaving the family, not as
-deepening it, so propose it only when the harness has declared the family dead. The kit's factorization machine
-stays retired in every case."""
-
-SIZING_DIRECTIVE = """# SIZING DIRECTIVE (harness policy: flat streak {streak} of {n_flat} — {lives} more miss(es) end the run)
-The convergence rule is per iteration: only a gain > +{epsilon} over the best-so-far ({best}) resets the streak. A
-+0.001 gain is promoted and banked, but it still counts as a miss. So every proposal must be SIZED to clear
-+{epsilon} on its own: ONE hypothesis whose expected gain you state as a number with evidence (`expected_gain`,
-`gain_evidence`), plus every validated rider (a component already measured positive on this run that is not yet in
-the champion). Hyperparameter-only proposals cannot clear +{epsilon} and are not allowed.
-{posture}
-Attribution is free and happens INSIDE the run, never across iterations: write an `ablation_plan` naming the
-variants the pipeline should also train and score on validation (at minimum the bundle WITHOUT the new
-component, i.e. the champion-equivalent), printed as `ABLATION <name> primary=... gauc=... ndcg5=...`. The
-written predictions are the full bundle; only the sealed score counts. The wall-clock limit is {timeout}s, so
-budget the extra fits explicitly (the champion fit takes about a minute)."""
-
-POSTURE_BOLD = """Posture at streak 0: take your boldest well-grounded structural bet — a change that gives the model NEW
-INFORMATION (the user's past behaviour as a sequence, auxiliary behaviours, watch time, past-only context) or an
-objective closer to the metric. Capacity alone is not information: the organizers measured that bigger embeddings
-and more static fields do nothing, so a deeper network over the same inputs is a large diff with a small expected
-gain. An architecture change earns its place when it is what lets the model consume a new signal (e.g. attention
-over the user's history). "Structural" means one of the directions the organizers left open (knowledge library §4,
-literature in §8): (2) the user's behaviour history as a sequence (DIN-style target attention, or history-derived
-past-only fields), (3) multi-task learning on the auxiliary behaviours, (4) watch-time modelling (censored /
-ordinal targets), (6) time and drift features, (7) unbiased validation on the random-exposure log, and (5) a model
-family only where it consumes a new signal; direction (1), the ranking loss, is already in the champion.
-HARD RULE (harness-enforced, run.retire_fm): the kit's factorization machine is retired — the organizers swept its
-capacity and features to a plateau and every FM variant measured on this data sits within noise of the same score.
-Every experiment must train a DIFFERENT architecture, named in `model_family` (a plan naming the FM is refused);
-its proven components (ranking loss, session-position field, seed averaging) may be carried into the new model."""
-
-POSTURE_STEADY = """Posture at streak {streak}: still structural, but choose the variant with the best evidence rather than the highest
-ceiling, stack every validated rider, keep the champion's seed averaging, and prefer the implementation with the
-fewest new moving parts — a crash or timeout costs a miss just like a flat result."""
+STRUCTURAL_DIRECTIVE = """# STRATEGY DIRECTIVE (harness policy, iteration {it} of the first {n})
+Three consecutive misses end the run and every single lever measured on this data is about +0.001, so this
+iteration must aim at > +0.002: combine complementary changes or make a structural one, with the knowledge
+library's measured table as your prior and the ledger as your evidence. Hyperparameter-only proposals (learning
+rate, embedding size, epochs, patience, regularisation, batch size, bucket counts) are not allowed in these first
+{n} iterations unless they are part of a structural change. State the expected gain, why it should exceed +0.002,
+and the self-check the code will print. Re-trying something the library marks flat is allowed if you say what is
+different about your version."""
 
 
 STREAK_DIRECTIVE = """# LAST-SHOT DIRECTIVE (harness policy: flat streak {streak} of {n_flat})
 One more iteration without a gain > +{epsilon} over the best-so-far ({best}) ENDS THE RUN. Choose the
 highest-probability bundle: keep every component of the champion that produced its gain (its loss, its fields,
-its seed averaging) exactly as is, add more seeds if the champion uses fewer than 5, stack EVERY validated rider
-not yet in the champion, and add ONE genuinely new signal. Do NOT replace or remove a proven component, do NOT
-re-try a lever kind whose last result was within ±0.0006 (noise), and state in `rationale` and `gain_evidence`
-why this bundle should clear +{epsilon}. Keep the `ablation_plan` minimal (champion-equivalent only)."""
-
-
-def failure_signature(status: str, res, err: str):
-    """What makes two failures 'the same failure'. A signal kill has no traceback and no useful text, so the signal
-    number alone identifies it; a Python failure is identified by its last line (the exception) with digits masked, so
-    that differing timings/counts do not make two identical bugs look different."""
-    if res is None:
-        return (status, "policy", one_line((err or "").splitlines()[0] if err else "", 160))
-    rc = res.returncode if getattr(res, "returncode", None) is not None else 0
-    sig = -rc if rc < 0 else (rc - 128 if rc > 128 else 0)
-    if sig:
-        return (status, f"signal:{sig}")
-    last = ""
-    for line in reversed((err or "").splitlines()):
-        if line.strip():
-            last = line.strip()[:200]
-            break
-    return (status, rc, last)
+its seed averaging) exactly as is, add more seeds if the champion uses fewer than 5, and add ONE genuinely new
+signal. Do NOT replace or remove a proven component, do NOT re-try a lever kind whose last result was within
+±0.0006 (noise), and state in `rationale` why this bundle should clear +{epsilon}."""
 
 
 class FinalizeError(RuntimeError):
@@ -263,36 +196,21 @@ class Harness:
         parts.append("# CHAMPION CODE (current best pipeline; every experiment builds on it)\n" +
                      "\n".join(f"--- {n} ---\n{c}" for n, c in sorted(champ.items())))
         parts.append("# LEDGER (full history, oldest first)\n" + (read_ledger(self.run_dir) or "(empty)"))
-        digest = research_digest(state.history, lambda n: read_iteration_detail(self.run_dir, n))
-        if digest:
-            parts.append(digest)
-            if state.synthesis:
-                parts.append("# RESEARCH SYNTHESIS (written by the Scribe from the digest above — interpretive; verify any claim "
-                             "against the table)\n" + state.synthesis)
-        parts.append(self.render_recent_iterations(state))
-        if self.run_cfg.get("family_commitment", True):
-            stats = family_stats(state.history, self.limits.epsilon, int(self.run_cfg.get("family_deadend_after", 2)))
-            active = stats["active"]
-            if active is not None:
-                best = f"{active['best']:.4f}" if active["best"] is not None else "not yet scored"
-                instruction = (f"The ACTIVE family is **{active['label']}** (best {best}) — your `model_family` this "
-                               f"iteration must be that family, developed one step further. Do NOT switch to another "
-                               f"architecture while it is alive; the harness will refuse the plan.")
-            else:
-                instruction = ("No family is alive yet, so choose the most promising alternative architecture now and "
-                               "expect to develop it for several iterations — pick one you can implement correctly the "
-                               "first time (a crash costs the same as a flat result).")
-            parts.append(FAMILY_DIRECTIVE.format(table=render_family_status(stats), instruction=instruction,
-                                                 deadend_after=int(self.run_cfg.get("family_deadend_after", 2)),
-                                                 epsilon=self.limits.epsilon))
-        last_shot = self.limits.n_flat > 1 and state.streak >= self.limits.n_flat - 1
-        best_s = f"{state.best_primary:.4f}" if state.best_primary is not None else "n/a"
-        if not last_shot and self.run_cfg.get("sizing_directive", True):
-            posture = POSTURE_BOLD if state.streak == 0 else POSTURE_STEADY.format(streak=state.streak)
-            parts.append(SIZING_DIRECTIVE.format(streak=state.streak, n_flat=self.limits.n_flat, lives=self.limits.n_flat - state.streak,
-                                                 epsilon=self.limits.epsilon, best=best_s, posture=posture,
-                                                 timeout=int(self.run_cfg["EXPERIMENT_TIMEOUT_S"])))
-        if last_shot:
+        recent = [h for h in state.history[-3:]]
+        if recent:
+            lines = ["# RECENT ITERATION DETAILS (harness-measured; the training-log tail is the experiment's own stdout)"]
+            for h in recent:
+                lines.append(f"- it{h['iteration']:02d} [{h['category']}] {h['hypothesis']}\n  result: {h['status']} primary={h.get('primary')} "
+                             f"decision={h['decision']} runtime={h.get('runtime_s')}s\n  lesson: {h.get('lesson', '')}")
+                if h.get("error_short"):
+                    lines.append(f"  error: {h['error_short']}")
+                if h.get("training_log_tail"):
+                    lines.append("  training log tail:\n" + "\n".join("    " + l for l in h["training_log_tail"].splitlines()))
+            parts.append("\n".join(lines))
+        n_struct = int(self.run_cfg.get("structural_first_until_iter", 0) or 0)
+        if it <= n_struct:
+            parts.append(STRUCTURAL_DIRECTIVE.format(n=n_struct, it=it))
+        if self.limits.n_flat > 1 and state.streak >= self.limits.n_flat - 1:
             parts.append(STREAK_DIRECTIVE.format(streak=state.streak, n_flat=self.limits.n_flat, epsilon=self.limits.epsilon,
                                                  best=f"{state.best_primary:.4f}" if state.best_primary is not None else "n/a"))
         if state.consecutive_failures >= int(self.run_cfg.get("STALL_FAILURES", 3)):
@@ -320,34 +238,13 @@ class Harness:
 
         briefing = self.assemble_briefing(it)
         atomic_write_text(os.path.join(ws, "briefing.md"), briefing)
-        required_family = None
-        if self.run_cfg.get("family_commitment", True):
-            act = family_stats(state.history, self.limits.epsilon, int(self.run_cfg.get("family_deadend_after", 2)))["active"]
-            required_family = act["label"] if act else None
-        plan, err, _raw = self.roles.researcher(briefing, required_family=required_family)
+        plan, err, _raw = self.roles.researcher(briefing)
         if plan is None:
             error_reason = err
             self.log(f"[it{it:02d}] researcher failed: {one_line(err, 200)}")
         else:
             atomic_write_json(os.path.join(ws, "plan.json"), plan.to_dict())
             self.log(f"[it{it:02d}] HYP ({plan.category}, risk {plan.expected_risk}): {one_line(plan.hypothesis, 200)}")
-            mode = str(self.cfg["llm"].get("console_plan", "brief"))
-            if mode == "brief":
-                gain = f"{plan.expected_gain:+.4f}" if plan.expected_gain is not None else "n/a"
-                self.log(f"[it{it:02d}]   predicted gain {gain} — evidence: {one_line(plan.gain_evidence, 220) or 'none given'}")
-                self.log(f"[it{it:02d}]   rationale: {one_line(plan.rationale, 320)}")
-                if plan.ablation_plan:
-                    self.log(f"[it{it:02d}]   ablation plan: {one_line(plan.ablation_plan, 160)}")
-            elif mode == "full":
-                gain = f"{plan.expected_gain:+.4f}" if plan.expected_gain is not None else "n/a"
-                self.log(f"┌─ it{it:02d} RESEARCHER PLAN ({plan.category}, risk {plan.expected_risk}, predicted gain {gain}) ─────────")
-                for title, body in (("HYPOTHESIS", plan.hypothesis), ("EVIDENCE FOR THE GAIN", plan.gain_evidence),
-                                    ("RATIONALE (citations)", plan.rationale), ("ABLATION PLAN", plan.ablation_plan), ("CHANGE SPEC", plan.change_spec)):
-                    if body:
-                        self.log(f"│ {title}:")
-                        for line in textwrap.wrap(body, 110) if "\n" not in body else body.splitlines():
-                            self.log("│   " + line)
-                self.log("└" + "─" * 78)
             new_files, err = self.roles.engineer(plan, champion_files, PIPELINE_CONTRACT_NOTE.format(timeout=int(self.run_cfg["EXPERIMENT_TIMEOUT_S"])))
             if new_files is None:
                 error_reason = err
@@ -357,21 +254,6 @@ class Harness:
                 status, score, error_reason, attempts, files, runtime_s, blocked_reason = self.execute_with_debugging(ws, plan, files)
 
         primary = score.primary if (score is not None and status == "scored") else None
-        ablations: List[Dict[str, Any]] = []
-        if status == "scored":
-            try:
-                with open(os.path.join(ws, "stdout.txt"), encoding="utf-8", errors="replace") as fh:
-                    ablations = parse_ablations(fh.read())
-            except OSError:
-                ablations = []
-            if ablations:
-                self.log(f"[it{it:02d}] in-run ablations (pipeline-reported): {format_ablations(ablations, primary)}")
-        leak_audit = ""
-        try:
-            with open(os.path.join(ws, "stdout.txt"), encoding="utf-8", errors="replace") as fh:
-                leak_audit = "\n".join(l.strip() for l in fh if l.lstrip().startswith("LEAK AUDIT"))[:1500]
-        except OSError:
-            leak_audit = ""
         result = HarnessResult(status=status, gauc=score.gauc if score else 0.0, ndcg5=score.ndcg5 if score else 0.0,
                                primary=score.primary if score else 0.0, runtime_s=runtime_s,
                                error_excerpt="" if status == "scored" else error_reason[-4000:],
@@ -380,32 +262,20 @@ class Harness:
 
         # --- leak test: a would-be promotion must survive flipped validation labels (harness-measured) ---
         leak: Dict[str, Any] = {}
-        leak_mode = str(self.run_cfg.get("leak_check", "on_promotion"))
-        if status == "scored" and score is not None and leak_mode != "off":
+        if status == "scored" and score is not None and self.run_cfg.get("leak_check", "on_promotion") != "off":
             would_promote = best_at_start is None or score.primary > best_at_start + self.limits.promote_margin
-            improves = best_at_start is None or score.primary > best_at_start
-            if leak_mode == "on_improvement":
-                would_promote = would_promote or improves            # verify every improvement so none is ever lost
             ceiling = self.run_cfg.get("implausible_primary_above")
-            min_delta = float(self.run_cfg.get("leak_check_min_delta", 0.0) or 0.0)
-            delta_vs_best = (score.primary - best_at_start) if best_at_start is not None else None
-            small = would_promote and delta_vs_best is not None and delta_vs_best < min_delta
             if would_promote and ceiling is not None and score.primary > float(ceiling):
                 # Free first line of defence: no honest model on this task reaches here (oracle 0.8484, baseline 0.6015,
                 # best known lever +0.003). Flag without spending a re-run.
                 leak = {"ran": False, "verdict": "LEAK", "reason": "implausible score ceiling",
                         "ceiling": float(ceiling), "primary": score.primary, "gauc": score.gauc}
-            elif small:
-                # Team policy (2026-08-29): re-run only when the improvement is at least leak_check_min_delta; smaller
-                # gains rely on the prompt-side guards and the static feedback-column check. Recorded, never silent.
-                leak = {"ran": False, "verdict": "skipped", "reason": f"improvement {delta_vs_best:+.4f} below leak_check_min_delta {min_delta}",
-                        "primary": score.primary}
             elif would_promote:
                 self.log(f"[leak-test] candidate {score.primary:.4f} would be promoted — re-running with 10% of validation users' labels flipped")
                 leak = self.task.leak_test(ws, float(self.run_cfg["EXPERIMENT_TIMEOUT_S"]))
             if leak:
                 floor = float(self.run_cfg.get("leak_check_min_primary", 0.5))
-                if leak.get("reason") == "implausible score ceiling" or leak.get("verdict") == "skipped":
+                if leak.get("reason") == "implausible score ceiling":
                     pass                                             # verdict already set
                 elif leak.get("ran") and leak.get("subset_primary") is not None:
                     leak["verdict"] = "clean" if leak["subset_primary"] >= floor else "LEAK"
@@ -430,12 +300,7 @@ class Harness:
                             f"of the validation labels; not promoted. Make the pipeline robust to partially corrupted validation labels "
                             f"(no strict assertions on the validation metric).\n{leak.get('error', '')}")
                     blocked_reason = "leak test inconclusive"
-                if leak["verdict"] == "skipped":
-                    self.log(f"[leak-test] skipped: {leak['reason']} (prompt guards + static check only)")
-                    if score.primary > float((state.best_measured or {}).get("primary", -1)):
-                        state.best_measured = {"iteration": it, "primary": score.primary, "gauc": score.gauc, "ndcg5": score.ndcg5,
-                                               "workspace": os.path.relpath(ws, self.run_dir)}
-                elif leak["verdict"] != "clean":
+                if leak["verdict"] != "clean":
                     self.log(f"[leak-test] {diag[:200]}")
                     status, primary, error_reason = "failed", None, diag
                     result = HarnessResult(status="failed", gauc=score.gauc, ndcg5=score.ndcg5, primary=score.primary,
@@ -445,9 +310,6 @@ class Harness:
                 else:
                     self.log(f"[leak-test] clean: flipped users score {leak['subset_primary']:.4f} on their true labels "
                              f"(>= {floor}); full-set {leak['full_primary']:.4f}")
-                    if score.primary > float((state.best_measured or {}).get("primary", -1)):
-                        state.best_measured = {"iteration": it, "primary": score.primary, "gauc": score.gauc, "ndcg5": score.ndcg5,
-                                               "workspace": os.path.relpath(ws, self.run_dir)}
             atomic_write_json(os.path.join(ws, "leak_test.json"), leak) if leak else None
 
         # --- the two separate judgments (pure functions; no LLM involvement) ---
@@ -455,8 +317,7 @@ class Harness:
         if dec.promoted:
             install_champion(self.run_dir, files, os.path.join(ws, tools.PREDS_VAL), score, it, ws)
             state.best_primary, state.best_gauc, state.best_ndcg5, state.best_iter = score.primary, score.gauc, score.ndcg5, it
-        state.streak = dec.streak_after                       # organizers' rule (kit README / spec §6): each iteration
-                                                              # vs best-so-far; gains <= EPSILON and failures tick
+        state.streak = dec.streak_after
         if status == "scored":
             state.consecutive_failures = 0
         else:
@@ -483,21 +344,6 @@ class Harness:
         if self.cfg["llm"].get("scribe_narrative", True):
             write_iteration_narrative(self.run_dir, it, self.roles.scribe_logentry(facts))
 
-        # Scribe job (c): research synthesis of the whole run so far, rebuilt from the harness digest every iteration
-        # (this iteration included). Numbers are checked against the digest; a synthesis that invents one is dropped.
-        hist_preview = {"iteration": it, "hypothesis": one_line(plan_for_scribe.hypothesis, 0), "category": plan_for_scribe.category,
-                        "status": status, "primary": primary, "decision": dec.decision, "promoted": dec.promoted, "lesson": lesson,
-                        "error_short": one_line(error_reason.splitlines()[-1] if error_reason else "", 200)}
-        if self.cfg["llm"].get("scribe_digest", True):
-            digest_now = research_digest(state.history + [hist_preview], lambda n: read_iteration_detail(self.run_dir, n) if n != it else
-                                         {"hypothesis": plan_for_scribe.hypothesis, "harness_extra": {"best_at_iteration_start": best_at_start, "leak_test": leak or None,
-                                                                                                        "expected_gain": plan_for_scribe.expected_gain, "ablations": ablations}})
-            synth = self.roles.scribe_digest(digest_now)
-            if synth and synthesis_numbers_ok(synth, digest_now):
-                state.synthesis = synth
-            elif synth:
-                state.warnings.append(f"it{it:02d}: scribe synthesis rejected (contained a number not in the digest)")
-                self.log(f"[scribe] synthesis rejected: it contained a number not present in the harness digest")
         usage = self.roles.iteration_usage
         state.tokens_total += usage.total
         state.tokens_input += usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens
@@ -517,14 +363,10 @@ class Harness:
                                             "llm_calls": self.roles.calls_this_iteration, "iteration_wall_s": round(self.clock() - t_iter, 1),
                                             "blocked_added": blocked_reason or None, "consecutive_failures": state.consecutive_failures,
                                             "leak_test": leak or None,
-                                            "expected_gain": plan_for_scribe.expected_gain, "gain_evidence": plan_for_scribe.gain_evidence,
-                                            "ablation_plan": plan_for_scribe.ablation_plan, "ablations": ablations,
-                                            "leak_audit": leak_audit or None,
                                             "workspace": os.path.relpath(ws, self.run_dir)})
         write_iteration_log(self.run_dir, entry)
 
-        hist = {"iteration": it, "hypothesis": one_line(plan_for_scribe.hypothesis, 0), "category": plan_for_scribe.category,
-                "model_family": plan_for_scribe.model_family,
+        hist = {"iteration": it, "hypothesis": one_line(plan_for_scribe.hypothesis, 160), "category": plan_for_scribe.category,
                 "training_log_tail": train_tail,
                 "status": status, "primary": primary, "gauc": score.gauc if (score and status == "scored") else None,
                 "ndcg5": score.ndcg5 if (score and status == "scored") else None, "decision": dec.decision, "promoted": dec.promoted,
@@ -538,71 +380,6 @@ class Harness:
                  f"| streak {dec.streak_after}/{self.limits.n_flat} | tokens {usage.total} | {runtime_s:.0f}s")
         return hist
 
-    def render_recent_iterations(self, state: RunState) -> str:
-        """Full record of the most recent iterations: what was proposed (hypothesis + change spec + rationale), what
-        the Engineer actually changed (diff), what was measured (delta vs the champion at the time), what went wrong
-        (debug attempts, leak verdict) and the training curve. Everything here is harness-measured or previously
-        LLM-authored; the point is that the Researcher can judge WHICH PART of a bundled change worked."""
-        n = int(self.run_cfg.get("briefing_recent_iterations", 5))
-        diff_chars = int(self.run_cfg.get("briefing_diff_chars", 2500))
-        spec_chars = int(self.run_cfg.get("briefing_spec_chars", 1200))
-        recent = state.history[-n:]
-        if not recent:
-            return ""
-        out = ["# RECENT ITERATION DETAILS (harness-measured facts + what was actually changed)",
-               "Use these to decide whether to CONTINUE an idea: when a bundled change moved little, the diff shows which",
-               "components were in it, so you can keep the part that plausibly worked and drop the rest. State which",
-               "component you are keeping or dropping, and why, in `rationale`."]
-        for h in recent:
-            it = h["iteration"]
-            d = read_iteration_detail(self.run_dir, it) or {}
-            x = d.get("harness_extra", {})
-            r = d.get("result", {})
-            best_before = x.get("best_at_iteration_start")
-            delta = (f"{r.get('primary', 0) - best_before:+.4f} vs the then-champion {best_before:.4f}"
-                     if (best_before is not None and r.get("status") == "scored") else "n/a")
-            out.append(f"\n## it{it:02d} [{h.get('category')}] — {h.get('decision')} ({r.get('status')}), {delta}")
-            out.append(f"HYPOTHESIS: {d.get('hypothesis') or h.get('hypothesis')}")
-            if isinstance(x.get("expected_gain"), (int, float)):
-                measured = (f"; measured {r.get('primary') - best_before:+.4f}" if (best_before is not None and r.get("status") == "scored") else "")
-                out.append(f"YOUR PREDICTED GAIN: {x['expected_gain']:+.4f}{measured}" + (f" — evidence given: {one_line(x.get('gain_evidence', ''), 300)}" if x.get("gain_evidence") else ""))
-            if d.get("rationale"):
-                out.append(f"RATIONALE (yours, at the time): {one_line(d['rationale'], 600)}")
-            plan_path = os.path.join(self.iteration_dir(it), "plan.json")
-            if os.path.exists(plan_path):
-                try:
-                    spec = json.load(open(plan_path)).get("change_spec", "")
-                    if spec:
-                        out.append(f"CHANGE SPEC you gave the Engineer:\n{spec[:spec_chars]}" + ("…" if len(spec) > spec_chars else ""))
-                except (OSError, ValueError):
-                    pass
-            out.append(f"WHAT CHANGED: {x.get('change_summary', 'n/a')}")
-            diff = d.get("code_diff") or ""
-            if diff:
-                out.append("DIFF (champion -> attempt):\n```diff\n" + diff[:diff_chars] + ("\n… (diff truncated)" if len(diff) > diff_chars else "") + "\n```")
-            if r.get("status") == "scored":
-                out.append(f"MEASURED: primary {r.get('primary'):.4f} (GAUC {r.get('gauc'):.4f} / nDCG@5 {r.get('ndcg5'):.4f}), runtime {r.get('runtime_s')}s")
-                if x.get("ablations"):
-                    out.append("IN-RUN ABLATIONS (pipeline-reported on validation, unsealed — component attribution): " +
-                               format_ablations(x["ablations"], r.get("primary")))
-                elif x.get("ablation_plan"):
-                    out.append("IN-RUN ABLATIONS: none printed although an ablation plan was given — attribution for this iteration is missing.")
-            else:
-                out.append(f"OUTCOME: {r.get('status')} — {one_line(r.get('error_excerpt', ''), 400)}")
-            for a in d.get("errors_and_recovery", []):
-                out.append(f"  debug attempt {a['attempt']}: {one_line(a.get('error'), 160)} -> fix: {one_line(a.get('fix_summary'), 160)} ({a.get('status_after')})")
-            lt = x.get("leak_test")
-            if lt:
-                out.append(f"  leak test: {lt.get('verdict')}" + (f" (flipped users scored {lt['subset_primary']:.4f} on their true labels)"
-                                                                  if lt.get("subset_primary") is not None else "") +
-                           (f" — {lt['reason']}" if lt.get("verdict") == "skipped" else ""))
-            if x.get("leak_audit"):
-                out.append("  feature provenance the pipeline printed:\n" + "\n".join("    " + l for l in x["leak_audit"].splitlines()))
-            if h.get("training_log_tail"):
-                out.append("TRAINING CURVE (the experiment's own stdout):\n" + "\n".join("  " + l for l in h["training_log_tail"].splitlines()))
-            out.append(f"LESSON: {h.get('lesson', '')}")
-        return "\n".join(out)
-
     def training_log_tail(self, ws: str, n_lines: int = 12, max_chars: int = 1500) -> str:
         """Last lines of the experiment's stdout (epoch curve, early-stop message) — lets the Scribe and the
         Researcher see HOW a run behaved, not just its final score. Empty when nothing ran."""
@@ -614,16 +391,7 @@ class Harness:
                 lines = [l.rstrip() for l in fh.read().splitlines() if l.strip()]
         except OSError:
             return ""
-        # drop repeated boilerplate (e.g. "Number of pairs this epoch: 765158" printed every epoch), keeping each
-        # distinct line's LAST occurrence, so the line budget is spent on the metric curve rather than on repeats
-        seen, kept = set(), []
-        for l in reversed(lines):
-            if l in seen:
-                continue
-            seen.add(l)
-            kept.append(l)
-        dedup = list(reversed(kept))
-        tail = "\n".join(dedup[-n_lines:])
+        tail = "\n".join(lines[-n_lines:])
         return tail[-max_chars:]
 
     # ------------------------------------------------------------------ run + debug loop
@@ -637,8 +405,6 @@ class Harness:
         attempt_no, total_runtime = 0, 0.0
         score: Optional[Score] = None
         status, err, blocked = "failed", "", ""
-        last_sig: Any = None
-        res = None
         while True:
             violations = static_code_check(files, self.cfg.get("sandbox", {}))
             if violations:
@@ -658,24 +424,6 @@ class Harness:
                            "and hypothesis unchanged.\nLast lines of stdout before the kill:\n" + self.training_log_tail(ws))
                 elif res.status == "failed":
                     status, err = "failed", res.error_excerpt()
-                    rc = res.returncode if res.returncode is not None else 0
-                    sig = -rc if rc < 0 else (rc - 128 if rc > 128 else 0)
-                    if sig:
-                        # A signal kill leaves NO Python traceback, so error_excerpt() falls back to stdout and the
-                        # Debugger would otherwise be handed the pipeline's last progress line as if it were the error.
-                        names = {11: "SIGSEGV (segmentation fault)", 6: "SIGABRT (abort)", 9: "SIGKILL (killed - usually out of memory)",
-                                 4: "SIGILL", 8: "SIGFPE", 7: "SIGBUS"}
-                        err = (f"NATIVE CRASH DIAGNOSIS (harness): the process was killed by signal {sig} "
-                               f"{names.get(sig, '')} after {res.runtime_s:.0f}s. This is a crash inside a C extension, NOT a Python "
-                               f"error: there is no traceback, and the output below is only how far the run got.\n"
-                               f"MOST LIKELY CAUSE ON THIS MACHINE: two OpenMP runtimes in one process. Measured here: "
-                               f"`import torch` before `import lightgbm` aborts with 'OMP: Error #179' / exit 139; importing "
-                               f"lightgbm FIRST survives. Fix: move `import lightgbm` above `import torch` at the top of the "
-                               f"file, or use only one of the two libraries in the pipeline.\n"
-                               f"Other causes of a signal kill: memory exhaustion (SIGKILL) - reduce batch/history sizes; a "
-                               f"C-level out-of-bounds write (np.add.at / numpy views with bad indices).\n"
-                               f"Keep the hypothesis and the model unchanged; fix only the import order or the allocation.\n"
-                               f"Last lines of stdout before the crash:\n{self.training_log_tail(ws)}")
                 else:
                     try:
                         score = self.task.score_preds(os.path.join(ws, tools.PREDS_VAL))
@@ -728,17 +476,7 @@ class Harness:
                         tools.write_code_files(ws, files)
                         self.log("[debug] fix did not restore a plausible ranking; keeping the original measured result")
                 break
-            head = one_line(err.splitlines()[0] if err else "", 160)
-            self.log(f"[debug] attempt {attempt_no} -> {status}: {head}")
-            # An identical failure means the fix changed nothing observable; further retries burn wall clock for nothing
-            # (it04 of run ten11 spent 3 x 12 min on the same SIGSEGV).
-            sig_now = failure_signature(status, None if violations else res, err)
-            if attempt_no >= 1 and sig_now == last_sig:
-                err += f"\n[identical failure reproduced after debug attempt {attempt_no}: stopping retries]"
-                blocked = f"{status} reproduced identically after a fix"
-                self.log(f"[debug] the fix reproduced the identical failure — stopping retries (saves {int(timeout)}s per attempt)")
-                break
-            last_sig = sig_now
+            self.log(f"[debug] attempt {attempt_no} -> {status}: {one_line(err.splitlines()[-1] if err else '', 160)}")
             if status == "timeout" and not retry_timeouts:
                 blocked = f"timeout {int(timeout)}s"
                 break
@@ -779,15 +517,9 @@ class Harness:
         self.log(f"\n[finalize] stop reason: {reason} — generating submission from the champion (it{state.best_iter:02d})")
         fin_dir = os.path.join(self.run_dir, "finalize")
         os.makedirs(fin_dir, exist_ok=True)
-        candidates: List[Tuple[int, str]] = []
-        bm = state.best_measured or {}
-        if bm and bm.get("primary", -1) > (state.best_primary or -1) + 1e-12 and bm.get("iteration") != state.best_iter:
-            self.log(f"[finalize] best leak-clean measurement it{bm['iteration']:02d} ({bm['primary']:.4f}) beats the champion "
-                     f"({state.best_primary:.4f}) — it was below the promotion margin; using it first")
-            candidates.append((int(bm["iteration"]), self.iteration_dir(int(bm["iteration"]))))
-        candidates.append((state.best_iter, self.best_code_dir))
+        candidates: List[Tuple[int, str]] = [(state.best_iter, self.best_code_dir)]
         for h in reversed(state.history):
-            if h.get("promoted") and h["iteration"] != state.best_iter and (h["iteration"], self.iteration_dir(h["iteration"])) not in candidates:
+            if h.get("promoted") and h["iteration"] != state.best_iter:
                 candidates.append((h["iteration"], self.iteration_dir(h["iteration"])))
         if state.best_iter != 0:
             candidates.append((0, self.task.champion_src_dir))
@@ -835,9 +567,6 @@ class Harness:
                  if state.best_primary is not None else "- best validation: n/a",
                  f"- published baseline (valid): {b} → delta **{delta:+.4f}**" if delta is not None else "- published baseline: n/a",
                  f"- iterations used: {state.iteration} (promoted {len(promoted)}, failed {len(failed)}); final streak {state.streak}",
-                 (f"- best leak-clean measurement: it{state.best_measured['iteration']:02d} at {state.best_measured['primary']:.4f}"
-                  + (" (below the promotion margin; used for the submission)" if state.best_measured['primary'] > (state.best_primary or -1) + 1e-12 else "")
-                  if state.best_measured else "- best leak-clean measurement: n/a"),
                  f"- tokens: {state.tokens_total:,} total ({state.tokens_input:,} in / {state.tokens_output:,} out) over {state.llm_calls} LLM calls; by role: {json.dumps(state.tokens_by_role)}",
                  f"- wall-clock: {fmt_elapsed(state.elapsed_s(self.clock()))} (started {state.start_ts})",
                  f"- manual interventions: {state.interventions} (resumes {state.resumes}) — see interventions.md",

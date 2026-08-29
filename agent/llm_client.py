@@ -40,8 +40,6 @@ class LLMResponse:
     stop_reason: str = ""
     estimated_usage: bool = False     # True when the client had no API usage field (mock)
     fallback_notes: List[str] = field(default_factory=list)   # why earlier candidate models were skipped
-    discarded: List[Dict[str, Any]] = field(default_factory=list)   # attempts that produced nothing usable but were BILLED
-    reasoning: str = ""               # the model's visible reasoning stream (OpenRouter `reasoning` / DeepSeek `reasoning_content`), if any
 
 
 class LLMClient(Protocol):
@@ -291,7 +289,6 @@ class OpenAICompatClient:
         t0 = time.time()
         last_beat = t0
         parts: List[str] = []
-        reasoning_parts: List[str] = []
         finish, usage_obj, served, reasoning_chars = "", None, "", 0
         kwargs = dict(req)
         kwargs["stream"] = True
@@ -314,10 +311,9 @@ class OpenAICompatClient:
                         piece = getattr(delta, "content", None)
                         if piece:
                             parts.append(piece)
-                        rd = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
-                        if rd and isinstance(rd, str):
+                        rd = getattr(delta, "reasoning", None)
+                        if rd:
                             reasoning_chars += len(rd)
-                            reasoning_parts.append(rd)
                     fr = getattr(choices[0], "finish_reason", None)
                     if fr:
                         finish = str(fr)
@@ -334,8 +330,7 @@ class OpenAICompatClient:
                     pass
         text = "".join(parts)
         return {"text": text, "finish_reason": finish, "usage": self._usage_from(usage_obj, text), "model": served or candidate,
-                "estimated": usage_obj is None, "latency_s": time.time() - t0, "reasoning_chars": reasoning_chars,
-                "reasoning": "".join(reasoning_parts)}
+                "estimated": usage_obj is None, "latency_s": time.time() - t0, "reasoning_chars": reasoning_chars}
 
     def candidates(self, role: str, model: str) -> List[str]:
         """Primary model first, then the role's configured alternates (deduplicated, order preserved)."""
@@ -349,7 +344,6 @@ class OpenAICompatClient:
                  max_tokens: int) -> LLMResponse:
         last_err: Optional[Exception] = None
         notes: List[str] = []
-        discarded: List[Dict[str, Any]] = []      # billed attempts that produced nothing usable (honest accounting)
         models = self.candidates(role, model)
         for m_i, candidate in enumerate(models):
             req = self.build_request(role=role, model=candidate, system_blocks=system_blocks, messages=messages, max_tokens=max_tokens)
@@ -396,18 +390,13 @@ class OpenAICompatClient:
                 if not parsed["text"].strip():
                     last_err = LLMError(f"empty response from {candidate} (finish_reason={parsed['finish_reason']!r})")
                     notes.append(f"{candidate}: empty response (finish_reason={parsed['finish_reason']!r}, "
-                                 f"{parsed['usage'].output_tokens} output tokens, {parsed.get('reasoning_chars', 0)} reasoning chars, "
-                                 f"{parsed.get('latency_s', 0):.0f}s and ~{parsed['usage'].total} tokens wasted)")
-                    discarded.append({"model": parsed["model"] or candidate, "usage": parsed["usage"],
-                                      "stop_reason": parsed["finish_reason"] or "empty", "latency_s": parsed.get("latency_s", 0.0),
-                                      "reasoning_chars": parsed.get("reasoning_chars", 0),
-                                      "reason": f"empty response (finish_reason={parsed['finish_reason']!r})"})
+                                 f"{parsed['usage'].output_tokens} output tokens, {parsed.get('reasoning_chars', 0)} reasoning chars)")
                     break                                                            # a mute model is a dead model
                 if self.progress and notes:
                     self.progress(f"[llm] {role}: served by fallback {candidate} after: " + "; ".join(notes))
                 return LLMResponse(text=parsed["text"], usage=parsed["usage"], model=parsed["model"] or candidate,
                                    latency_s=parsed.get("latency_s", 0.0), stop_reason=stop, estimated_usage=bool(parsed.get("estimated")),
-                                   fallback_notes=notes, reasoning=parsed.get("reasoning", ""), discarded=discarded)
+                                   fallback_notes=notes)
         raise LLMError(f"all models failed for role {role} ({', '.join(models)}): "
                        f"{type(last_err).__name__}: {str(last_err)[:300]}")
 
@@ -494,20 +483,10 @@ class CallLog:
         self.path = path
 
     def record(self, iteration: int, role: str, resp: LLMResponse, attempt: int = 1, purpose: str = "") -> None:
-        # Every BILLED generation gets a row, including attempts whose output was unusable (empty / truncated), so the
-        # token accounting and any later analysis see what the run actually paid for.
-        for d in getattr(resp, "discarded", []) or []:
-            self._write({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "iteration": iteration, "role": role,
-                         "purpose": purpose, "attempt": attempt, "model": d["model"], "latency_s": round(d.get("latency_s", 0.0), 2),
-                         "stop_reason": d.get("stop_reason", ""), "estimated_usage": False, "ok": False,
-                         "discarded_reason": d.get("reason", ""), "reasoning_chars": d.get("reasoning_chars", 0),
-                         "fallback_notes": [], **d["usage"].to_dict()})
-        self._write({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "iteration": iteration, "role": role,
-                     "purpose": purpose, "attempt": attempt, "model": resp.model, "latency_s": round(resp.latency_s, 2),
-                     "stop_reason": resp.stop_reason, "estimated_usage": resp.estimated_usage, "ok": True,
-                     "fallback_notes": list(getattr(resp, "fallback_notes", []) or []), **resp.usage.to_dict()})
-
-    def _write(self, rec: Dict[str, Any]) -> None:
+        rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "iteration": iteration, "role": role,
+               "purpose": purpose, "attempt": attempt, "model": resp.model, "latency_s": round(resp.latency_s, 2),
+               "stop_reason": resp.stop_reason, "estimated_usage": resp.estimated_usage,
+               "fallback_notes": list(getattr(resp, "fallback_notes", []) or []), **resp.usage.to_dict()}
         with open(self.path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")
 

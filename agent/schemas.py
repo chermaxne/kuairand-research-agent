@@ -5,7 +5,6 @@ Nothing here is written by an LLM: the harness fills these from measured values.
 from __future__ import annotations
 
 import json
-import re
 import os
 import time
 from dataclasses import asdict, dataclass, field
@@ -57,26 +56,8 @@ class ResearcherPlan:
     expected_risk: str
     builds_on: str = "champion"
     rationale: str = ""           # optional superset field; falls back to change_spec
-    expected_gain: Optional[float] = None   # the Researcher's predicted primary delta (a number, checked against the measurement)
-    gain_evidence: str = ""       # why that number: own measured deltas and/or published results
-    ablation_plan: str = ""       # variants the pipeline should also score and print as ABLATION lines (in-run attribution)
-    model_family: str = ""        # the architecture the experiment trains (team hard rule: not the FM — see run.retire_fm)
 
-    REQUIRED = ("hypothesis", "category", "change_spec", "expected_risk", "builds_on", "expected_gain", "model_family")
-    FM_PATTERNS = (r"\bfm\b", r"factori[sz]ation", r"\bffm\b", r"field-aware")
-
-    @classmethod
-    def is_fm(cls, family: str) -> bool:
-        """True when the named architecture is the factorization machine the kit ships (or a re-skin of it). Hybrids
-        that merely embed an FM component inside a different model (e.g. DeepFM, DIN + FM term) count as NOT FM only
-        when the name says so explicitly — 'deepfm', 'xdeepfm', 'din' etc."""
-        f = (family or "").strip().lower()
-        if not f:
-            return True
-        if any(k in f for k in ("deepfm", "xdeepfm", "din", "attention", "transformer", "sasrec", "gru", "lstm", "mlp", "dcn",
-                                "tower", "gbdt", "lightgbm", "xgboost", "mmoe", "ple", "esmm", "autoint", "nfm", "afm", "wide")):
-            return False
-        return any(re.search(p, f) for p in cls.FM_PATTERNS)
+    REQUIRED = ("hypothesis", "category", "change_spec", "expected_risk", "builds_on")
 
     @classmethod
     def from_obj(cls, obj: Any) -> "ResearcherPlan":
@@ -97,22 +78,10 @@ class ResearcherPlan:
         rationale = obj.get("rationale") or ""
         if not isinstance(rationale, str):
             rationale = json.dumps(rationale)
-        try:
-            gain = float(str(obj["expected_gain"]).strip().replace("+", "").rstrip("%"))
-        except (TypeError, ValueError):
-            raise ContractError(f"expected_gain must be a number (predicted primary delta, e.g. 0.003), got {obj['expected_gain']!r}")
-        if not (-1.0 <= gain <= 1.0):
-            raise ContractError(f"expected_gain must be a primary delta in [-1, 1], got {gain}")
-        evidence = obj.get("gain_evidence") or ""
-        ablation = obj.get("ablation_plan") or ""
         return cls(hypothesis=obj["hypothesis"].strip(), category=category,
                    change_spec=obj["change_spec"].strip(), expected_risk=risk,
                    builds_on=str(obj.get("builds_on", "champion")).strip() or "champion",
-                   rationale=rationale.strip() or obj["change_spec"].strip(),
-                   expected_gain=gain,
-                   gain_evidence=(evidence if isinstance(evidence, str) else json.dumps(evidence)).strip(),
-                   ablation_plan=(ablation if isinstance(ablation, str) else json.dumps(ablation)).strip(),
-                   model_family=str(obj.get("model_family", "")).strip())
+                   rationale=rationale.strip() or obj["change_spec"].strip())
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -250,8 +219,6 @@ class RunState:
     stop_reason: Optional[str] = None
     phase0: Dict[str, Any] = field(default_factory=dict)
     finalize: Dict[str, Any] = field(default_factory=dict)
-    best_measured: Dict[str, Any] = field(default_factory=dict)        # best leak-clean score seen, even if below the margin
-    synthesis: str = ""                                                # Scribe's research synthesis of the digest (interpretive; number-checked)
     history: List[Dict[str, Any]] = field(default_factory=list)   # one compact dict per iteration
     warnings: List[str] = field(default_factory=list)
     config_snapshot: Dict[str, Any] = field(default_factory=dict)

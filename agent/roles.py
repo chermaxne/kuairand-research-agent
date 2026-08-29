@@ -15,12 +15,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .llm_client import role_key, CallLog, LLMClient, LLMError, LLMResponse
+from .llm_client import CallLog, LLMClient, LLMError, LLMResponse
 from .memory import one_line, truncate_words
 from .schemas import ContractError, HarnessResult, ResearcherPlan, TokenUsage
 
 ROLE_FILES = {"researcher": "researcher.md", "engineer": "engineer.md", "debugger": "debugger.md",
-              "scribe_lesson": "scribe_lesson.md", "scribe_logentry": "scribe_logentry.md", "scribe_digest": "scribe_digest.md"}
+              "scribe_lesson": "scribe_lesson.md", "scribe_logentry": "scribe_logentry.md"}
 TASK_MARKER = "<!-- TASK -->"
 
 FILE_START = re.compile(r"^=== FILE: (?P<name>[^\s=]+) ===\s*$", re.M)
@@ -135,7 +135,6 @@ def parse_debugger(text: str) -> DebugOutcome:
 # default prompts (used only when prompts/<role>.md is missing, e.g. the Phase-1 stub loop)
 # ---------------------------------------------------------------------------
 DEFAULT_SYSTEM = {
-    "scribe_digest": "You are the Scribe. Summarise the fact table in <=150 words using only its numbers; no recommendations.",
     "researcher": "You are the Researcher. Output ONLY the JSON object described in the task.",
     "engineer": "You are the Engineer. Output the full modified file(s) as === FILE: name === blocks.",
     "debugger": "You are the Debugger. Output fixed file(s) as === FILE: name === blocks or {\"action\":\"abandon\",\"reason\":\"...\"}.",
@@ -143,7 +142,6 @@ DEFAULT_SYSTEM = {
     "scribe_logentry": "You are the Scribe. Render the supplied facts as a short markdown narrative. Copy numbers verbatim.",
 }
 DEFAULT_TASK = {
-    "scribe_digest": "Write the synthesis (max 150 words) from the fact table above, numbers only from the table.",
     "researcher": (
         "Propose the next experiment. Reply with ONLY this JSON object:\n"
         '{"hypothesis": "...", "category": "feature | model | training | multitask | other", '
@@ -218,11 +216,9 @@ class Roles:
     def _call(self, role: str, system_blocks: Sequence[str], messages: List[Dict[str, str]], purpose: str, attempt: int = 1) -> LLMResponse:
         resp = self.client.complete(role=role, model=self._model(role), system_blocks=system_blocks, messages=messages,
                                     max_tokens=self._max_tokens(role))
-        billed = [resp.usage] + [d["usage"] for d in (getattr(resp, "discarded", []) or [])]
-        for u in billed:                       # discarded attempts were billed too: count them (spec §2.8 honest accounting)
-            self.iteration_usage.add(u)
-            self.role_usage[role] = self.role_usage.get(role, 0) + u.total
-            self.iteration_role_usage[role] = self.iteration_role_usage.get(role, 0) + u.total
+        self.iteration_usage.add(resp.usage)
+        self.role_usage[role] = self.role_usage.get(role, 0) + resp.usage.total
+        self.iteration_role_usage[role] = self.iteration_role_usage.get(role, 0) + resp.usage.total
         self.calls_this_iteration += 1
         if self.log:
             self.log(f"[llm] {purpose}: {resp.model} answered in {resp.latency_s:.0f}s "
@@ -239,15 +235,7 @@ class Roles:
                     fh.write(f"## system block {i + 1}\n\n{b}\n\n")
                 for m in messages:
                     fh.write(f"## {m['role']}\n\n{m['content']}\n\n")
-                if getattr(resp, "reasoning", ""):
-                    fh.write(f"## assistant (reasoning stream, {len(resp.reasoning):,} chars)\n\n{resp.reasoning}\n\n")
                 fh.write(f"## assistant (response)\n\n{resp.text}\n")
-        show = self.cfg["llm"].get("show_reasoning") or []
-        if self.log and getattr(resp, "reasoning", "") and (show is True or role in show or role_key(role) in show):
-            self.log(f"┌─ {role} reasoning ({resp.model}, {len(resp.reasoning):,} chars) ─────────────────────────────")
-            for line in resp.reasoning.strip().splitlines():
-                self.log("│ " + line)
-            self.log("└" + "─" * 78)
         return resp
 
     def _system_blocks(self, role: str) -> List[str]:
@@ -258,7 +246,7 @@ class Roles:
         return blocks
 
     # -- researcher ----------------------------------------------------------
-    def researcher(self, dynamic_briefing: str, required_family: Optional[str] = None) -> Tuple[Optional[ResearcherPlan], str, str]:
+    def researcher(self, dynamic_briefing: str) -> Tuple[Optional[ResearcherPlan], str, str]:
         """Returns (plan | None, error, raw_text). One re-ask on malformed output (spec §13 Phase 3)."""
         _, task = load_prompt(self.prompts_dir, "researcher")
         messages = [{"role": "user", "content": dynamic_briefing.rstrip() + "\n\n# TASK\n" + task}]
@@ -267,9 +255,7 @@ class Roles:
         except LLMError as e:
             return None, f"researcher_llm_error: {e}", ""
         try:
-            plan = parse_researcher(resp.text)
-            self._check_plan_rules(plan, required_family)
-            return plan, "", resp.text
+            return parse_researcher(resp.text), "", resp.text
         except ContractError as e:
             err1 = str(e)
         messages += [{"role": "assistant", "content": resp.text}, {"role": "user", "content": REASK.format(error=err1)}]
@@ -278,41 +264,15 @@ class Roles:
         except LLMError as e:
             return None, f"researcher_llm_error: {e}", resp.text
         try:
-            plan = parse_researcher(resp2.text)
-            self._check_plan_rules(plan, required_family)
-            return plan, "", resp2.text
+            return parse_researcher(resp2.text), "", resp2.text
         except ContractError as e:
             return None, f"researcher_malformed: {e} (after one re-ask; first error: {err1})", resp2.text
-
-    def _check_plan_rules(self, plan: ResearcherPlan, required_family: Optional[str] = None) -> None:
-        """Team hard rules on the plan (harness-enforced, not advisory). run.retire_fm: the kit's factorization machine
-        has been tuned to its plateau (organizers: capacity and features flat; our runs: every FM variant within noise of
-        0.605), so every experiment must train a different architecture. Its proven components may ride along."""
-        if self.cfg.get("run", {}).get("retire_fm", False) and ResearcherPlan.is_fm(plan.model_family):
-            raise ContractError(f"HARD RULE (run.retire_fm): model_family {plan.model_family!r} is the retired factorization machine "
-                                f"(or unnamed). Propose a DIFFERENT architecture — e.g. DIN-style target attention over the user's "
-                                f"history, a two-tower/MLP model over embeddings + history features, a sequence model (SASRec/GRU), "
-                                f"a GBDT over engineered past-only features, or a multi-task MMoE/PLE — and name it in `model_family`. "
-                                f"The champion's proven components (ListNet loss, session-position field, seed averaging) may be reused "
-                                f"inside the new model.")
-        if required_family and self.cfg.get("run", {}).get("family_commitment", True):
-            from .memory import canonical_family
-            if canonical_family(plan.model_family) != canonical_family(required_family):
-                raise ContractError(f"HARD RULE (run.family_commitment): the ACTIVE model family is {required_family!r} and the harness "
-                                    f"has NOT declared it a dead end, so this iteration must develop it further. Your model_family "
-                                    f"{plan.model_family!r} is a different architecture (adding a second model, e.g. an ensemble, also "
-                                    f"counts as leaving the family). Re-plan the next step INSIDE {required_family!r} — new inputs for it, "
-                                    f"a better objective for it, more capacity where its training log says it is limited — and set "
-                                    f"model_family accordingly.")
 
     # -- engineer ------------------------------------------------------------
     @staticmethod
     def engineer_message(plan: ResearcherPlan, champion_files: Dict[str, str], task: str, contract_note: str = "") -> str:
         return (f"# Change specification (from the Researcher)\nHYPOTHESIS: {plan.hypothesis}\nCATEGORY: {plan.category}\n"
-                f"EXPECTED RISK: {plan.expected_risk}\nMODEL FAMILY (replaces the champion's FM): {plan.model_family}\n"
-                f"EXPECTED GAIN (Researcher's prediction): {plan.expected_gain}\n"
-                f"ABLATION PLAN (variants to also score and print as ABLATION lines): {plan.ablation_plan or '(none given: print at least the champion-equivalent variant if time allows)'}\n"
-                f"CHANGE SPEC:\n{plan.change_spec}\n\n"
+                f"EXPECTED RISK: {plan.expected_risk}\nCHANGE SPEC:\n{plan.change_spec}\n\n"
                 f"# Current champion files\n{render_file_blocks(champion_files)}\n\n"
                 f"# Pipeline contract\n{contract_note}\n\n# TASK\n{task}")
 
@@ -383,18 +343,6 @@ class Roles:
         if not lesson:
             lesson = truncate_words(f"{decision}: {result.status} {result.vs_best} for {plan.hypothesis}", 20)
         return lesson
-
-    def scribe_digest(self, digest_table: str) -> str:
-        """Scribe job (c): interpretive synthesis of the harness digest. Regenerated from the table each time — never
-        from its own previous output — so it cannot drift from the record."""
-        _, task = load_prompt(self.prompts_dir, "scribe_digest")
-        messages = [{"role": "user", "content": f"{digest_table}\n\n# TASK\n{task}"}]
-        try:
-            resp = self._call("scribe_digest", self._system_blocks("scribe_digest"), messages, "scribe_digest")
-            return resp.text.strip()
-        except LLMError as e:
-            self.last_error = f"scribe_digest_llm_error: {e}"
-            return ""
 
     def scribe_logentry(self, facts: Dict[str, Any]) -> str:
         _, task = load_prompt(self.prompts_dir, "scribe_logentry")

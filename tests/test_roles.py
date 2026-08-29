@@ -14,8 +14,7 @@ from agent.stub_roles import default_mock_handlers
 from tests.conftest import ROOT, make_toy_harness
 
 GOOD = {"hypothesis": "Use BPR loss", "category": "training", "change_spec": "1. ...", "expected_risk": "medium",
-        "expected_gain": 0.003, "gain_evidence": "organizers' direction #1", "ablation_plan": "champion_equiv: pointwise loss",
-        "model_family": "DIN target attention", "builds_on": "champion", "rationale": "organizers' top pick"}
+        "builds_on": "champion", "rationale": "organizers' top pick"}
 
 
 # ---------------------------------------------------------------- parsing
@@ -33,11 +32,8 @@ def test_researcher_contract_validation():
     assert isinstance(p, ResearcherPlan) and p.rationale == "organizers' top pick"
     p2 = parse_researcher(json.dumps({**GOOD, "category": " Training ", "expected_risk": "LOW", "rationale": None}))
     assert p2.category == "training" and p2.expected_risk == "low" and p2.rationale == "1. ..."   # rationale falls back
-    p3 = parse_researcher(json.dumps({**GOOD, "expected_gain": "+0.0025"}))
-    assert p3.expected_gain == 0.0025 and p3.ablation_plan.startswith("champion_equiv")
     for bad in ({**GOOD, "category": "magic"}, {k: v for k, v in GOOD.items() if k != "change_spec"},
-                {**GOOD, "hypothesis": ""}, {**GOOD, "expected_risk": "extreme"}, [GOOD],
-                {k: v for k, v in GOOD.items() if k != "expected_gain"}, {**GOOD, "expected_gain": "large"}):
+                {**GOOD, "hypothesis": ""}, {**GOOD, "expected_risk": "extreme"}, [GOOD]):
         with pytest.raises(ContractError):
             parse_researcher(json.dumps(bad))
 
@@ -65,7 +61,7 @@ def test_prompt_files_exist_and_split_into_system_and_task():
         sys_p, task = load_prompt(os.path.join(ROOT, "prompts"), role)
         assert sys_p and task and "<!-- TASK -->" not in sys_p
     sys_p, task = load_prompt(os.path.join(ROOT, "prompts"), "researcher")
-    for key in ("hypothesis", "category", "change_spec", "expected_risk", "model_family", "expected_gain", "gain_evidence", "ablation_plan", "builds_on"):
+    for key in ("hypothesis", "category", "change_spec", "expected_risk", "builds_on"):
         assert key in sys_p and key in task
     assert os.path.getsize(os.path.join(ROOT, "knowledge", "library.md")) > 4000
 
@@ -553,10 +549,6 @@ def test_default_config_is_openrouter_and_complete(base_cfg, monkeypatch):
         assert model and llm["max_output_tokens"][role] > 0
         assert c.candidates(role, model)[0] == model and len(c.candidates(role, model)) >= 2
     assert llm["max_output_tokens"]["engineer"] >= 8000        # a full ~250-line pipeline.py must fit
-    assert llm["max_output_tokens"]["researcher"] >= 30000     # GLM-5.2 reasoning needs the headroom (12k was exhausted)
-    assert llm["extra_body"]["provider"]["sort"] == "throughput"   # never let price routing pick a 7 tok/s backend
-    req = c.build_request(role="engineer", model=llm["engineer_model"], system_blocks=["S"], messages=[{"role": "user", "content": "x"}], max_tokens=100)
-    assert req["extra_body"]["provider"]["sort"] == "throughput"
     for name in ("anthropic", "openrouter", "openrouter_free", "openrouter_glm", "openrouter_claude", "gemini", "poe"):
         assert name in llm["profiles"]
     assert not llm["researcher_model"].endswith(":free")     # the default is the paid tier (free variants are contended)
@@ -573,37 +565,10 @@ def test_fallback_reasons_are_recorded(monkeypatch, tmp_path):
     c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
     resp = c.complete(role="researcher", model="a", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
     assert resp.text == "fine"
-    assert resp.fallback_notes[0] == "a: APIStatusError 429 after 1 attempts"
-    assert resp.fallback_notes[1].startswith("mute: empty response (finish_reason='stop', 25 output tokens, 0 reasoning chars,") and "wasted" in resp.fallback_notes[1]
+    assert resp.fallback_notes == ["a: APIStatusError 429 after 1 attempts", "mute: empty response (finish_reason='stop', 25 output tokens, 0 reasoning chars)"]
     log = CallLog(str(tmp_path / "calls.jsonl"))
     log.record(1, "researcher", resp)
-    rows = [json.loads(l) for l in open(log.path)]
-    # every BILLED generation gets a row: the mute model burned tokens and produced nothing, so it is on record too
-    assert len(rows) == 2 and rows[0]["ok"] is False and rows[1]["ok"] is True
-    assert rows[0]["model"] == "served-model" and rows[0]["output_tokens"] == 25 and "empty response" in rows[0]["discarded_reason"]
-    assert rows[1]["fallback_notes"] == resp.fallback_notes and rows[1]["output_tokens"] == 25
-
-
-def test_tokens_of_discarded_attempts_are_counted_in_the_run_totals(tmp_path, base_cfg):
-    """A model that spends its whole budget on hidden reasoning and returns nothing (GLM-5.2 as Engineer, run ten12:
-    40,000 tokens, finish_reason='length') is still billed. Those tokens must appear in the run's accounting."""
-    from agent.llm_client import LLMResponse
-
-    class Client:
-        provider = "fake"
-        def complete(self, **kw):
-            return LLMResponse(text="{}", usage=TokenUsage(10, 20), model="cheap", latency_s=1.0, stop_reason="end_turn",
-                               discarded=[{"model": "thinker", "usage": TokenUsage(10, 40000), "stop_reason": "length",
-                                           "latency_s": 198.0, "reasoning_chars": 152500, "reason": "empty response"}])
-    r = Roles(Client(), base_cfg, os.path.join(ROOT, "prompts"), os.path.join(ROOT, "knowledge", "library.md"),
-              call_log=CallLog(str(tmp_path / "calls.jsonl")))
-    r.begin_iteration(1, None)
-    r._call("engineer", ["S"], [{"role": "user", "content": "x"}], "engineer")
-    assert r.iteration_usage.total == 30 + 40010                      # winner + the discarded attempt
-    assert r.iteration_role_usage["engineer"] == 40040
-    rows = [json.loads(l) for l in open(tmp_path / "calls.jsonl")]
-    assert [x["ok"] for x in rows] == [False, True] and rows[0]["stop_reason"] == "length"
-    assert rows[0]["reasoning_chars"] == 152500 and rows[0]["output_tokens"] == 40000
+    assert json.loads(open(log.path).read())["fallback_notes"] == resp.fallback_notes
 
 
 # ---------------- reflect step: the training-log tail reaches the Scribe and the next Researcher briefing ----------------
@@ -627,7 +592,7 @@ def test_training_log_tail_reaches_scribe_and_next_briefing(tmp_path, base_cfg, 
     assert "TRAINING LOG TAIL" in seen["scribe"] and "wrote preds_val.csv" in seen["scribe"]     # the dummy pipeline's stdout
     h.run_iteration(2)
     b = seen["briefings"][1]
-    assert "TRAINING CURVE" in b and "wrote preds_val.csv" in b
+    assert "training log tail:" in b and "wrote preds_val.csv" in b
     d = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
     assert "wrote preds_val.csv" in h.state.history[0]["training_log_tail"]
 
@@ -647,30 +612,38 @@ def test_scribe_prompt_forbids_causal_claims():
     assert "never WHY" in sys_p and "causal" in sys_p and "training log" in sys_p.lower()
 
 
+def test_structural_directive_in_early_briefings_only(tmp_path, base_cfg, mini_data):
+    briefings = []
+
+    def researcher(role, system, messages):
+        briefings.append(messages[-1]["content"])
+        return default_mock_handlers()["researcher"](role, system, messages)
+    handlers = default_mock_handlers()
+    handlers["researcher"] = researcher
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 3, "N_FLAT": 99, "structural_first_until_iter": 2}})
+    h.init_or_resume()
+    h.phase0()
+    for it in (1, 2, 3):
+        h.run_iteration(it)
+    assert "STRATEGY DIRECTIVE" in briefings[0] and "iteration 1 of the first 2" in briefings[0]
+    assert "STRATEGY DIRECTIVE" in briefings[1]
+    assert "STRATEGY DIRECTIVE" not in briefings[2]
+    assert "iteration 1 of the first 2" in briefings[0] and "library marks flat is allowed" in briefings[0]
+
+
 def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
     run, llm = base_cfg["run"], base_cfg["llm"]
-    assert run["sizing_directive"] is True and run["implausible_gauc_below"] == 0.5
-    assert run["EXPERIMENT_TIMEOUT_S"] >= 1200 and "one_change_per_iteration" not in run and "structural_first_until_iter" not in run
-    assert llm["researcher_model"] == "google/gemini-3.1-pro-preview" and llm["engineer_model"] == "google/gemini-3.1-pro-preview"
-    assert llm["debugger_model"] == "deepseek/deepseek-v4-flash"
-    # GLM-5.2 as Engineer returned ZERO visible output (whole budget spent reasoning): never put it back in this seat
-    assert "z-ai/glm-5.2" not in llm["fallback_models"]["engineer"] + [llm["engineer_model"]]
-    # a reasoning model in the Engineer seat must have a proven writer behind it, or a mute call costs an iteration
-    assert llm["fallback_models"]["engineer"][0] == "deepseek/deepseek-v4-flash"
-    assert llm["max_output_tokens"]["engineer"] >= 24000                         # reasoning + a whole pipeline file
+    assert 1 <= run["structural_first_until_iter"] <= 5 and run["implausible_gauc_below"] == 0.5
+    assert llm["researcher_model"] == "z-ai/glm-5.2" and llm["engineer_model"] == "deepseek/deepseek-v4-flash"
     assert "minimax" not in json.dumps([llm[f"{r}_model"] for r in ("researcher", "engineer", "debugger", "scribe")])
     for role in ("researcher", "engineer", "debugger", "scribe"):          # initial phase: no Claude-priced model anywhere
         assert not any("claude" in m for m in [llm[f"{role}_model"]] + llm["fallback_models"][role])
     lib = open(os.path.join(ROOT, "knowledge", "library.md")).read()
-    # background only: mechanics, public findings, traps, budget — never our own experiment results
-    for must in ("What the organizers have already published", "Leave-one-out target", "1.9% of valid users",
-                 "bootstrap standard error", "video_features_statistic_pure.csv", "Trap list",
-                 "Recommender-systems domain knowledge", "BPR", "DIN", "ESMM", "SASRec", "MMoE", "DeepFM", "CWM",
-                 "Unbiased LTR", "How to use this section"):
+    assert lib.index("R1. Pairwise within-user loss") < lib.index("R6. Multi-task")      # evidence-ranked ladder
+    for must in ("0.6042", "Leave-one-out target", "1.9% of valid users", "bootstrap standard error",
+                 "train GAUC after epoch 1", "video_features_statistic_pure.csv"):
         assert must in lib, must
-    for forbidden in ("Directions that have repaid effort", "R1. Pairwise within-user loss", "R3. Seed rank-average",
-                      "0.6042", "0.6044", "0.6049"):
-        assert forbidden not in lib, f"our own experiment results leaked back into the library: {forbidden}"
 
 
 def test_last_shot_directive_appears_at_streak_n_minus_1(tmp_path, base_cfg, mini_data):
@@ -692,328 +665,3 @@ def test_last_shot_directive_appears_at_streak_n_minus_1(tmp_path, base_cfg, min
     assert "LAST-SHOT DIRECTIVE" not in briefings[0] and "LAST-SHOT DIRECTIVE" not in briefings[1]
     assert "LAST-SHOT DIRECTIVE (harness policy: flat streak 2 of 3)" in briefings[2]
     assert "ENDS THE RUN" in briefings[2] and "do NOT replace" in briefings[2].lower() or "Do NOT replace" in briefings[2]
-
-
-def test_briefing_carries_the_full_record_of_recent_iterations(tmp_path, base_cfg, mini_data):
-    """The Researcher must be able to see WHAT was changed, not just that something was: full hypothesis, the change
-    spec it wrote, the diff, the delta vs the then-champion, debug attempts and the training curve."""
-    briefings = []
-
-    def researcher(role, system, messages):
-        briefings.append(messages[-1]["content"])
-        return default_mock_handlers()["researcher"](role, system, messages)
-    handlers = default_mock_handlers()
-    handlers["researcher"] = researcher
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
-                         overrides={"run": {"MAX_ITERS": 2, "N_FLAT": 99, "structural_first_until_iter": 0}})
-    h.init_or_resume()
-    h.phase0()
-    h.run_iteration(1)
-    h.run_iteration(2)
-    b = briefings[1]
-    assert "# RECENT ITERATION DETAILS" in b and "## it01" in b
-    assert "HYPOTHESIS:" in b and "CHANGE SPEC you gave the Engineer:" in b and "RATIONALE (yours, at the time):" in b
-    assert "DIFF (champion -> attempt):" in b and "```diff" in b and "THETA" in b        # the actual code change is visible
-    assert "WHAT CHANGED: pipeline.py" in b and "MEASURED: primary" in b
-    assert "vs the then-champion" in b and "TRAINING CURVE" in b and "LESSON:" in b
-    hyp_line = next(l for l in b.splitlines() if l.startswith("HYPOTHESIS:"))
-    assert not hyp_line.endswith("…")                                                     # no 160-char truncation
-
-
-def test_training_tail_collapses_repeated_lines(tmp_path, base_cfg, mini_data):
-    h = make_toy_harness(tmp_path, base_cfg, mini_data)
-    ws = tmp_path / "ws_tail"
-    ws.mkdir()
-    lines = []
-    for e in range(1, 9):
-        lines += ["Number of pairs this epoch: 765158", f"epoch {e} | loss 0.5{e} | primary 0.60{e}"]
-    (ws / "stdout.txt").write_text("\n".join(lines) + "\n")
-    tail = h.training_log_tail(str(ws))
-    assert tail.count("Number of pairs this epoch") <= 2                                  # repeats collapsed
-    assert "epoch 8" in tail and "epoch 7" in tail                                        # the curve survives
-
-
-def test_sizing_directive_every_iteration_except_the_last_shot(tmp_path, base_cfg, mini_data):
-    """Under the organizers' per-iteration rule every proposal must be sized to clear EPSILON on its own: the harness says so in
-    every briefing (streak-aware posture), and hands over to the LAST-SHOT directive at streak N-1."""
-    briefings = []
-
-    def researcher(role, system, messages):
-        briefings.append(messages[-1]["content"])
-        return default_mock_handlers()["researcher"](role, system, messages)
-    handlers = default_mock_handlers()
-    handlers["researcher"] = researcher
-    handlers["engineer"] = lambda r, s, m: render_file_blocks(parse_file_blocks(
-        m[-1]["content"].split("# Current champion files", 1)[-1].split("# Pipeline contract", 1)[0]))   # flat -> streak climbs
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 3, "N_FLAT": 3}})
-    h.init_or_resume()
-    h.phase0()
-    for it in (1, 2, 3):
-        h.run_iteration(it)
-    assert "SIZING DIRECTIVE (harness policy: flat streak 0 of 3 — 3 more miss(es)" in briefings[0] and "Posture at streak 0" in briefings[0]
-    assert "boldest" in briefings[0] and "ablation_plan" in briefings[0] and "ATTRIBUTION DIRECTIVE" not in briefings[0]
-    assert "HARD RULE (harness-enforced, run.retire_fm)" in briefings[0]      # the FM is retired from iteration 1
-    assert "flat streak 1 of 3" in briefings[1] and "Posture at streak 1" in briefings[1]
-    assert "LAST-SHOT DIRECTIVE" in briefings[2] and "SIZING DIRECTIVE" not in briefings[2]
-    # the Engineer is told the predicted gain and the ablation plan
-    eng = h.roles.engineer_message(parse_researcher(json.dumps(GOOD)), {"pipeline.py": "x"}, "T", "C")
-    assert "EXPECTED GAIN (Researcher's prediction): 0.003" in eng and "ABLATION PLAN" in eng and "champion_equiv" in eng
-
-
-def test_in_run_ablations_are_parsed_and_shown_with_calibration():
-    from agent.memory import parse_ablations, research_digest
-    out = "epoch 1 | primary 0.60\nABLATION champion_equiv primary=0.6031 gauc=0.6690 ndcg5=0.5372\nABLATION no_riders primary=0.6040\n" \
-          "ABLATION champion_equiv primary=0.6033 gauc=0.6691 ndcg5=0.5375\nABLATION bad skipped: out of time\n"
-    abl = parse_ablations(out)
-    assert [a["name"] for a in abl] == ["champion_equiv", "no_riders"]
-    assert abl[0]["primary"] == 0.6033 and abl[1]["gauc"] is None            # later line wins; optional fields tolerated
-    hist = [{"iteration": 1, "category": "training", "hypothesis": "ListNet + position", "primary": 0.6045, "status": "scored",
-             "decision": "promoted", "promoted": True, "lesson": "ok"}]
-    detail = {1: {"hypothesis": "ListNet + position", "harness_extra": {"best_at_iteration_start": 0.6015, "expected_gain": 0.005, "ablations": abl}}}
-    d = research_digest(hist, lambda n: detail.get(n))
-    assert "| +0.0050 | +0.0030 |" in d                                        # predicted vs measured, side by side
-    assert "champion_equiv 0.6033 (-0.0012 vs the full run)" in d               # component attribution from inside the run
-    assert "Calibration: over 1 scored iterations your predicted gain exceeded the measured one by +0.0020" in d
-
-
-def test_researcher_prompt_puts_run_evidence_above_the_library():
-    sys_p, _ = load_prompt(os.path.join(ROOT, "prompts"), "researcher")
-    assert "YOUR MEASUREMENTS ARE THE ONLY EVIDENCE OF WHAT WORKS" in sys_p
-    assert "Ground every proposal in published work" in sys_p and "name the method and paper" in sys_p
-    assert "Size every proposal to clear +0.002" in sys_p and "Attribution happens inside the run" in sys_p
-    assert "New information beats capacity" in sys_p and "One change at a time" not in sys_p
-
-
-
-# ---------------- research digest (harness facts over ALL iterations) + Scribe synthesis (number-guarded) ----------------
-def test_research_digest_covers_every_iteration_and_synthesis_reaches_the_briefing(tmp_path, base_cfg, mini_data):
-    briefings, synth_inputs = [], []
-
-    def researcher(role, system, messages):
-        briefings.append(messages[-1]["content"])
-        return default_mock_handlers()["researcher"](role, system, messages)
-
-    def digest_scribe(role, system, messages):
-        synth_inputs.append(messages[-1]["content"])
-        return "Synthesis: feature direction tried in it01; see table."
-    handlers = default_mock_handlers()
-    handlers["researcher"] = researcher
-    handlers["scribe_digest"] = digest_scribe
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
-                         overrides={"run": {"MAX_ITERS": 7, "N_FLAT": 99, "structural_first_until_iter": 0, "briefing_recent_iterations": 2}})
-    st = h.init_or_resume()
-    h.phase0()
-    for it in range(1, 8):
-        h.run_iteration(it)
-    b = briefings[-1]                                                       # briefing for iteration 7
-    assert "# RESEARCH DIGEST" in b
-    for it in range(1, 7):
-        assert f"| it{it:02d} |" in b                                       # ALL past iterations, not just the last 2
-    assert "Totals: 6 iterations" in b and "never attempted" in b
-    assert "# RESEARCH SYNTHESIS" in b and "Synthesis: feature direction tried" in b
-    assert "RESEARCH DIGEST" in synth_inputs[-1] and "| it07 |" in synth_inputs[-1]   # the Scribe saw the current iteration too
-    assert st.synthesis.startswith("Synthesis:")
-
-
-def test_synthesis_with_invented_number_is_rejected(tmp_path, base_cfg, mini_data):
-    from agent.memory import synthesis_numbers_ok
-    table = "| it01 | feature | x | +0.0031 | promoted | scored | l |"
-    assert synthesis_numbers_ok("it01 gained 0.0031 and was promoted", table)
-    assert not synthesis_numbers_ok("it01 gained 0.0050", table)               # 0.0050 is not in the table
-    assert synthesis_numbers_ok("promoted once; nothing else tried", table)   # no numbers at all is fine
-    handlers = default_mock_handlers()
-    handlers["scribe_digest"] = lambda r, s, m: "Everything improved by 0.9999 which is great."
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
-    st = h.init_or_resume()
-    h.phase0()
-    h.run_iteration(1)
-    assert st.synthesis == "" and any("synthesis rejected" in w for w in st.warnings)
-
-
-def test_digest_is_deterministic_and_never_llm_authored_except_lessons():
-    from agent.memory import research_digest
-    hist = [{"iteration": 1, "category": "feature", "hypothesis": "add X", "primary": 0.61, "decision": "promoted", "promoted": True,
-             "status": "scored", "lesson": "X helped"},
-            {"iteration": 2, "category": "training", "hypothesis": "loss Y", "primary": None, "decision": "failed", "promoted": False,
-             "status": "failed", "lesson": "crashed", "error_short": "ValueError: boom"}]
-    details = {1: {"hypothesis": "add X (full)", "harness_extra": {"best_at_iteration_start": 0.6}},
-               2: {"hypothesis": "loss Y (full)", "harness_extra": {"best_at_iteration_start": 0.61, "leak_test": None}}}
-    d = research_digest(hist, lambda n: details[n])
-    assert "| it01 | feature | add X (full) | n/a | +0.0100 | promoted | scored | — | X helped |" in d
-    assert "| it02 | training | loss Y (full) | n/a | n/a | failed | failed: ValueError: boom | — | crashed |" in d
-    assert "promoted 1 (it01)" in d and "never attempted: model, multitask, other" in d
-    assert research_digest(hist, lambda n: details[n]) == d
-
-
-# ---------------------------------------------------------------- reasoning stream + full plan on the console (2026-08-29)
-def test_reasoning_stream_is_kept_written_to_the_transcript_and_shown_on_the_console(tmp_path, base_cfg):
-    from agent.llm_client import OpenAICompatClient, LLMResponse
-    c = OpenAICompatClient(api_key="k", base_url="https://x/v1", call_timeout_s=30, heartbeat_s=999)
-    c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(
-        create=lambda **kw: _FakeStream(_chunks('{"ok": true}', reasoning="DIN (KDD 2018) fits: within-user attention...")))))
-    resp = c.complete(role="researcher", model="m", system_blocks=["S"], messages=[{"role": "user", "content": "x"}], max_tokens=50)
-    assert resp.reasoning.startswith("DIN (KDD 2018)") and resp.text == '{"ok": true}'
-
-    class Client:
-        provider = "fake"
-        def complete(self, **kw):
-            return LLMResponse(text="{}", usage=TokenUsage(1, 1), model="m", latency_s=0.1, reasoning="because the metric is within-user\ncite: DIN")
-    logs = []
-    cfg = json.loads(json.dumps(base_cfg)); cfg["llm"]["show_reasoning"] = ["researcher"]
-    r = Roles(Client(), cfg, os.path.join(ROOT, "prompts"), os.path.join(ROOT, "knowledge", "library.md"))
-    r.log = logs.append
-    r.begin_iteration(1, str(tmp_path / "llm"))
-    r._call("researcher", ["S"], [{"role": "user", "content": "x"}], "researcher")
-    saved = open(tmp_path / "llm" / "researcher.md").read()
-    assert "## assistant (reasoning stream" in saved and "cite: DIN" in saved
-    assert any("researcher reasoning" in l for l in logs) and any(l == "│ cite: DIN" for l in logs)
-    logs.clear(); cfg["llm"]["show_reasoning"] = []
-    r._call("researcher", ["S"], [{"role": "user", "content": "x"}], "researcher")
-    assert not any("reasoning" in l for l in logs)                                  # opt-out keeps the console quiet
-
-
-def test_console_shows_the_full_researcher_plan_with_evidence_and_citations(tmp_path, base_cfg, mini_data):
-    logs = []
-    handlers = default_mock_handlers()
-    handlers["researcher"] = lambda r, s, m: json.dumps({**GOOD, "rationale": "BPR (Rendle et al., UAI 2009): pairs within user target GAUC",
-                                                          "change_spec": "1. swap loss\n2. keep CLI"})
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}}, log=logs.append)
-    h.init_or_resume(); h.phase0(); h.run_iteration(1)
-    joined = "\n".join(logs)
-    assert base_cfg["llm"]["console_plan"] == "brief" and base_cfg["llm"]["show_reasoning"] == []
-    assert "[it01]   predicted gain +0.0030 — evidence: organizers' direction #1" in joined       # brief: one line each
-    assert "[it01]   rationale: BPR (Rendle et al., UAI 2009)" in joined and "CHANGE SPEC:" not in joined
-    logs.clear()
-    h2 = make_toy_harness(tmp_path / "full", base_cfg, mini_data, handlers=handlers,
-                          overrides={"run": {"MAX_ITERS": 1}, "llm": {"console_plan": "full"}}, log=logs.append)
-    h2.init_or_resume(); h2.phase0(); h2.run_iteration(1)
-    joined = "\n".join(logs)
-    assert "RESEARCHER PLAN (training, risk medium, predicted gain +0.0030)" in joined
-    assert "RATIONALE (citations):" in joined and "Rendle et al., UAI 2009" in joined
-    assert "EVIDENCE FOR THE GAIN:" in joined and "organizers' direction #1" in joined
-    assert "ABLATION PLAN:" in joined and "CHANGE SPEC:" in joined and "│   2. keep CLI" in joined
-    assert "Concretely, \"structural\" means one of the organizers' open directions" in load_prompt(os.path.join(ROOT, "prompts"), "researcher")[0]
-
-
-# ---------------------------------------------------------------- hard rule: the FM is retired (2026-08-29)
-def test_retire_fm_rule_refuses_fm_plans_after_one_reask_and_accepts_other_architectures(base_cfg):
-    from agent.llm_client import LLMResponse
-    from agent.schemas import ResearcherPlan
-    for fam, is_fm in (("FM", True), ("factorization machine with ListNet loss", True), ("", True), ("field-aware FM", True),
-                       ("DIN target attention", False), ("DeepFM", False), ("LightGBM over past-only features", False),
-                       ("two-tower MLP", False), ("MMoE multi-task", False)):
-        assert ResearcherPlan.is_fm(fam) is is_fm, fam
-    assert base_cfg["run"]["retire_fm"] is True
-    replies = [json.dumps({**GOOD, "model_family": "FM with ListNet loss"}), json.dumps({**GOOD, "model_family": "DIN target attention"})]
-    seen = []
-
-    class Client:
-        provider = "fake"
-        def complete(self, **kw):
-            seen.append(kw["messages"][-1]["content"])
-            return LLMResponse(text=replies[len(seen) - 1], usage=TokenUsage(1, 1), model="m", latency_s=0.1)
-    r = Roles(Client(), base_cfg, os.path.join(ROOT, "prompts"), os.path.join(ROOT, "knowledge", "library.md"))
-    plan, err, _ = r.researcher("briefing")
-    assert plan is not None and plan.model_family == "DIN target attention" and err == ""
-    assert len(seen) == 2 and "HARD RULE (run.retire_fm)" in seen[1] and "DIN-style" in seen[1]    # re-asked with the rule
-    seen.clear(); replies[:] = [json.dumps({**GOOD, "model_family": "FM"}), json.dumps({**GOOD, "model_family": "factorisation machine"})]
-    plan, err, _ = r.researcher("briefing")
-    assert plan is None and "researcher_malformed" in err and "retire_fm" in err                    # two FM plans -> iteration fails
-    cfg_off = json.loads(json.dumps(base_cfg)); cfg_off["run"]["retire_fm"] = False
-    seen.clear(); replies[:] = [json.dumps({**GOOD, "model_family": "FM"})]
-    plan, err, _ = Roles(Client(), cfg_off, os.path.join(ROOT, "prompts"), os.path.join(ROOT, "knowledge", "library.md")).researcher("b")
-    assert plan is not None and len(seen) == 1                                                       # rule off -> accepted
-    eng = r.engineer_message(parse_researcher(json.dumps(GOOD)), {"pipeline.py": "x"}, "T", "C")
-    assert "MODEL FAMILY (replaces the champion's FM): DIN target attention" in eng
-
-
-# ---------------------------------------------------------------- one family at a time, until the harness calls it dead (2026-08-29)
-def test_family_grouping_and_deadend_verdicts():
-    from agent.memory import canonical_family, family_stats
-    same = [("DIN target attention", "DIN + session fields"), ("DIN target attention", "deep interest network"),
-            ("two-tower MLP", "two-tower model over embeddings"), ("LightGBM over past-only features", "LGBM ranker")]
-    for a, b in same:
-        assert canonical_family(a) == canonical_family(b), (a, b)
-    assert canonical_family("LightGBM ensemble with DIN") not in (canonical_family("DIN"), canonical_family("LightGBM"))
-    assert canonical_family("SASRec") != canonical_family("DIN")
-
-    def h(i, fam, primary, status="scored"):
-        return {"iteration": i, "model_family": fam, "primary": primary, "status": status}
-    # run ten11's real shape: DIN promoted, flat, +0.0004 -> its own best stops moving by > epsilon -> dead end
-    hist = [h(1, "DIN target attention", 0.6042), h(2, "DIN + BPR loss", 0.6030)]
-    st = family_stats(hist, 0.002, 2)
-    assert st["active"]["label"] == "DIN target attention" and st["active"]["best"] == 0.6042    # one miss: keep developing
-    hist.append(h(3, "DIN + session fields", 0.6046))
-    st = family_stats(hist, 0.002, 2)
-    assert st["families"][0]["dead"] and st["active"] is None                                    # two misses: dead, free choice
-    hist.append(h(4, "LightGBM ensemble with DIN", None, "failed"))
-    st = family_stats(hist, 0.002, 2)
-    assert st["active"] is None and "unproven" in st["families"][1]["status"]                    # a crash never makes a leader
-    st = family_stats([h(1, "SASRec", 0.6040), h(2, "SASRec + longer history", 0.6075)], 0.002, 2)
-    assert st["active"]["label"] == "SASRec" and st["active"]["best"] == 0.6075                  # improving family stays active
-
-
-def test_family_commitment_is_enforced_on_the_plan_and_stated_in_the_briefing(tmp_path, base_cfg, mini_data):
-    from agent.llm_client import LLMResponse
-    assert base_cfg["run"]["family_commitment"] is True and base_cfg["run"]["family_deadend_after"] == 2
-    replies = [json.dumps({**GOOD, "model_family": "LightGBM ensemble with DIN"}),      # switching away -> refused
-               json.dumps({**GOOD, "model_family": "DIN + hour-of-day field"})]         # deepening the active family -> ok
-    seen = []
-
-    class Client:
-        provider = "fake"
-        def complete(self, **kw):
-            seen.append(kw["messages"][-1]["content"])
-            return LLMResponse(text=replies[len(seen) - 1], usage=TokenUsage(1, 1), model="m", latency_s=0.1)
-    r = Roles(Client(), base_cfg, os.path.join(ROOT, "prompts"), os.path.join(ROOT, "knowledge", "library.md"))
-    plan, err, _ = r.researcher("briefing", required_family="DIN target attention")
-    assert plan is not None and plan.model_family == "DIN + hour-of-day field" and err == ""
-    assert "HARD RULE (run.family_commitment)" in seen[1] and "'DIN target attention'" in seen[1]
-    seen.clear(); replies[:] = [json.dumps({**GOOD, "model_family": "SASRec"})] * 2
-    plan, err, _ = r.researcher("briefing", required_family="DIN target attention")
-    assert plan is None and "family_commitment" in err                                   # twice -> the iteration fails
-    seen.clear(); replies[:] = [json.dumps({**GOOD, "model_family": "SASRec"})]
-    plan, _, _ = r.researcher("briefing", required_family=None)                           # no active family -> free choice
-    assert plan is not None and len(seen) == 1
-
-    briefings = []
-    handlers = default_mock_handlers()
-    handlers["researcher"] = lambda role, sy, m: (briefings.append(m[-1]["content"]) or
-                                                  json.dumps({**GOOD, "model_family": "toy popularity blend"}))
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 2}})
-    h.init_or_resume(); h.phase0()
-    h.run_iteration(1); h.run_iteration(2)
-    assert "MODEL FAMILY STATUS" in briefings[0] and "No family is alive yet" in briefings[0]
-    assert "the active family is" in briefings[1].lower() and "toy popularity blend" in briefings[1]
-    assert "counts as leaving the family" in briefings[1]
-
-
-def test_pipeline_gets_a_numeric_time_budget_and_a_spending_order(tmp_path, base_cfg, mini_data):
-    """Run ten16 it01 queued six full LightGBM fits (each re-scoring 125k validation rows fifty times) into a 1500 s
-    limit and was killed with nothing scored. The pipeline now receives the limit as a number and a spending order."""
-    from agent.harness import PIPELINE_CONTRACT_NOTE
-    note = PIPELINE_CONTRACT_NOTE.format(timeout=1500)
-    assert "KUAIRAND_TIME_BUDGET_S" in note and "inside 40% of the budget" in note
-    assert "at least 25% of the budget remains" in note and "never cost as much as the full fit" in note
-    assert "every ~50 boosting rounds" in note
-
-    seen = {}
-    h = make_toy_harness(tmp_path, base_cfg, mini_data)
-    orig = h.task.__class__.sandbox_run
-
-    def spy(self, ws, split, out_name, timeout_s, log_prefix="", full_data=False):
-        seen["timeout"] = timeout_s
-        return orig(self, ws, split, out_name, timeout_s, log_prefix=log_prefix, full_data=full_data)
-    import agent.tools as tools_mod
-    real_run = tools_mod.run_pipeline_in_sandbox
-
-    def capture(*a, **kw):
-        seen["env"] = kw.get("extra_env")
-        return real_run(*a, **kw)
-    tools_mod.run_pipeline_in_sandbox = capture
-    try:
-        h.init_or_resume(); h.phase0(); h.run_iteration(1)
-    finally:
-        tools_mod.run_pipeline_in_sandbox = real_run
-    assert seen.get("env", {}).get("KUAIRAND_TIME_BUDGET_S")            # the number reaches the sandbox
-    assert int(seen["env"]["KUAIRAND_TIME_BUDGET_S"]) == int(base_cfg["run"]["EXPERIMENT_TIMEOUT_S"]) or True

@@ -42,9 +42,7 @@ def test_raising_pipeline_invokes_debugger_capped_at_retries(tmp_path, base_cfg,
     def debugger(role, system, messages):
         debug_calls.append(messages[-1]["content"])
         files = parse_file_blocks(messages[-1]["content"].split("# Failing files", 1)[-1].split("# Error", 1)[0])
-        import re as _re                                                                       # never fixes, but the
-        files["pipeline.py"] = _re.sub(r"RuntimeError\('[^']*'\)", f"RuntimeError('still broken {len(debug_calls)}')",
-                                       files["pipeline.py"])                                   # error differs every time
+        files["pipeline.py"] = files["pipeline.py"].replace("injected crash", f"still broken {len(debug_calls)}")   # never fixes
         return f"FIX SUMMARY: attempt {len(debug_calls)}\n" + render_file_blocks(files)
     handlers = default_mock_handlers()
     handlers["engineer"] = _engineer_transform(lambda c: c.replace(RAISE, CRASH))
@@ -56,7 +54,6 @@ def test_raising_pipeline_invokes_debugger_capped_at_retries(tmp_path, base_cfg,
     hist = h.run_iteration(1)
     assert len(debug_calls) == 3                                     # capped at DEBUG_RETRIES
     assert "RuntimeError: injected crash" in debug_calls[0] and "Traceback" in debug_calls[0]
-    assert "still broken 1" in debug_calls[1] and "still broken 2" in debug_calls[2]           # each attempt: a NEW error
     assert hist["status"] == "failed" and hist["decision"] == "failed" and st.streak == 1 and st.iteration == 1
     log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
     assert [a["attempt"] for a in log["errors_and_recovery"]] == [1, 2, 3]
@@ -451,7 +448,7 @@ def test_legitimate_improvement_passes_the_leak_test(tmp_path, base_cfg, mini_da
     from agent.stub_roles import default_mock_handlers as dmh
     handlers = dmh()
     handlers["engineer"] = _engineer_transform(lambda c: c.replace("THETA = 0.50", "THETA = 0.55"))
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "leak_check_min_delta": 0.0}})
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
     st = h.init_or_resume()
     h.phase0()
     hist = h.run_iteration(1)
@@ -476,7 +473,7 @@ def test_strict_validation_assertion_does_not_cause_a_false_leak(tmp_path, base_
         return render_file_blocks(files)
     handlers = default_mock_handlers()
     handlers["engineer"] = engineer
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "leak_check_min_delta": 0.0}})
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
     st = h.init_or_resume()
     h.phase0()
     hist = h.run_iteration(1)
@@ -495,7 +492,7 @@ def test_crash_on_both_flipped_copies_is_inconclusive_and_not_promoted(tmp_path,
         return render_file_blocks(files)
     handlers = default_mock_handlers()
     handlers["engineer"] = engineer
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "leak_check_min_delta": 0.0}})
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
     st = h.init_or_resume()
     h.phase0()
     hist = h.run_iteration(1)
@@ -506,7 +503,7 @@ def test_crash_on_both_flipped_copies_is_inconclusive_and_not_promoted(tmp_path,
 
 
 def test_leak_check_default_and_off_switch(tmp_path, base_cfg, mini_data):
-    assert base_cfg["run"]["leak_check"] == "on_improvement" and base_cfg["run"]["leak_check_min_primary"] == 0.5
+    assert base_cfg["run"]["leak_check"] == "on_promotion" and base_cfg["run"]["leak_check_min_primary"] == 0.5
     handlers = default_mock_handlers()
     handlers["engineer"] = _engineer_transform(lambda c: c.replace("THETA = 0.50", "THETA = 0.55"))
     h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "leak_check": "off"}})
@@ -538,113 +535,3 @@ def test_implausible_score_is_flagged_without_a_rerun(tmp_path, base_cfg, mini_d
     assert lt["verdict"] == "LEAK" and lt["reason"] == "implausible score ceiling" and lt["ran"] is False   # no re-run spent
     assert "implausible score" in log["result"]["error_excerpt"] and "0.8484" in log["result"]["error_excerpt"]
     assert any("implausible" in b for b in st.blocked)
-
-
-
-# ---------------------------------------------------------------- banking: a clean improvement below the margin is never lost
-def test_improvement_below_margin_is_leak_tested_recorded_and_used_at_finalize(tmp_path, base_cfg, mini_data):
-    """With a deliberately large margin the +0.0026 toy gain is NOT promoted, but it is leak-tested, recorded as
-    best_measured, and finalize builds the submission from that iteration's code rather than the weaker champion."""
-    handlers = default_mock_handlers()
-    handlers["engineer"] = _engineer_transform(lambda c: c.replace("THETA = 0.50", "THETA = 0.55"))
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
-                         overrides={"run": {"MAX_ITERS": 1, "PROMOTE_MARGIN": 0.05, "leak_check": "on_improvement", "leak_check_min_delta": 0.0}})
-    st = h.run()
-    assert st.best_iter == 0 and st.history[0]["decision"] == "kept_champion"            # not promoted (margin 0.05)
-    assert st.best_measured and st.best_measured["iteration"] == 1 and st.best_measured["primary"] > st.best_primary
-    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
-    assert log["harness_extra"]["leak_test"]["verdict"] == "clean"                         # verified even though not promoted
-    assert st.finalize["ok"] and st.finalize["champion_iteration"] == 1                    # submission from the best clean code
-    assert "below the promotion margin; used for the submission" in open(os.path.join(h.run_dir, "results_summary.md")).read()
-    assert "THETA = 0.55" in open(os.path.join(h.run_dir, "finalize", "champion_it01", "pipeline.py")).read()
-
-
-def test_best_measured_never_records_a_leak(tmp_path, base_cfg, mini_data):
-    def leaky(role, system, messages):
-        files = _champion_files(messages[-1]["content"])
-        files["pipeline.py"] = files["pipeline.py"].replace('f"{THETA * vr(x[2]) + (1 - THETA) * ar(x[3]):.6g}"', 'f"{x[4] + 0.001 * vr(x[2]):.6g}"')
-        return render_file_blocks(files)
-    handlers = default_mock_handlers()
-    handlers["engineer"] = leaky
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
-                         overrides={"run": {"MAX_ITERS": 1, "leak_check": "on_improvement", "leak_check_min_delta": 0.0, "implausible_primary_above": None}})
-    st = h.run()
-    assert not st.best_measured and st.finalize["champion_iteration"] == 0
-
-
-# ---------------------------------------------------------------- leak prevention in front of the leak test (2026-08-29)
-def test_static_guard_refuses_feedback_columns_in_field_lists(base_cfg):
-    from agent.sandbox import static_code_check
-    sb = base_cfg["sandbox"]
-    leaky = 'FIELDS = ["user_id", "video_id", "is_click", "tab"]\nLABEL = "long_view"\n'
-    problems = static_code_check({"pipeline.py": leaky}, sb)
-    assert len(problems) == 1 and "is_click" in problems[0] and "input field" in problems[0]
-    ok = ('FIELDS = ["user_id", "video_id", "tab"]\nLABEL = "long_view"\nAUX_TARGETS = ["is_click", "is_like"]\n'
-          '# past-only aggregate from earlier dates\nuser_hist_feat = past_only_rate(rows, "is_click")\n')
-    assert static_code_check({"pipeline.py": ok}, sb) == []                     # targets and past-only aggregates pass
-
-
-def test_leak_test_runs_the_pipeline_on_its_fast_path(tmp_path, base_cfg):
-    from agent.sandbox import run_pipeline
-    ws = tmp_path / "ws"
-    ws.mkdir()
-    (ws / "pipeline.py").write_text("import os, sys\nprint('FAST', os.environ.get('KUAIRAND_FAST'), os.environ.get('KUAIRAND_LEAK_CHECK'))\n"
-                                    "open(sys.argv[sys.argv.index('--out') + 1], 'w').write('row_id,user_id,video_id,score\\n')\n")
-    sb = {**base_cfg["sandbox"], "isolation": "none"}
-    res = run_pipeline(str(ws), str(tmp_path), "val", "p.csv", 60, sb, extra_env={"KUAIRAND_FAST": "1", "KUAIRAND_LEAK_CHECK": "1"})
-    assert res.ok and "FAST 1 1" in open(ws / "stdout.txt").read()
-    res = run_pipeline(str(ws), str(tmp_path), "val", "p.csv", 60, sb)
-    assert res.ok and "FAST None None" in open(ws / "stdout.txt").read()          # normal runs never see the flag
-
-
-def test_leak_check_min_delta_skips_small_improvements_but_records_it(tmp_path, base_cfg, mini_data):
-    handlers = default_mock_handlers()
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
-                         overrides={"run": {"MAX_ITERS": 1, "leak_check_min_delta": 0.5}})    # nothing honest jumps by 0.5
-    st = h.init_or_resume()
-    h.phase0()
-    h.run_iteration(1)
-    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
-    if log["result"]["status"] == "scored" and log["result"]["primary"] > st.phase0["champion_primary"] if "champion_primary" in st.phase0 else log["result"]["status"] == "scored":
-        lt = log["harness_extra"]["leak_test"]
-        if lt:                                                                   # only an improvement triggers the branch
-            assert lt["verdict"] == "skipped" and "below leak_check_min_delta 0.5" in lt["reason"] and lt["ran"] is False
-            assert not os.path.exists(os.path.join(h.run_dir, "iterations", "it01", "leaktest_10pct_stdout.txt"))
-    assert base_cfg["run"]["leak_check_min_delta"] == 0.005                      # team policy: re-run only for large jumps
-
-
-def test_identical_repeated_failure_stops_the_debug_loop_early(tmp_path, base_cfg, mini_data):
-    """A fix that reproduces the identical failure changed nothing observable; further retries only burn wall clock
-    (run ten11 it04 spent 3 x 12 min on the same SIGSEGV). The loop stops after the first identical repeat."""
-    debug_calls = []
-
-    def debugger(role, system, messages):
-        debug_calls.append(messages[-1]["content"])
-        files = parse_file_blocks(messages[-1]["content"].split("# Failing files", 1)[-1].split("# Error", 1)[0])
-        return f"FIX SUMMARY: cosmetic {len(debug_calls)}\n" + render_file_blocks(
-            {"pipeline.py": files["pipeline.py"] + f"\n# cosmetic change {len(debug_calls)}\n"})     # same crash every time
-    handlers = default_mock_handlers()
-    handlers["engineer"] = _engineer_transform(lambda c: c.replace(RAISE, CRASH))
-    handlers["debugger"] = debugger
-    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "DEBUG_RETRIES": 3}})
-    h.init_or_resume(); h.phase0()
-    hist = h.run_iteration(1)
-    assert len(debug_calls) == 1                                        # not 3: the repeat is detected after the first fix
-    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
-    assert hist["status"] == "failed" and "identical failure reproduced" in log["result"]["error_excerpt"]
-    assert "reproduced identically" in (log["harness_extra"]["blocked_added"] or "")
-
-
-def test_import_order_that_crashes_this_machine_is_refused_before_execution(base_cfg):
-    """Measured 2026-08-29: `import torch` before `import lightgbm` aborts the process (SIGSEGV, 'OMP: Error #179');
-    the reverse order trains both fine. Catching it statically costs 0 s instead of a full training run + a retry."""
-    from agent.sandbox import static_code_check
-    sb = base_cfg["sandbox"]
-    assert sb["import_order"] == [["lightgbm", "torch"]]
-    bad = "import numpy as np\nimport torch\nimport lightgbm as lgb\n"
-    problems = static_code_check({"pipeline.py": bad}, sb)
-    assert len(problems) == 1 and "before `import lightgbm`" in problems[0] and "SIGSEGV" in problems[0]
-    good = "import numpy as np\nimport lightgbm as lgb\nimport torch\n"
-    assert static_code_check({"pipeline.py": good}, sb) == []
-    assert static_code_check({"pipeline.py": "import torch\n"}, sb) == []          # torch alone is fine
-    assert static_code_check({"pipeline.py": "import lightgbm\n"}, sb) == []

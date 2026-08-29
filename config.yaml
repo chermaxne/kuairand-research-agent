@@ -8,59 +8,38 @@ llm:
   provider: openrouter             # -> https://openrouter.ai/api/v1 (OpenAI-compatible Chat Completions)
   api_key_env: OPENROUTER_API_KEY  # key from https://openrouter.ai/keys — put it in .env, never in git
   # Model choice (2026-08-28): quality where it matters, cost where it does not.
-  #   Researcher  google/gemini-3.1-pro-preview  TRIAL 2026-08-29 (user's call): $2.00/$12.00 per M, the priciest
-  #                                           option here and the model behind the top four MLE-bench leaderboard
-  #                                           entries (Famou-Agent 2.0 64.4%, CAIR MARS+, MLEvolve, PiEvolve).
-  #                                           65k max output. Previous: z-ai/glm-5.2 (first fallback now).
-  #   Engineer    google/gemini-3.1-pro-preview  TRIAL 2026-08-29 (user's call). deepseek/deepseek-v4-flash is the
-  #                                           first fallback (~90 s per full pipeline, never failed to emit a file),
-  #                                           so a mute call costs money and time, not an iteration. A mute Pro call
-  #                                           costs ~$0.58 (48k output tokens at $12/M) — watch for stop=length.
-  #                                           GLM-5.2 stays out of this seat: it returned zero output here on 08-29.
-  #   Debugger    deepseek/deepseek-v4-flash  fast, correct on tracebacks; qwen3-coder: 2/6 correct, one label leak.
+  #   Researcher  z-ai/glm-5.2               best plans seen in this project (precise specs, cites the ledger and the
+  #                                           playbook); reasons 15-30k chars per call, so ~1-2 min; ~$0.02 per call.
+  #   Engineer    deepseek/deepseek-v4-flash  ~2.5 min per full-pipeline rewrite (it reasons first), the only model
+  #   Debugger                                here that produced correct non-trivial code unaided (qwen3-coder: 2/6).
   #   Scribe      mistralai/codestral-2508    0.4 s, $0.0028.
   # ≈ $0.03 per iteration; ~6 min per iteration -> 50 iterations in ~5 h. Faster/cheaper coder: --llm-profile fast.
-  researcher_model: google/gemini-3.1-pro-preview
-  engineer_model: google/gemini-3.1-pro-preview
+  researcher_model: z-ai/glm-5.2
+  engineer_model: deepseek/deepseek-v4-flash
   debugger_model: deepseek/deepseek-v4-flash
   scribe_model: mistralai/codestral-2508
   fallback_models:                 # tried in order when the primary stalls, is rate-limited (429) or unavailable
-    researcher: [z-ai/glm-5.2, deepseek/deepseek-v4-flash]
-    engineer:   [deepseek/deepseek-v4-flash, qwen/qwen3-coder]  # V4 Flash first: it has never failed to emit a file
+    researcher: [deepseek/deepseek-v4-flash, qwen/qwen3-coder]
+    engineer:   [qwen/qwen3-coder, mistralai/codestral-2508]
     debugger:   [qwen/qwen3-coder, mistralai/codestral-2508]
     scribe:     [qwen/qwen3-coder]
   reasoning:                       # OpenRouter unified parameter (`effort` works on every model here; Claude 5 rejects
-    researcher: {effort: high}     # team decision 2026-08-29; NOTE run `ten` showed GLM ignoring a reasoning token cap, so this may be soft
-    engineer: {effort: low}        # reasoning helps correctness; low leaves the budget for the file itself
+    researcher: {effort: medium}   # GLM-5.2: medium keeps its reasoning to ~1-2 min per plan
+    engineer: {effort: low}        # reasoning helps correctness; low keeps the call ~2-3 min
     debugger: {effort: low}
     scribe: {}
-  # researcher 40000: GLM-5.2's hidden reasoning on a ~25k-char briefing exhausted 12000 (50k reasoning chars, zero
-  # visible plan) in 9 of 11 calls; the cap covers reasoning + visible output. Worst case ~4 min / ~$0.15 per call.
-  max_output_tokens: {researcher: 40000, engineer: 48000, debugger: 24000, scribe: 600}   # includes any thinking;
-                                   # engineer 48000 for the GLM-5.3 trial: a pipeline file is ~8k tokens, the rest is
-                                   # reasoning headroom (GLM-5.2 exhausted 40k here and emitted nothing). A mute call
-                                   # costs ~$0.19 + the fallback; watch for stop=length on engineer lines.
+  max_output_tokens: {researcher: 12000, engineer: 24000, debugger: 24000, scribe: 600}   # includes any thinking
   # Streaming timeouts (OpenAI-compatible providers): a stalled generation is abandoned after inactivity_timeout_s
   # without a token, every call is capped at call_timeout_s, one retry, then the next fallback model.
   inactivity_timeout_s: 120
   call_timeout_s: 900
   timeout_retries: 1
   heartbeat_s: 30                  # progress line while a long generation streams
-  show_reasoning: []               # roles whose full reasoning stream is printed on the console after each call
-                                   # (e.g. [researcher]); it is always saved in iterations/itNN/llm/<role>.md
-  console_plan: brief              # brief = HYP line + predicted gain/evidence + rationale (citations) + ablation plan,
-                                   # one line each; full = the whole plan incl. the change spec in a box; off = HYP only
   extra_headers: {HTTP-Referer: "https://github.com/", X-Title: "kuairand-research-agent"}
-  # OpenRouter routes by PRICE by default; the same model then lands on whichever of ~17 backends is cheapest, and
-  # one call ran at 7 tok/s vs 74 tok/s on the previous call (2026-08-29). Throughput sorting picks, per request,
-  # the backend currently serving the most tokens/s; the price difference is a few cents per million tokens.
-  extra_body: {provider: {sort: throughput, allow_fallbacks: true}}
   max_total_tokens: 4000000        # spend guard: stop the run (finalize from best/) past this many total tokens
   request_timeout_s: 600
   max_retries: 3                   # rate-limit / 5xx retries per model, then the next fallback model
   scribe_narrative: true           # Scribe job (b): render logs/iter_NN.md from harness-supplied facts
-  scribe_digest: true              # Scribe job (c): ≤150-word research synthesis of the harness digest (every iteration so
-                                   # far), rebuilt each iteration from the table, number-checked; shown to the Researcher
   # --- the settings below are only read by the native Anthropic client (provider: anthropic) ---
   allow_sdk_default_credentials: false
   effort: {researcher: high, engineer: high, debugger: medium, scribe: null}
@@ -193,57 +172,23 @@ run:
   N_FLAT: 3                        # converged after N_FLAT consecutive flat/failed iterations
   MAX_ITERS: 50
   WALL_CLOCK_HOURS: 6
-  PROMOTE_MARGIN: 0.0002           # promotion needs primary > best + PROMOTE_MARGIN (separate from EPSILON). Team decision
-                                   # 2026-08-29: 0.0002 ≈ the seed noise of a 3-seed-averaged pipeline. 0.0005 discarded two
-                                   # real +0.0004 gains in one run, so nothing compounded. Spec default was 0.0010.
+  PROMOTE_MARGIN: 0.0005           # promotion needs primary > best + PROMOTE_MARGIN (separate from EPSILON). Team decision
+                                   # 2026-08-29: 0.0005 (~2x the 3-seed FM noise of 0.0003) so small real gains are banked and
+                                   # stacked; the spec default was 0.0010.
   DEBUG_RETRIES: 3                 # debugger attempts per iteration; retries never consume iterations
-  EXPERIMENT_TIMEOUT_S: 1500       # hard kill for one pipeline run (train + predict val + in-run ablation fits)
+  EXPERIMENT_TIMEOUT_S: 900        # hard kill for one pipeline run (train + predict val)
   FINALIZE_TIMEOUT_S: 1800         # hard kill for the single champion --split test pass
   STALL_FAILURES: 3                # N consecutive failed iterations -> canned recovery directive in next briefing
   implausible_gauc_below: 0.5      # a scored GAUC below this = inverted ranking (random is 0.5): one Debugger pass for a
                                    # sign/logic fix before the result is accepted (set null to disable)
   implausible_primary_above: 0.70  # free first-line leak check: a would-be promotion scoring above this is flagged as a
                                    # LEAK without a re-run (oracle 0.8484, baseline 0.6015, best known lever +0.003)
-  leak_check: on_improvement       # every iteration that beats the champion (promoted or not) is re-run on a copy where 10%
-                                   # of validation users have their feedback columns flipped; clean improvements below the
-                                   # margin are still recorded as best_measured and used at finalize (never lost)
-  leak_check_min_delta: 0.005      # re-run the flipped-label test only when the improvement over the champion is at
-                                   # least this. Team decision 2026-08-29: leaks are PREVENTED up front (Engineer
-                                   # self-audit + LEAK AUDIT lines + static feedback-column check) and the re-run is
-                                   # reserved for large jumps — 0.005 exceeds every honest single lever measured on this
-                                   # data. Improvements below it are promoted on the front-line guards alone (recorded
-                                   # as verdict "skipped"). 0.0 = verify every improvement (the re-run costs ~one fit
-                                   # on the pipeline's fast path, KUAIRAND_FAST=1).
+  leak_check: on_promotion         # every would-be promotion is re-run on a copy where 10% of validation users have their
   leak_check_min_primary: 0.5      # feedback columns flipped; those users' TRUE labels scored below this (random) = the
                                    # code reads validation labels -> LEAK, never promoted. A crash on the 10% copy retries
                                    # at 2%; crashes on both = inconclusive, not promoted. (leak_check: off disables)
-  retire_fm: true                  # HARD RULE (team decision 2026-08-29): the kit's factorization machine is retired —
-                                   # organizers and our own runs measured every FM variant to the same plateau. A plan
-                                   # whose model_family is the FM (or blank) is re-asked once, then rejected; every
-                                   # experiment trains a different architecture (DIN, two-tower/MLP, sequence model,
-                                   # GBDT, MMoE/PLE, watch-time model). Proven FM components may ride along.
-  family_commitment: true          # HARD RULE (team decision 2026-08-29): develop ONE alternative architecture at a
-                                   # time. The harness names the ACTIVE family (the living non-FM family with the best
-                                   # measured primary) and refuses a plan that switches away from it; adding a second
-                                   # model (ensemble/blend) counts as switching. Run ten11 lost its last life this way:
-                                   # it01-03 developed DIN to 0.6046, it04 jumped to a LightGBM+DIN ensemble and crashed.
-  family_deadend_after: 2          # a family is DEAD once this many consecutive iterations on it fail to beat its own
-                                   # best by > EPSILON (crashes and timeouts count); then the Researcher picks the next.
-  sizing_directive: true           # every briefing (except the last shot) carries the SIZING DIRECTIVE: under the
-                                   # per-iteration rule a proposal must be sized to clear EPSILON on its own — one
-                                   # hypothesis + validated riders, a numeric expected_gain with evidence, and an
-                                   # ablation_plan so attribution happens INSIDE the run (ABLATION lines in stdout)
-                                   # instead of costing iterations. Streak 0 = boldest structural bet (new information
-                                   # beats capacity); streak 1 = best-evidence structural variant + riders.
-  # Convergence is the organizers' rule verbatim (kit README, baseline_scores.json): three consecutive iterations whose
-  # validation primary improves by <= EPSILON over the best-so-far -> converged; failed iterations count. No other
-  # reading is implemented (a cumulative "window" variant was tried on 2026-08-29 and reverted; see NOTES.md).
-  # Briefing depth: the context window is ~1M tokens and a briefing costs ~6k, so detail is nearly free. The Researcher
-  # gets the full hypothesis, change spec, rationale, code diff and training curve of the last N iterations, so it can
-  # tell WHICH component of a bundled change worked and decide whether to continue it.
-  briefing_recent_iterations: 5
-  briefing_diff_chars: 2500
-  briefing_spec_chars: 1200
+  structural_first_until_iter: 3   # briefing directive for the first N iterations (the window in which three misses
+                                   # end the run): aim for > +0.002, no hyperparameter-only proposals (0 disables)
   retry_timeouts_with_debugger: true    # a timeout usually IS a bug (a Python loop over users x rows): one Debugger pass
                                         # with the training-log tail before the iteration counts as lost
   mask_test_period_in_loop: true   # experiments see a derived data dir WITHOUT test-period rows
@@ -275,12 +220,6 @@ sandbox:
   # Static guard on LLM-written code before it runs (defence in depth; the OS sandbox is the real wall).
   forbidden_imports: [subprocess, socket, urllib, requests, http, ftplib, smtplib, telnetlib, pip, ensurepip, ctypes]
   forbidden_patterns: ["pip install", "os.system(", "os.popen(", "os.execv", "shutil.rmtree(", "__import__("]
-  import_order: [[lightgbm, torch]]  # [first, second]: if BOTH are imported, `first` must come first. Measured on this
-                                   # box 2026-08-29: torch-then-lightgbm aborts the process (SIGSEGV / "OMP: Error #179",
-                                   # two OpenMP runtimes); lightgbm-then-torch trains both fine. Refused before execution.
-  feedback_columns: [is_click, is_like, is_follow, is_comment, is_forward, is_hate, long_view, is_profile_enter, play_time_ms]
-                                   # named inside a *FIELD*/*FEAT* list assignment = label leak by construction -> code is
-                                   # not executed, the Debugger gets the reason (retries are free; a promoted leak is not)
 
 # Toy task (Phase-1 skeleton demo and tests): mini synthetic dataset in kit format + dummy pipeline.
 toy:
