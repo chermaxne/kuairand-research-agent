@@ -621,6 +621,19 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Same failure mode as the Researcher at a 12k budget in run `ten`: with these models, reasoning effort has to be
   budgeted against how much VISIBLE output the role must produce, not against how hard the task feels.
 
+### GLM-5.3 trial for Researcher + Engineer (2026-08-29, user's call)
+* OpenRouter prices: GLM-5.3 $1.40/$4.40 per M (vs 5.2 $1.19/$3.74, +18%); GLM-5.3-flash $0.07/$0.25;
+  deepseek-v4-flash $0.08/$0.17. Measured median usage per call in this project (45 real calls): researcher
+  16.4k in / 17.6k out / 126 s; engineer 6.8k in / 10.2k out / 69 s; debugger 11.1k / 8.9k; scribe 1.0k / 0.1k.
+* Cost per 10-iteration run: current (5.2 researcher + V4 Flash engineer) ~$0.90; **GLM-5.3 for both ~$2.25 (+150%)**
+  assuming a GLM engineer emits ~2.5x V4 Flash's tokens; 5.3 researcher only ~$1.05 (+17%); GLM-5.3-flash for both
+  ~$0.15. All are trivial against the ~$100 of credit on the account — the real currency is the 6 h clock and the
+  3-life streak, so reliability decides, not price.
+* Applied: both roles on `z-ai/glm-5.3`, engineer budget 48k (5.2 exhausted 40k here), engineer fallback chain
+  starts with deepseek-v4-flash so a mute call loses money and ~200 s but never an iteration. Revert with
+  `--set llm.engineer_model=deepseek/deepseek-v4-flash`. What to watch in the first iteration: an engineer line
+  with `stop=length` or a `served by fallback` note means 5.3 has the same reasoning-runaway problem as 5.2.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

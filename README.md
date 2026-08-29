@@ -72,8 +72,8 @@ Shipped model choice (settled after the first live test on 2026-08-28 — see NO
 
 | role | model | why |
 |---|---|---|
-| Researcher | `z-ai/glm-5.2` | best plans seen in this project (precise specs that cite the ledger and playbook); ~1–2 min and ~$0.02 per call |
-| Engineer | `deepseek/deepseek-v4-flash` | ~90 s for a full pipeline rewrite, correct non-trivial code unaided (qwen3-coder: 2/6, including a label leak). GLM-5.2 was tried here and reverted: it spends the whole output budget on hidden reasoning and returns nothing |
+| Researcher | `z-ai/glm-5.3` | best plans seen in this project (precise specs that cite the ledger and playbook); ~1–2 min and ~$0.02 per call |
+| Engineer | `z-ai/glm-5.3` (trial) | fallback `deepseek/deepseek-v4-flash`, which writes a full pipeline in ~90 s / 11k tokens and has never failed to emit a file. GLM-5.2 in this seat spent its whole budget on hidden reasoning and returned nothing — watch for `stop=length` on engineer lines |
 | Debugger | `deepseek/deepseek-v4-flash` | fast and correct on tracebacks; the only cheap model that produced correct non-trivial code unaided (qwen3-coder: 2/6, including a label leak) |
 | Scribe | `mistralai/codestral-2508` | 0.4 s per call |
 | automatic fallbacks | `qwen3-coder` → `codestral-2508` (Engineer/Debugger); `qwen3-coder` → `glm-5.3-flash` (Researcher) | used when the primary stalls, returns 429 or disappears |
