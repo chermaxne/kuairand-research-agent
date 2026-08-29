@@ -172,9 +172,9 @@ run:
   N_FLAT: 3                        # converged after N_FLAT consecutive flat/failed iterations
   MAX_ITERS: 50
   WALL_CLOCK_HOURS: 6
-  PROMOTE_MARGIN: 0.0005           # promotion needs primary > best + PROMOTE_MARGIN (separate from EPSILON). Team decision
-                                   # 2026-08-29: 0.0005 (~2x the 3-seed FM noise of 0.0003) so small real gains are banked and
-                                   # stacked; the spec default was 0.0010.
+  PROMOTE_MARGIN: 0.0002           # promotion needs primary > best + PROMOTE_MARGIN (separate from EPSILON). Team decision
+                                   # 2026-08-29: 0.0002 ≈ the seed noise of a 3-seed-averaged pipeline. 0.0005 discarded two
+                                   # real +0.0004 gains in one run, so nothing compounded. Spec default was 0.0010.
   DEBUG_RETRIES: 3                 # debugger attempts per iteration; retries never consume iterations
   EXPERIMENT_TIMEOUT_S: 900        # hard kill for one pipeline run (train + predict val)
   FINALIZE_TIMEOUT_S: 1800         # hard kill for the single champion --split test pass
@@ -183,7 +183,9 @@ run:
                                    # sign/logic fix before the result is accepted (set null to disable)
   implausible_primary_above: 0.70  # free first-line leak check: a would-be promotion scoring above this is flagged as a
                                    # LEAK without a re-run (oracle 0.8484, baseline 0.6015, best known lever +0.003)
-  leak_check: on_promotion         # every would-be promotion is re-run on a copy where 10% of validation users have their
+  leak_check: on_improvement       # every iteration that beats the champion (promoted or not) is re-run on a copy where 10%
+                                   # of validation users have their feedback columns flipped; clean improvements below the
+                                   # margin are still recorded as best_measured and used at finalize (never lost)
   leak_check_min_primary: 0.5      # feedback columns flipped; those users' TRUE labels scored below this (random) = the
                                    # code reads validation labels -> LEAK, never promoted. A crash on the 10% copy retries
                                    # at 2%; crashes on both = inconclusive, not promoted. (leak_check: off disables)

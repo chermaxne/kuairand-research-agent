@@ -120,7 +120,7 @@ def test_config_matches_kit_convergence_rule(project_root, base_cfg):
     kit = json.load(open(os.path.join(project_root, "starter_kit", "baseline_scores.json")))
     assert float(base_cfg["run"]["EPSILON"]) == kit["convergence_rule"]["epsilon"]
     assert int(base_cfg["run"]["N_FLAT"]) == kit["convergence_rule"]["N"]
-    assert RunLimits.from_config(base_cfg).promote_margin == pytest.approx(0.0005)     # team decision 2026-08-29 (spec default 0.0010)
+    assert RunLimits.from_config(base_cfg).promote_margin == pytest.approx(0.0002)     # team decision 2026-08-29 (spec default 0.0010)
     assert RunLimits.from_config(base_cfg).promote_margin < RunLimits.from_config(base_cfg).epsilon
 
 

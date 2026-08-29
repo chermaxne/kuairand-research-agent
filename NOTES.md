@@ -468,6 +468,20 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Researcher prompt rule 1a: ground every proposal in a published method, name it in `rationale`, state which assumptions
   hold here, derive the smallest faithful version; novelty allowed with a stated reason the published alternatives do not apply.
 
+### Banking fix — gains could not compound (2026-08-29)
+* Run `ten8` ended with a champion (0.604219) worse than its own best measurement (0.604661): it03 (+0.00040) and it04
+  (+0.00044) both beat the champion and both fell just under the 0.0005 promotion margin, so nothing was banked and it04
+  built on it01 instead of it03. Fixes: (1) `PROMOTE_MARGIN` 0.0005 → **0.0002**, the seed noise of a 3-seed-averaged
+  pipeline; (2) `run.leak_check: on_improvement` — every iteration that beats the champion is leak-tested, not only
+  would-be promotions; (3) `run_state.best_measured` records the best leak-clean score whether or not it was promoted,
+  and `finalize()` builds the submission from that iteration's code when it beats the champion (it must still pass the
+  kit checker; the champion and earlier promotions remain the fallbacks). `results_summary.md` reports it. Tests cover
+  the below-margin path and that a leak is never recorded as best_measured.
+* Trade-off stated plainly: a 0.0002 margin promotes on ~1σ of seed noise, so the champion's recorded score can drift
+  up by luck (winner's curse) and later real gains must beat an inflated bar. Accepted because losing real gains cost
+  more in practice; the noise floor is documented in the library and the Researcher is told to measure its own seed
+  spread.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

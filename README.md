@@ -93,6 +93,11 @@ control how much of each recent iteration the Researcher sees — full hypothesi
 delta vs the then-champion, debug attempts, leak verdict and training curve, so it can judge which component of a
 bundled change worked. A briefing costs ~15–25k tokens of a ~1M-token context window.
 
+Banking (`config.yaml` → `run`): `PROMOTE_MARGIN: 0.0002` (seed-noise level) so small real gains compound;
+`leak_check: on_improvement` verifies every iteration that beats the champion; the best leak-clean measurement is
+tracked as `best_measured` and finalize builds the submission from it when it beats the champion, so a gain that
+missed the margin is never lost.
+
 Attribution (`config.yaml` → `run`): `one_change_per_iteration: true` makes every iteration change exactly one
 component on top of the champion, so its delta is attributable — except iteration 1 and the last shot before
 convergence, where a single +0.001-class lever cannot clear ε and the harness requires a bundle. `streak_mode`

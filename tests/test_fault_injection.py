@@ -535,3 +535,35 @@ def test_implausible_score_is_flagged_without_a_rerun(tmp_path, base_cfg, mini_d
     assert lt["verdict"] == "LEAK" and lt["reason"] == "implausible score ceiling" and lt["ran"] is False   # no re-run spent
     assert "implausible score" in log["result"]["error_excerpt"] and "0.8484" in log["result"]["error_excerpt"]
     assert any("implausible" in b for b in st.blocked)
+
+
+
+# ---------------------------------------------------------------- banking: a clean improvement below the margin is never lost
+def test_improvement_below_margin_is_leak_tested_recorded_and_used_at_finalize(tmp_path, base_cfg, mini_data):
+    """With a deliberately large margin the +0.0026 toy gain is NOT promoted, but it is leak-tested, recorded as
+    best_measured, and finalize builds the submission from that iteration's code rather than the weaker champion."""
+    handlers = default_mock_handlers()
+    handlers["engineer"] = _engineer_transform(lambda c: c.replace("THETA = 0.50", "THETA = 0.55"))
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 1, "PROMOTE_MARGIN": 0.05, "leak_check": "on_improvement"}})
+    st = h.run()
+    assert st.best_iter == 0 and st.history[0]["decision"] == "kept_champion"            # not promoted (margin 0.05)
+    assert st.best_measured and st.best_measured["iteration"] == 1 and st.best_measured["primary"] > st.best_primary
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    assert log["harness_extra"]["leak_test"]["verdict"] == "clean"                         # verified even though not promoted
+    assert st.finalize["ok"] and st.finalize["champion_iteration"] == 1                    # submission from the best clean code
+    assert "below the promotion margin; used for the submission" in open(os.path.join(h.run_dir, "results_summary.md")).read()
+    assert "THETA = 0.55" in open(os.path.join(h.run_dir, "finalize", "champion_it01", "pipeline.py")).read()
+
+
+def test_best_measured_never_records_a_leak(tmp_path, base_cfg, mini_data):
+    def leaky(role, system, messages):
+        files = _champion_files(messages[-1]["content"])
+        files["pipeline.py"] = files["pipeline.py"].replace('f"{THETA * vr(x[2]) + (1 - THETA) * ar(x[3]):.6g}"', 'f"{x[4] + 0.001 * vr(x[2]):.6g}"')
+        return render_file_blocks(files)
+    handlers = default_mock_handlers()
+    handlers["engineer"] = leaky
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 1, "leak_check": "on_improvement", "implausible_primary_above": None}})
+    st = h.run()
+    assert not st.best_measured and st.finalize["champion_iteration"] == 0

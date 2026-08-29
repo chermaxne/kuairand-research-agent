@@ -264,8 +264,12 @@ class Harness:
 
         # --- leak test: a would-be promotion must survive flipped validation labels (harness-measured) ---
         leak: Dict[str, Any] = {}
-        if status == "scored" and score is not None and self.run_cfg.get("leak_check", "on_promotion") != "off":
+        leak_mode = str(self.run_cfg.get("leak_check", "on_promotion"))
+        if status == "scored" and score is not None and leak_mode != "off":
             would_promote = best_at_start is None or score.primary > best_at_start + self.limits.promote_margin
+            improves = best_at_start is None or score.primary > best_at_start
+            if leak_mode == "on_improvement":
+                would_promote = would_promote or improves            # verify every improvement so none is ever lost
             ceiling = self.run_cfg.get("implausible_primary_above")
             if would_promote and ceiling is not None and score.primary > float(ceiling):
                 # Free first line of defence: no honest model on this task reaches here (oracle 0.8484, baseline 0.6015,
@@ -312,6 +316,9 @@ class Harness:
                 else:
                     self.log(f"[leak-test] clean: flipped users score {leak['subset_primary']:.4f} on their true labels "
                              f"(>= {floor}); full-set {leak['full_primary']:.4f}")
+                    if score.primary > float((state.best_measured or {}).get("primary", -1)):
+                        state.best_measured = {"iteration": it, "primary": score.primary, "gauc": score.gauc, "ndcg5": score.ndcg5,
+                                               "workspace": os.path.relpath(ws, self.run_dir)}
             atomic_write_json(os.path.join(ws, "leak_test.json"), leak) if leak else None
 
         # --- the two separate judgments (pure functions; no LLM involvement) ---
@@ -587,9 +594,15 @@ class Harness:
         self.log(f"\n[finalize] stop reason: {reason} — generating submission from the champion (it{state.best_iter:02d})")
         fin_dir = os.path.join(self.run_dir, "finalize")
         os.makedirs(fin_dir, exist_ok=True)
-        candidates: List[Tuple[int, str]] = [(state.best_iter, self.best_code_dir)]
+        candidates: List[Tuple[int, str]] = []
+        bm = state.best_measured or {}
+        if bm and bm.get("primary", -1) > (state.best_primary or -1) + 1e-12 and bm.get("iteration") != state.best_iter:
+            self.log(f"[finalize] best leak-clean measurement it{bm['iteration']:02d} ({bm['primary']:.4f}) beats the champion "
+                     f"({state.best_primary:.4f}) — it was below the promotion margin; using it first")
+            candidates.append((int(bm["iteration"]), self.iteration_dir(int(bm["iteration"]))))
+        candidates.append((state.best_iter, self.best_code_dir))
         for h in reversed(state.history):
-            if h.get("promoted") and h["iteration"] != state.best_iter:
+            if h.get("promoted") and h["iteration"] != state.best_iter and (h["iteration"], self.iteration_dir(h["iteration"])) not in candidates:
                 candidates.append((h["iteration"], self.iteration_dir(h["iteration"])))
         if state.best_iter != 0:
             candidates.append((0, self.task.champion_src_dir))
@@ -637,6 +650,9 @@ class Harness:
                  if state.best_primary is not None else "- best validation: n/a",
                  f"- published baseline (valid): {b} → delta **{delta:+.4f}**" if delta is not None else "- published baseline: n/a",
                  f"- iterations used: {state.iteration} (promoted {len(promoted)}, failed {len(failed)}); final streak {state.streak}",
+                 (f"- best leak-clean measurement: it{state.best_measured['iteration']:02d} at {state.best_measured['primary']:.4f}"
+                  + (" (below the promotion margin; used for the submission)" if state.best_measured['primary'] > (state.best_primary or -1) + 1e-12 else "")
+                  if state.best_measured else "- best leak-clean measurement: n/a"),
                  f"- tokens: {state.tokens_total:,} total ({state.tokens_input:,} in / {state.tokens_output:,} out) over {state.llm_calls} LLM calls; by role: {json.dumps(state.tokens_by_role)}",
                  f"- wall-clock: {fmt_elapsed(state.elapsed_s(self.clock()))} (started {state.start_ts})",
                  f"- manual interventions: {state.interventions} (resumes {state.resumes}) — see interventions.md",
