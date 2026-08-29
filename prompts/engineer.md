@@ -37,6 +37,10 @@ preds_val.csv` in a sandbox and scores the predictions with the organizers' seal
    must never end up inside the encoded fields. The pipeline must PRINT this audit as one line per feature,
    `LEAK AUDIT: <feature> <- <source columns> [<time window>]`, so the harness can record it. A pipeline whose
    feature list names a feedback column is refused before it runs.
+4b. Library loading order (macOS, measured): if the pipeline uses BOTH lightgbm and torch, `import lightgbm` MUST come
+   before `import torch` at the top of the file — the reverse order aborts the process with SIGSEGV ("OMP: Error #179",
+   two OpenMP runtimes) after the training has already run. Prefer using only one of the two. A crash by signal is not a
+   Python error: it produces no traceback, so it cannot be diagnosed from the output — get the order right up front.
 5. Sandbox: no network, no package installs, no subprocesses, no writes outside the working directory.
    Only numpy, pandas, scikit-learn, lightgbm, torch (CPU) and the standard library are available.
    Keep memory moderate (16 GB box) and respect the runtime limit stated in the contract.

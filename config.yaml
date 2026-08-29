@@ -262,6 +262,9 @@ sandbox:
   # Static guard on LLM-written code before it runs (defence in depth; the OS sandbox is the real wall).
   forbidden_imports: [subprocess, socket, urllib, requests, http, ftplib, smtplib, telnetlib, pip, ensurepip, ctypes]
   forbidden_patterns: ["pip install", "os.system(", "os.popen(", "os.execv", "shutil.rmtree(", "__import__("]
+  import_order: [[lightgbm, torch]]  # [first, second]: if BOTH are imported, `first` must come first. Measured on this
+                                   # box 2026-08-29: torch-then-lightgbm aborts the process (SIGSEGV / "OMP: Error #179",
+                                   # two OpenMP runtimes); lightgbm-then-torch trains both fine. Refused before execution.
   feedback_columns: [is_click, is_like, is_follow, is_comment, is_forward, is_hate, long_view, is_profile_enter, play_time_ms]
                                    # named inside a *FIELD*/*FEAT* list assignment = label leak by construction -> code is
                                    # not executed, the Debugger gets the reason (retries are free; a promoted leak is not)

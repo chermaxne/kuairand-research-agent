@@ -15,6 +15,7 @@ import argparse
 import copy
 import json
 import os
+import re
 import shutil
 import sys
 import textwrap
@@ -94,6 +95,24 @@ its seed averaging) exactly as is, add more seeds if the champion uses fewer tha
 not yet in the champion, and add ONE genuinely new signal. Do NOT replace or remove a proven component, do NOT
 re-try a lever kind whose last result was within ±0.0006 (noise), and state in `rationale` and `gain_evidence`
 why this bundle should clear +{epsilon}. Keep the `ablation_plan` minimal (champion-equivalent only)."""
+
+
+def failure_signature(status: str, res, err: str):
+    """What makes two failures 'the same failure'. A signal kill has no traceback and no useful text, so the signal
+    number alone identifies it; a Python failure is identified by its last line (the exception) with digits masked, so
+    that differing timings/counts do not make two identical bugs look different."""
+    if res is None:
+        return (status, "policy", one_line((err or "").splitlines()[0] if err else "", 160))
+    rc = res.returncode if getattr(res, "returncode", None) is not None else 0
+    sig = -rc if rc < 0 else (rc - 128 if rc > 128 else 0)
+    if sig:
+        return (status, f"signal:{sig}")
+    last = ""
+    for line in reversed((err or "").splitlines()):
+        if line.strip():
+            last = line.strip()[:200]
+            break
+    return (status, rc, last)
 
 
 class FinalizeError(RuntimeError):
@@ -578,6 +597,8 @@ class Harness:
         attempt_no, total_runtime = 0, 0.0
         score: Optional[Score] = None
         status, err, blocked = "failed", "", ""
+        last_sig: Any = None
+        res = None
         while True:
             violations = static_code_check(files, self.cfg.get("sandbox", {}))
             if violations:
@@ -597,6 +618,24 @@ class Harness:
                            "and hypothesis unchanged.\nLast lines of stdout before the kill:\n" + self.training_log_tail(ws))
                 elif res.status == "failed":
                     status, err = "failed", res.error_excerpt()
+                    rc = res.returncode if res.returncode is not None else 0
+                    sig = -rc if rc < 0 else (rc - 128 if rc > 128 else 0)
+                    if sig:
+                        # A signal kill leaves NO Python traceback, so error_excerpt() falls back to stdout and the
+                        # Debugger would otherwise be handed the pipeline's last progress line as if it were the error.
+                        names = {11: "SIGSEGV (segmentation fault)", 6: "SIGABRT (abort)", 9: "SIGKILL (killed - usually out of memory)",
+                                 4: "SIGILL", 8: "SIGFPE", 7: "SIGBUS"}
+                        err = (f"NATIVE CRASH DIAGNOSIS (harness): the process was killed by signal {sig} "
+                               f"{names.get(sig, '')} after {res.runtime_s:.0f}s. This is a crash inside a C extension, NOT a Python "
+                               f"error: there is no traceback, and the output below is only how far the run got.\n"
+                               f"MOST LIKELY CAUSE ON THIS MACHINE: two OpenMP runtimes in one process. Measured here: "
+                               f"`import torch` before `import lightgbm` aborts with 'OMP: Error #179' / exit 139; importing "
+                               f"lightgbm FIRST survives. Fix: move `import lightgbm` above `import torch` at the top of the "
+                               f"file, or use only one of the two libraries in the pipeline.\n"
+                               f"Other causes of a signal kill: memory exhaustion (SIGKILL) - reduce batch/history sizes; a "
+                               f"C-level out-of-bounds write (np.add.at / numpy views with bad indices).\n"
+                               f"Keep the hypothesis and the model unchanged; fix only the import order or the allocation.\n"
+                               f"Last lines of stdout before the crash:\n{self.training_log_tail(ws)}")
                 else:
                     try:
                         score = self.task.score_preds(os.path.join(ws, tools.PREDS_VAL))
@@ -649,7 +688,17 @@ class Harness:
                         tools.write_code_files(ws, files)
                         self.log("[debug] fix did not restore a plausible ranking; keeping the original measured result")
                 break
-            self.log(f"[debug] attempt {attempt_no} -> {status}: {one_line(err.splitlines()[-1] if err else '', 160)}")
+            head = one_line(err.splitlines()[0] if err else "", 160)
+            self.log(f"[debug] attempt {attempt_no} -> {status}: {head}")
+            # An identical failure means the fix changed nothing observable; further retries burn wall clock for nothing
+            # (it04 of run ten11 spent 3 x 12 min on the same SIGSEGV).
+            sig_now = failure_signature(status, None if violations else res, err)
+            if attempt_no >= 1 and sig_now == last_sig:
+                err += f"\n[identical failure reproduced after debug attempt {attempt_no}: stopping retries]"
+                blocked = f"{status} reproduced identically after a fix"
+                self.log(f"[debug] the fix reproduced the identical failure — stopping retries (saves {int(timeout)}s per attempt)")
+                break
+            last_sig = sig_now
             if status == "timeout" and not retry_timeouts:
                 blocked = f"timeout {int(timeout)}s"
                 break

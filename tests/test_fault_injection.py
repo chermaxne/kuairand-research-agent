@@ -42,7 +42,9 @@ def test_raising_pipeline_invokes_debugger_capped_at_retries(tmp_path, base_cfg,
     def debugger(role, system, messages):
         debug_calls.append(messages[-1]["content"])
         files = parse_file_blocks(messages[-1]["content"].split("# Failing files", 1)[-1].split("# Error", 1)[0])
-        files["pipeline.py"] = files["pipeline.py"].replace("injected crash", f"still broken {len(debug_calls)}")   # never fixes
+        import re as _re                                                                       # never fixes, but the
+        files["pipeline.py"] = _re.sub(r"RuntimeError\('[^']*'\)", f"RuntimeError('still broken {len(debug_calls)}')",
+                                       files["pipeline.py"])                                   # error differs every time
         return f"FIX SUMMARY: attempt {len(debug_calls)}\n" + render_file_blocks(files)
     handlers = default_mock_handlers()
     handlers["engineer"] = _engineer_transform(lambda c: c.replace(RAISE, CRASH))
@@ -54,6 +56,7 @@ def test_raising_pipeline_invokes_debugger_capped_at_retries(tmp_path, base_cfg,
     hist = h.run_iteration(1)
     assert len(debug_calls) == 3                                     # capped at DEBUG_RETRIES
     assert "RuntimeError: injected crash" in debug_calls[0] and "Traceback" in debug_calls[0]
+    assert "still broken 1" in debug_calls[1] and "still broken 2" in debug_calls[2]           # each attempt: a NEW error
     assert hist["status"] == "failed" and hist["decision"] == "failed" and st.streak == 1 and st.iteration == 1
     log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
     assert [a["attempt"] for a in log["errors_and_recovery"]] == [1, 2, 3]
@@ -608,3 +611,40 @@ def test_leak_check_min_delta_skips_small_improvements_but_records_it(tmp_path, 
             assert lt["verdict"] == "skipped" and "below leak_check_min_delta 0.5" in lt["reason"] and lt["ran"] is False
             assert not os.path.exists(os.path.join(h.run_dir, "iterations", "it01", "leaktest_10pct_stdout.txt"))
     assert base_cfg["run"]["leak_check_min_delta"] == 0.005                      # team policy: re-run only for large jumps
+
+
+def test_identical_repeated_failure_stops_the_debug_loop_early(tmp_path, base_cfg, mini_data):
+    """A fix that reproduces the identical failure changed nothing observable; further retries only burn wall clock
+    (run ten11 it04 spent 3 x 12 min on the same SIGSEGV). The loop stops after the first identical repeat."""
+    debug_calls = []
+
+    def debugger(role, system, messages):
+        debug_calls.append(messages[-1]["content"])
+        files = parse_file_blocks(messages[-1]["content"].split("# Failing files", 1)[-1].split("# Error", 1)[0])
+        return f"FIX SUMMARY: cosmetic {len(debug_calls)}\n" + render_file_blocks(
+            {"pipeline.py": files["pipeline.py"] + f"\n# cosmetic change {len(debug_calls)}\n"})     # same crash every time
+    handlers = default_mock_handlers()
+    handlers["engineer"] = _engineer_transform(lambda c: c.replace(RAISE, CRASH))
+    handlers["debugger"] = debugger
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1, "DEBUG_RETRIES": 3}})
+    h.init_or_resume(); h.phase0()
+    hist = h.run_iteration(1)
+    assert len(debug_calls) == 1                                        # not 3: the repeat is detected after the first fix
+    log = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
+    assert hist["status"] == "failed" and "identical failure reproduced" in log["result"]["error_excerpt"]
+    assert "reproduced identically" in (log["harness_extra"]["blocked_added"] or "")
+
+
+def test_import_order_that_crashes_this_machine_is_refused_before_execution(base_cfg):
+    """Measured 2026-08-29: `import torch` before `import lightgbm` aborts the process (SIGSEGV, 'OMP: Error #179');
+    the reverse order trains both fine. Catching it statically costs 0 s instead of a full training run + a retry."""
+    from agent.sandbox import static_code_check
+    sb = base_cfg["sandbox"]
+    assert sb["import_order"] == [["lightgbm", "torch"]]
+    bad = "import numpy as np\nimport torch\nimport lightgbm as lgb\n"
+    problems = static_code_check({"pipeline.py": bad}, sb)
+    assert len(problems) == 1 and "before `import lightgbm`" in problems[0] and "SIGSEGV" in problems[0]
+    good = "import numpy as np\nimport lightgbm as lgb\nimport torch\n"
+    assert static_code_check({"pipeline.py": good}, sb) == []
+    assert static_code_check({"pipeline.py": "import torch\n"}, sb) == []          # torch alone is fine
+    assert static_code_check({"pipeline.py": "import lightgbm\n"}, sb) == []

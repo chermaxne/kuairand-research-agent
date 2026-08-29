@@ -182,6 +182,19 @@ def static_code_check(files: Dict[str, str], sandbox_cfg: Dict) -> List[str]:
         for pat in patterns:
             if pat in code:
                 problems.append(f"{name}: forbidden pattern {pat!r}")
+        # Import ORDER: on macOS two OpenMP runtimes in one process abort the interpreter (SIGSEGV, no traceback).
+        # Measured on this box: `import torch` before `import lightgbm` -> exit 139 / "OMP: Error #179"; the reverse
+        # order survives. Refusing it here costs 0s; letting it run costs a full training run and a debug retry.
+        for first, second in (sandbox_cfg.get("import_order") or []):
+            pos = {}
+            for m in imp_re.finditer(code):
+                root = m.group(1).split(".")[0]
+                if root in (first, second) and root not in pos:
+                    pos[root] = m.start()
+            if first in pos and second in pos and pos[second] < pos[first]:
+                problems.append(f"{name}: `import {second}` appears before `import {first}` — on this machine that combination "
+                                f"crashes the process with SIGSEGV (two OpenMP runtimes; 'OMP: Error #179'). Import {first} "
+                                f"FIRST (before {second}) at the top of the file, or use only one of the two libraries.")
         # Leak prevention, first line: a same-row feedback column named inside a feature/field list is a label leak by
         # construction (the label long_view is a threshold of play_time_ms; is_click is nested in it). Narrow on purpose:
         # only assignments whose target looks like a field/feature list, so legitimate uses (reading the label column,
