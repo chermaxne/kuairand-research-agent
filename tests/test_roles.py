@@ -640,10 +640,15 @@ def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
     for role in ("researcher", "engineer", "debugger", "scribe"):          # initial phase: no Claude-priced model anywhere
         assert not any("claude" in m for m in [llm[f"{role}_model"]] + llm["fallback_models"][role])
     lib = open(os.path.join(ROOT, "knowledge", "library.md")).read()
-    assert lib.index("R1. Pairwise within-user loss") < lib.index("R6. Multi-task")      # evidence-ranked ladder
-    for must in ("0.6042", "Leave-one-out target", "1.9% of valid users", "bootstrap standard error",
+    assert lib.index("R1. Pairwise within-user loss") < lib.index("R6. Multi-task")
+    for must in ("Directions that have repaid effort", "Directions that have not repaid effort here", "The open frontier",
+                 "Leave-one-out target", "1.9% of valid users", "bootstrap standard error",
                  "train GAUC after epoch 1", "video_features_statistic_pure.csv"):
         assert must in lib, must
+    # guidance is directional: no expected-gain numbers that invite reproduction rather than measurement
+    import re as _re
+    guidance = lib[lib.index("## 4."):lib.index("## 6.")]
+    assert not _re.search(r"[+−-]0\.0[0-9]{3}", guidance), "expected-gain deltas leaked back into the guidance"
 
 
 def test_last_shot_directive_appears_at_streak_n_minus_1(tmp_path, base_cfg, mini_data):

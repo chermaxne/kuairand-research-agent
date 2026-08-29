@@ -421,6 +421,26 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   stacked +0.001 changes keep the run alive (streak 1,1,2,2,2) instead of converging at iteration 3. **HUMANS: ask the
   organizers which reading applies.** If cumulative, switch to `window` and one-change-per-iteration becomes fully viable.
 
+### Component ablations and the knowledge file's framing (2026-08-29)
+* Ran one-component-at-a-time ablations offline (numpy FM, no LLM cost, ~4 min; `knowledge/evidence/ablations*`) on top of
+  the pairwise+position champion, covering exactly what the agent had been bundling blindly across ten3/ten7. Result:
+  **every one of them is neutral or harmful** — 5 seeds +0.0002, patience 6 +0.0000, hour-of-day field −0.0003,
+  session-gap field −0.0003, 2 negatives/positive −0.0006, lower LR −0.0009, video×tab cross −0.0018, user×author rate
+  field −0.0158. Frontier follow-ups: pointwise FM on the same fields 0.6033, rank-avg ensemble with the pairwise model
+  0.6049 (2:1 weighting 0.6053), k=32 under the pairwise loss 0.6041. **The FM family is at a plateau around 0.605**;
+  extra categorical fields and correlated ensemble members do not move it.
+* Framing decision (team): the library must not read as a lookup table the agent reproduces — judges would rightly
+  discount that, and exact expected gains stop the agent from learning when they are wrong. §4 was rewritten as
+  directional guidance ("directions that have repaid effort" / "have not repaid effort" / "the open frontier") with **no
+  expected-gain numbers**; §5 is now "reference implementations" for the pieces that are easy to get wrong, not a ranked
+  script. A test enforces that no `±0.0xxx` deltas reappear in the guidance sections.
+* Provenance is NOT hidden: the ablation scripts, outputs and the earlier probe/evaluator evidence stay in
+  `knowledge/evidence/` and are described here, so the honest answer to "how was the playbook built" is available. What
+  changed is what the *agent* reads, not what the *humans* document.
+* Kept in the library because they are methodology rather than answers: the rungs and oracle from the organizers' own
+  `baseline_scores.json`, the noise floor (seed std 0.0003, validation bootstrap SE 0.0022), the traps, and the runtime
+  budget.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

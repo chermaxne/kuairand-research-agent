@@ -1,0 +1,22 @@
+BASE: pairwise + pos field, 3 seeds        primary=0.6049  (57s)
++ 5 seeds (instead of 3)                   primary=0.6051  (91s)
++ hour-of-day bucket field                 primary=0.6046  (62s)
++ 2 negatives per positive                 primary=0.6043  (80s)
++ video x tab cross field                  primary=0.6031  (52s)
++ session-gap (new session) field          primary=0.6047  (67s)
++ user x author rate field (10 buckets)    primary=0.5891  (38s)
++ patience 6 (instead of 4)                primary=0.6049  (62s)
++ lower lr 0.0005, patience 6              primary=0.6041  (83s)
+
+--- deltas vs BASE ---
++ 5 seeds (instead of 3)                   +0.0002
++ hour-of-day bucket field                 -0.0003
++ 2 negatives per positive                 -0.0006
++ video x tab cross field                  -0.0018
++ session-gap (new session) field          -0.0003
++ user x author rate field (10 buckets)    -0.0158
++ patience 6 (instead of 4)                +0.0000
++ lower lr 0.0005, patience 6              -0.0009
+total 240s
+ABLATE_DONE
+ABLATE_DONE

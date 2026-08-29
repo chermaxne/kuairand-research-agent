@@ -1,0 +1,10 @@
+--- frontier tests: decorrelated ensemble members and capacity under the pairwise loss ---
+pairwise 6-field, 3 seeds (base)            primary=0.6049  (41s)
+pointwise 6-field, 3 seeds (decorrelated)   primary=0.6033  (57s)
+ENSEMBLE rank-avg(pairwise, pointwise)      primary=0.6049
+ENSEMBLE 2:1 weighted toward pairwise       primary=0.6053
+pairwise with k=32 (capacity under new loss) primary=0.6041  (61s)
+ENSEMBLE rank-avg(pairwise k16, k32)        primary=0.6047
+ENSEMBLE rank-avg(pairwise, pointwise, k32) primary=0.6050
+ABLATE2_DONE
+ABLATE2_DONE

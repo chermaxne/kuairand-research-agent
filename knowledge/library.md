@@ -65,37 +65,57 @@ measured table in §4 as ground truth about THIS dataset and metric — it overr
   (music_id, video_type, upload_type, tag): the organizers measured no gain from adding them to the FM; user-side
   fields are ranking no-ops unless crossed with the item.
 
-## 4. Measured levers (validation primary; champion = 0.6015; ± seed std 0.0003)
-| lever | primary | Δ | verdict |
-|---|---|---|---|
-| **pairwise within-user loss, FM trained from scratch** (3 seeds) | 0.6034 / 0.6026 / 0.6027 | **+0.0013** | best single lever; every seed above every pointwise seed |
-| pairwise loss **warm-started** from the pointwise optimum | 0.6012 / 0.6016 | 0 | useless — train from scratch |
-| + **within-day position field** (label-free, from `time_ms`) on the pointwise FM (3 seeds) | 0.6028 / 0.6027 / 0.6018 | +0.0008 | reliable small gain |
-| pairwise + position field (2 seeds) | 0.6038 / 0.6039 | +0.0023 | stacks |
-| **rank-average of 2 pairwise+position seeds** | **0.6042** | **+0.0027** | clears the convergence threshold |
-| 5-seed rank-average of the pointwise FM (3-seed: 0.6021; logit-average: 0.6021) | 0.6026 | +0.0011 | near-certain, cheap finisher |
-| past-only rolling user×author/tab/video rates as extra FM fields (autonomous run) | 0.6022 | +0.0008 | real; untested on top of pairwise |
-| L2 1e-6 → 1e-5 (autonomous run) | 0.6025 | +0.0010 | within noise |
-| K = 32 · patience/epochs · LR 0.002 | 0.6009–0.6022 · flat · 0.49 (diverged) | ≤ 0 | not worth iterations |
-| multi-task FM: + is_click head (w 0.3) · + censored watch-time head · + both | 0.6016 · 0.6001 · 0.6007 | ≈ 0 / − | flat-to-negative |
-| FM trained on `is_click`, scored on long_view · rank-avg with the lv-FM | 0.5831 · 0.5953 | − | click signal does not transfer |
-| position + session-position + fine duration fields added at once | 0.6013 | −0.0002 | adding several fields at once can hurt |
-| fine duration buckets (0 / 7 / 18 s) | 0.6013 | −0.0002 | absorbed by video_id |
-| recency-weighted training tau 10 d / 5 d | 0.6018 / 0.6010 | ≈ 0 | flat |
-| LightGBM (logloss) on past-only rate/count features | 0.5842 | −0.017 | worse than FM |
-| LightGBM lambdarank grouped by user, past-only features + out-of-fold FM score · rank-avg with FM | 0.5975 · 0.6009 | − | GBDT loses in every form tried |
-| LightGBM with leave-one-out target encoding | 0.45–0.47 | below random | **inverted by the LOO leak** |
-| rank-avg of FM + the 0.5842 LightGBM | 0.5941 | −0.007 | a weak ensemble member drags the strong one down |
-| FM trained on week 1 only | 0.5981 | −0.0034 | half the data costs 0.003 |
-| **autonomous run 2026-08-29: R1+R2+R3 bundle (3 seeds)** | **0.6044** | **+0.0029** | promoted; reproduces the probe |
-| … + past-only (user, author) rate field on top of the bundle | 0.6046 | +0.0002 | noise: the FM's user×author cross already encodes it |
-| … + past-only (user, tab) rate field on top of the bundle | 0.6032 | −0.0012 | same reason |
-| … pairwise loss REPLACED by sampled-softmax (listwise) | 0.6005 | −0.0039 | swapping a proven component at streak 2 ended the run |
+## 4. Where value has and has not been found
+This section combines the organizers' published findings, the recommender-systems literature and offline analysis of
+this dataset. It tells you which directions have repaid effort and which have not. It deliberately does **not** predict
+how much any change will gain — that is what your iterations measure, and your own measurements override this section.
 
-## 5. Direction ladder — ranked by measured gain × reliability. A prior, not an order.
-The recipes are reference implementations that worked once; use them to avoid implementation failures (two of the
-first four autonomous attempts crashed or inverted), not as a script. Deviate whenever the ledger gives a reason.
-**R1. Pairwise within-user loss, from scratch (+0.0013, high reliability).** Keep the FM scorer and fields.
+### Directions that have repaid effort
+- **Aligning the objective with the metric.** The baseline optimises pointwise calibration while the metric is a pure
+  within-user ranking metric. A pairwise within-user objective — for each train positive, sample a negative from the
+  SAME user; loss `softplus(s_neg − s_pos)` — is the most valuable single change found so far, and loss alignment is
+  the organizers' top untested direction. Train it **from scratch**: warm-starting from the converged pointwise model
+  does not help. It converges fast (best epoch ≈ 4–8), so keep early stopping on validation.
+- **Label-free session context as a model field.** Where a row sits in the user's day carries real signal (the
+  long_view rate falls from 0.34 at a user's first impression of the day to 0.18 by the tenth). Encoding the
+  within-day position as a bucketed categorical field is worth trying; derived from `time_ms`/`date` only, so it
+  cannot leak.
+- **Variance reduction by seed averaging.** Rank-normalise each model's scores *within user*, then average the ranks
+  over a handful of seeds. Small but among the most dependable moves, and it composes with everything else. Rank
+  averaging outperformed logit averaging.
+
+### Directions that have not repaid effort here
+Do not spend a streak-critical iteration on these without a stated reason your version differs:
+- **Adding more categorical fields to the FM.** The organizers measured this for static user/item features; it also
+  holds for label-free context fields (hour-of-day, session-boundary flags), item×context crosses, and bucketed
+  history-rate fields (user×author, user×tab, user×video). The `user_id × video_id` crosses already carry most of the
+  learnable signal and extra fields dilute the embedding budget more often than they add; bucketed history-rate
+  fields were the worst offenders. If you try one, try exactly **one**, and measure it.
+- **Model capacity.** k = 8/16/32 is flat under the pointwise loss (organizers) and also under a pairwise loss.
+- **Gradient-boosted trees** in every form tried (pointwise, user-grouped lambdarank, with and without an out-of-fold
+  FM score as a feature, alone and as an ensemble member). Within-user ranking rewards the id-embedding interactions
+  an FM learns; aggregate rate features do not substitute, and a weak ensemble member drags a strong one down.
+- **Auxiliary heads / multi-task.** `is_click` and `long_view` are nested thresholds of the same play-time variable
+  (§2) and the other feedback signals are 0.1–1.9% sparse, so a shared-trunk auxiliary head adds little. Attempt it
+  only in a form that exploits the nesting (ESMM-style) or uses genuinely different behaviour.
+- **Watch-time regression heads.** The label already *is* a duration-normalised threshold of watch time.
+- **Recency weighting, duration re-bucketing, learning-rate / patience / regularisation tuning.** All flat.
+- **Ensembling highly correlated members.** Rank-averaging variants of the same model family gains little; an
+  ensemble needs members that differ in kind and are individually close to the champion.
+
+### The open frontier
+The FM family appears close to exhausted in the low 0.60s. What has **not** been tried on this dataset, in rough order
+of promise: user behaviour sequences (per-user histories run to 30–100 impressions; DIN-style target attention over a
+user's previous items is completely unexplored and is the organizers' second-ranked direction); listwise /
+sampled-softmax objectives, particularly as an *additional* ensemble member rather than a replacement for a working
+pairwise loss; a genuinely different model family to ensemble with the FM; and the random-exposure log as an unbiased
+check on whether a gain is real or an artefact of biased traffic.
+
+## 5. Reference implementations — how to build the tricky pieces correctly
+Not a script and not a ranking: implementation notes for the pieces that are easy to get wrong (two of the first four
+autonomous attempts here crashed or produced an inverted ranking). What to try, in what order, and what to combine is
+your judgement — informed by §4 and, above all, by your own ledger.
+**R1. Pairwise within-user loss, from scratch.** Keep the FM scorer and fields.
 Training set = the train rows of *mixed* users (users with both labels). Each epoch: for every positive row of a
 mixed user draw one random negative row of the SAME user; shuffle the pairs; batches of 8192 pairs. Loss
 `softplus(s_neg − s_pos)`; with `g = sigmoid(s_neg − s_pos) / batch`: apply `+g` to the negative row's W and V
@@ -103,27 +123,27 @@ gradients and `−g` to the positive row's (same `np.add.at` pattern as the poin
 Adam lr 1e-3, l2 1e-6, ≤ 30 epochs, early stopping on validation primary with patience 4 (best epoch 4–8).
 Prediction and output unchanged. **Sanity: train GAUC after epoch 1 must be > 0.6** (the first attempt in this
 project had the sign flipped and scored 0.39). Do not warm-start from the pointwise model.
-**R2. Label-free session-context field (+0.0008 alone, +0.0010 on top of R1, medium-high reliability).**
+**R2. Label-free session-context field.**
 Sort rows by (`user_id`, `time_ms`); `pos_day` = rank of the impression within its (user, date); bucket with
 edges [1, 2, 3, 4, 6, 10] → {0, 1, 2, 3, 4–5, 6–9, 10+}; add as a 6th categorical FM field (own vocabulary +
 UNK, same encoding as the others). Computed identically for train and validation rows from non-feedback columns.
 Variants to try one at a time (never two new fields in one run): impressions-in-day count, log minutes since the
 user's previous impression (30-min gap = new session), hour-of-day bucket.
-**R3. Seed rank-average (+0.0010 pointwise, +0.0003 on R1+R2; near-certain).** Train the same pipeline with
+**R3. Seed rank-average.** Train the same pipeline with
 3–5 seeds inside one run (each ≈ 30–45 s), rank-normalise each model's scores *within user* (percentile rank), average
-the ranks. Logit-averaging is slightly worse (0.6021 vs 0.6026). Always the finisher; combine with R1+R2.
+the ranks. Rank averaging outperformed logit averaging. Always the finisher; combine with R1+R2.
 Vectorised, the whole rank step is one line — `pd.Series(scores).groupby(np.asarray(users)).rank(pct=True).values`
 (≈ 0.1 s). A Python loop over users that masks the rows (`for u in unique(users): mask = [x == u for x in users]`)
 is 22k × 125k comparisons ≈ tens of minutes and **killed the 2026-08-29 run at the 900 s limit**.
-**R4. Past-only history fields — demoted: flat on top of R1–R3 (+0.0002 / −0.0012 measured).** Bucketed
+**R4. Past-only history fields — deprioritised (§4: extra fields have not paid off).** Bucketed
 user × author / user × tab rates duplicate interactions the FM already learns from its id fields, so as extra FM
 fields they add nothing. They only make sense for an entity the FM does NOT have as a field (user × tag,
 user × duration-bucket history, video impression counts) or as inputs to a different model family — and even
 then expect ≤ +0.001. Do not spend a streak-critical iteration on them.
-**R5. Untested, plausible small gains (≤ +0.002):** listwise / sampled-softmax within user (a variant of R1;
+**R5. Untested variants worth considering:** listwise / sampled-softmax within user (a variant of R1;
 literature says a tighter DCG surrogate); a video × tab cross field; a DeepFM/DCN trunk over the same fields
 (capacity alone is flat — only with the new fields).
-**R6. Multi-task — measured flat here (§2, §4), so low expected gain, not forbidden.** The variants we tried were
+**R6. Multi-task — low expected value here (§2, §4), not forbidden.** The variants we tried were
 simple (linear heads sharing the FM interaction; click / watch-time targets). Untried forms with a real argument:
 ESMM-style p(long_view) = p(click) · p(long_view | click); heads on genuinely different behaviours (like,
 profile_enter) with gated sharing (MMoE/PLE); an MLP tower per task. Expect ≤ +0.001 unless you can say why yours
@@ -140,9 +160,10 @@ The statistic feature file is not "flat" — it is forbidden (§3, §7).
    GAUC < 0.5, exploding loss), the idea is untested — fix it rather than move on.
 2. **Rhythm: bundle where the rule forces it, single changes everywhere else.** Single levers here are ≈ ±0.001 and
    only a > +0.002 step resets the streak, so iteration 1 and the last shot before convergence must bundle
-   complementary levers. In between, change exactly ONE thing per iteration: gains above +0.0005 are banked as the
-   new champion, and a single change's delta is the only way to learn which component actually works. A bundle that
-   moves +0.0001 has taught you nothing about its parts — that happened twice in this project. The run that reached 0.6044 died exactly this way: it tested one small
+   complementary levers whose individual effects you or §4 already understand. In between, change exactly ONE thing per
+   iteration: gains above +0.0005 are banked as the new champion, and a single change's delta is the only way to learn
+   which component works. **Never bundle components whose individual effects are unknown** — a bundle that moves
+   +0.0001 teaches nothing about its parts, which has already cost this project several iterations. The run that reached 0.6044 died exactly this way: it tested one small
    lever per iteration after the bundle. After a promotion, bundle again — several complementary UNTESTED levers
    plus more seeds in one pipeline (e.g. 5 seeds + a new field type + a loss variant kept alongside the proven
    loss, not instead of it).
