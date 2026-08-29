@@ -256,7 +256,7 @@ class Roles:
         return blocks
 
     # -- researcher ----------------------------------------------------------
-    def researcher(self, dynamic_briefing: str) -> Tuple[Optional[ResearcherPlan], str, str]:
+    def researcher(self, dynamic_briefing: str, required_family: Optional[str] = None) -> Tuple[Optional[ResearcherPlan], str, str]:
         """Returns (plan | None, error, raw_text). One re-ask on malformed output (spec §13 Phase 3)."""
         _, task = load_prompt(self.prompts_dir, "researcher")
         messages = [{"role": "user", "content": dynamic_briefing.rstrip() + "\n\n# TASK\n" + task}]
@@ -266,7 +266,7 @@ class Roles:
             return None, f"researcher_llm_error: {e}", ""
         try:
             plan = parse_researcher(resp.text)
-            self._check_plan_rules(plan)
+            self._check_plan_rules(plan, required_family)
             return plan, "", resp.text
         except ContractError as e:
             err1 = str(e)
@@ -277,12 +277,12 @@ class Roles:
             return None, f"researcher_llm_error: {e}", resp.text
         try:
             plan = parse_researcher(resp2.text)
-            self._check_plan_rules(plan)
+            self._check_plan_rules(plan, required_family)
             return plan, "", resp2.text
         except ContractError as e:
             return None, f"researcher_malformed: {e} (after one re-ask; first error: {err1})", resp2.text
 
-    def _check_plan_rules(self, plan: ResearcherPlan) -> None:
+    def _check_plan_rules(self, plan: ResearcherPlan, required_family: Optional[str] = None) -> None:
         """Team hard rules on the plan (harness-enforced, not advisory). run.retire_fm: the kit's factorization machine
         has been tuned to its plateau (organizers: capacity and features flat; our runs: every FM variant within noise of
         0.605), so every experiment must train a different architecture. Its proven components may ride along."""
@@ -293,6 +293,15 @@ class Roles:
                                 f"a GBDT over engineered past-only features, or a multi-task MMoE/PLE — and name it in `model_family`. "
                                 f"The champion's proven components (ListNet loss, session-position field, seed averaging) may be reused "
                                 f"inside the new model.")
+        if required_family and self.cfg.get("run", {}).get("family_commitment", True):
+            from .memory import canonical_family
+            if canonical_family(plan.model_family) != canonical_family(required_family):
+                raise ContractError(f"HARD RULE (run.family_commitment): the ACTIVE model family is {required_family!r} and the harness "
+                                    f"has NOT declared it a dead end, so this iteration must develop it further. Your model_family "
+                                    f"{plan.model_family!r} is a different architecture (adding a second model, e.g. an ensemble, also "
+                                    f"counts as leaving the family). Re-plan the next step INSIDE {required_family!r} — new inputs for it, "
+                                    f"a better objective for it, more capacity where its training log says it is limited — and set "
+                                    f"model_family accordingly.")
 
     # -- engineer ------------------------------------------------------------
     @staticmethod

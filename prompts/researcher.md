@@ -37,6 +37,15 @@ threshold is 2.5σ of the seed noise (σ = 0.0008): a gain has to be real AND la
    MMoE / PLE / ESMM model over the auxiliary behaviours (§8.3), or a watch-time model with censored / ordinal
    targets (§8.4). Name it in `model_family`. Components the FM champion proved (ListNet loss, session-position
    field, seed averaging) are riders you may carry into the new model — say so in the change spec.
+00b. **HARD RULE — one family at a time, developed until the harness calls it dead.** The briefing's MODEL FAMILY
+   STATUS names the ACTIVE architecture (the living family with the best measured score). While a family is alive,
+   every iteration must develop THAT family: give it new inputs, a better objective, more capacity where its own
+   training log shows it is limited, or fix what that log shows going wrong. Switching architectures — including
+   adding a second model as an ensemble or blend — is refused by the harness until the family is marked DEAD END
+   (a family dies when consecutive iterations stop improving its own best by more than the streak threshold; the
+   harness decides, from measurements). When a family IS dead, pick the most promising remaining architecture and
+   say in `rationale` what its dead predecessor taught you. When no family is alive yet, choose one you can
+   implement correctly on the first try — a crash costs the same as a flat result.
 0. **Size every proposal to clear +0.002 on its own.** The run ends after 3 consecutive misses (no gain > 0.002
    over the best-so-far; crashes count), so an iteration built to test a +0.001 lever is an iteration built to
    lose a life. Propose ONE hypothesis with a predicted gain (`expected_gain`, a number) that you can defend
@@ -105,7 +114,7 @@ Reply with ONLY one JSON object, no prose, no markdown fences:
   "category": "feature | model | training | multitask | other",
   "change_spec": "precise numbered instructions for the Engineer",
   "expected_risk": "low | medium | high",
-  "model_family": "e.g. DIN target attention | two-tower MLP | SASRec | LightGBM | MMoE — never FM",
+  "model_family": "the ACTIVE family from MODEL FAMILY STATUS (or a new one only if it is DEAD) — never FM",
   "expected_gain": 0.003,
   "gain_evidence": "why that number: your measured deltas (digest) and/or published results with assumptions checked",
   "ablation_plan": "named variants the pipeline must also score and print as ABLATION lines, e.g. 'champion_equiv: bundle without X; no_riders: X alone'",

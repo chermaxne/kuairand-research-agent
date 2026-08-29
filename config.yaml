@@ -216,6 +216,13 @@ run:
                                    # whose model_family is the FM (or blank) is re-asked once, then rejected; every
                                    # experiment trains a different architecture (DIN, two-tower/MLP, sequence model,
                                    # GBDT, MMoE/PLE, watch-time model). Proven FM components may ride along.
+  family_commitment: true          # HARD RULE (team decision 2026-08-29): develop ONE alternative architecture at a
+                                   # time. The harness names the ACTIVE family (the living non-FM family with the best
+                                   # measured primary) and refuses a plan that switches away from it; adding a second
+                                   # model (ensemble/blend) counts as switching. Run ten11 lost its last life this way:
+                                   # it01-03 developed DIN to 0.6046, it04 jumped to a LightGBM+DIN ensemble and crashed.
+  family_deadend_after: 2          # a family is DEAD once this many consecutive iterations on it fail to beat its own
+                                   # best by > EPSILON (crashes and timeouts count); then the Researcher picks the next.
   sizing_directive: true           # every briefing (except the last shot) carries the SIZING DIRECTIVE: under the
                                    # per-iteration rule a proposal must be sized to clear EPSILON on its own — one
                                    # hypothesis + validated riders, a numeric expected_gain with evidence, and an

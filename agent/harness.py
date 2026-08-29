@@ -27,7 +27,7 @@ import yaml
 
 from . import tools
 from .llm_client import CallLog, make_client
-from .memory import (format_ablations, parse_ablations, append_intervention, append_ledger, fmt_elapsed, init_interventions, init_ledger, ledger_line, load_run_state,
+from .memory import (canonical_family, family_stats, format_ablations, parse_ablations, render_family_status, append_intervention, append_ledger, fmt_elapsed, init_interventions, init_ledger, ledger_line, load_run_state,
                      one_line, read_iteration_detail, read_ledger, render_state_block, research_digest, result_string,
                      save_run_state, synthesis_numbers_ok, write_iteration_log, write_iteration_narrative, write_state_block)
 from .phase0 import Phase0Error, install_champion, run_phase0
@@ -54,6 +54,17 @@ Propose the SIMPLEST, most reliable change to the champion that is still a real 
 hyperparameter, one well-understood feature, a smaller model variant). Requirements: no new libraries, no
 new files, runtime well under the limit, minimal diff. State in `rationale` why it cannot fail the same way."""
 
+
+FAMILY_DIRECTIVE = """# MODEL FAMILY RULE (harness-enforced: run.family_commitment)
+{table}
+
+You are developing ONE alternative architecture at a time. {instruction}
+A family becomes a DEAD END when {deadend_after} consecutive iterations on it fail to improve its own best by more
+than +{epsilon} (crashes and timeouts count) — the harness decides that from measurements, never you. Deepening the
+active family means: new inputs for it, a better objective for it, more capacity where it helps, fixing what its
+training log shows going wrong. Adding a SECOND model (an ensemble, a blend) counts as leaving the family, not as
+deepening it, so propose it only when the harness has declared the family dead. The kit's factorization machine
+stays retired in every case."""
 
 SIZING_DIRECTIVE = """# SIZING DIRECTIVE (harness policy: flat streak {streak} of {n_flat} — {lives} more miss(es) end the run)
 The convergence rule is per iteration: only a gain > +{epsilon} over the best-so-far ({best}) resets the streak. A
@@ -250,6 +261,21 @@ class Harness:
                 parts.append("# RESEARCH SYNTHESIS (written by the Scribe from the digest above — interpretive; verify any claim "
                              "against the table)\n" + state.synthesis)
         parts.append(self.render_recent_iterations(state))
+        if self.run_cfg.get("family_commitment", True):
+            stats = family_stats(state.history, self.limits.epsilon, int(self.run_cfg.get("family_deadend_after", 2)))
+            active = stats["active"]
+            if active is not None:
+                best = f"{active['best']:.4f}" if active["best"] is not None else "not yet scored"
+                instruction = (f"The ACTIVE family is **{active['label']}** (best {best}) — your `model_family` this "
+                               f"iteration must be that family, developed one step further. Do NOT switch to another "
+                               f"architecture while it is alive; the harness will refuse the plan.")
+            else:
+                instruction = ("No family is alive yet, so choose the most promising alternative architecture now and "
+                               "expect to develop it for several iterations — pick one you can implement correctly the "
+                               "first time (a crash costs the same as a flat result).")
+            parts.append(FAMILY_DIRECTIVE.format(table=render_family_status(stats), instruction=instruction,
+                                                 deadend_after=int(self.run_cfg.get("family_deadend_after", 2)),
+                                                 epsilon=self.limits.epsilon))
         last_shot = self.limits.n_flat > 1 and state.streak >= self.limits.n_flat - 1
         best_s = f"{state.best_primary:.4f}" if state.best_primary is not None else "n/a"
         if not last_shot and self.run_cfg.get("sizing_directive", True):
@@ -285,7 +311,11 @@ class Harness:
 
         briefing = self.assemble_briefing(it)
         atomic_write_text(os.path.join(ws, "briefing.md"), briefing)
-        plan, err, _raw = self.roles.researcher(briefing)
+        required_family = None
+        if self.run_cfg.get("family_commitment", True):
+            act = family_stats(state.history, self.limits.epsilon, int(self.run_cfg.get("family_deadend_after", 2)))["active"]
+            required_family = act["label"] if act else None
+        plan, err, _raw = self.roles.researcher(briefing, required_family=required_family)
         if plan is None:
             error_reason = err
             self.log(f"[it{it:02d}] researcher failed: {one_line(err, 200)}")
@@ -485,6 +515,7 @@ class Harness:
         write_iteration_log(self.run_dir, entry)
 
         hist = {"iteration": it, "hypothesis": one_line(plan_for_scribe.hypothesis, 0), "category": plan_for_scribe.category,
+                "model_family": plan_for_scribe.model_family,
                 "training_log_tail": train_tail,
                 "status": status, "primary": primary, "gauc": score.gauc if (score and status == "scored") else None,
                 "ndcg5": score.ndcg5 if (score and status == "scored") else None, "decision": dec.decision, "promoted": dec.promoted,

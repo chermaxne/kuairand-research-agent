@@ -128,6 +128,13 @@ any feedback column named in a field list before the code runs; the best leak-cl
 tracked as `best_measured` and finalize builds the submission from it when it beats the champion, so a gain that
 missed the margin is never lost.
 
+Hard rule (`run.family_commitment: true`): the agent develops **one alternative architecture at a time**. The harness
+names the ACTIVE family (the living non-FM family with the best measured score, grouped by architecture so "DIN target
+attention" and "DIN + session fields" are one family) and refuses a plan that switches away from it — adding a second
+model as an ensemble counts as switching. A family is a DEAD END after `family_deadend_after` (2) consecutive
+iterations that fail to beat its own best by more than ε; only then may the Researcher move on. Run ten11 lost its
+last life to exactly this: it01–it03 developed DIN to 0.6046, it04 jumped to a LightGBM+DIN ensemble and crashed.
+
 Hard rule (`run.retire_fm: true`): the kit's factorization machine is retired — the organizers swept its capacity
 and features to a plateau, and every FM variant this team measured sits within noise of 0.605 — so every plan must
 name a different `model_family` (DIN-style attention over user history, two-tower/MLP, sequence model, GBDT over

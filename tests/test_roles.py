@@ -895,3 +895,64 @@ def test_retire_fm_rule_refuses_fm_plans_after_one_reask_and_accepts_other_archi
     assert plan is not None and len(seen) == 1                                                       # rule off -> accepted
     eng = r.engineer_message(parse_researcher(json.dumps(GOOD)), {"pipeline.py": "x"}, "T", "C")
     assert "MODEL FAMILY (replaces the champion's FM): DIN target attention" in eng
+
+
+# ---------------------------------------------------------------- one family at a time, until the harness calls it dead (2026-08-29)
+def test_family_grouping_and_deadend_verdicts():
+    from agent.memory import canonical_family, family_stats
+    same = [("DIN target attention", "DIN + session fields"), ("DIN target attention", "deep interest network"),
+            ("two-tower MLP", "two-tower model over embeddings"), ("LightGBM over past-only features", "LGBM ranker")]
+    for a, b in same:
+        assert canonical_family(a) == canonical_family(b), (a, b)
+    assert canonical_family("LightGBM ensemble with DIN") not in (canonical_family("DIN"), canonical_family("LightGBM"))
+    assert canonical_family("SASRec") != canonical_family("DIN")
+
+    def h(i, fam, primary, status="scored"):
+        return {"iteration": i, "model_family": fam, "primary": primary, "status": status}
+    # run ten11's real shape: DIN promoted, flat, +0.0004 -> its own best stops moving by > epsilon -> dead end
+    hist = [h(1, "DIN target attention", 0.6042), h(2, "DIN + BPR loss", 0.6030)]
+    st = family_stats(hist, 0.002, 2)
+    assert st["active"]["label"] == "DIN target attention" and st["active"]["best"] == 0.6042    # one miss: keep developing
+    hist.append(h(3, "DIN + session fields", 0.6046))
+    st = family_stats(hist, 0.002, 2)
+    assert st["families"][0]["dead"] and st["active"] is None                                    # two misses: dead, free choice
+    hist.append(h(4, "LightGBM ensemble with DIN", None, "failed"))
+    st = family_stats(hist, 0.002, 2)
+    assert st["active"] is None and "unproven" in st["families"][1]["status"]                    # a crash never makes a leader
+    st = family_stats([h(1, "SASRec", 0.6040), h(2, "SASRec + longer history", 0.6075)], 0.002, 2)
+    assert st["active"]["label"] == "SASRec" and st["active"]["best"] == 0.6075                  # improving family stays active
+
+
+def test_family_commitment_is_enforced_on_the_plan_and_stated_in_the_briefing(tmp_path, base_cfg, mini_data):
+    from agent.llm_client import LLMResponse
+    assert base_cfg["run"]["family_commitment"] is True and base_cfg["run"]["family_deadend_after"] == 2
+    replies = [json.dumps({**GOOD, "model_family": "LightGBM ensemble with DIN"}),      # switching away -> refused
+               json.dumps({**GOOD, "model_family": "DIN + hour-of-day field"})]         # deepening the active family -> ok
+    seen = []
+
+    class Client:
+        provider = "fake"
+        def complete(self, **kw):
+            seen.append(kw["messages"][-1]["content"])
+            return LLMResponse(text=replies[len(seen) - 1], usage=TokenUsage(1, 1), model="m", latency_s=0.1)
+    r = Roles(Client(), base_cfg, os.path.join(ROOT, "prompts"), os.path.join(ROOT, "knowledge", "library.md"))
+    plan, err, _ = r.researcher("briefing", required_family="DIN target attention")
+    assert plan is not None and plan.model_family == "DIN + hour-of-day field" and err == ""
+    assert "HARD RULE (run.family_commitment)" in seen[1] and "'DIN target attention'" in seen[1]
+    seen.clear(); replies[:] = [json.dumps({**GOOD, "model_family": "SASRec"})] * 2
+    plan, err, _ = r.researcher("briefing", required_family="DIN target attention")
+    assert plan is None and "family_commitment" in err                                   # twice -> the iteration fails
+    seen.clear(); replies[:] = [json.dumps({**GOOD, "model_family": "SASRec"})]
+    plan, _, _ = r.researcher("briefing", required_family=None)                           # no active family -> free choice
+    assert plan is not None and len(seen) == 1
+
+    briefings = []
+    handlers = default_mock_handlers()
+    handlers["researcher"] = lambda role, sy, m: (briefings.append(m[-1]["content"]) or
+                                                  json.dumps({**GOOD, "model_family": "toy popularity blend"}))
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 2}})
+    h.init_or_resume(); h.phase0()
+    h.run_iteration(1); h.run_iteration(2)
+    assert "MODEL FAMILY STATUS" in briefings[0] and "No family is alive yet" in briefings[0]
+    assert "the active family is" in briefings[1].lower() and "toy popularity blend" in briefings[1]
+    assert "counts as leaving the family" in briefings[1]

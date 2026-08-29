@@ -203,6 +203,88 @@ def format_ablations(ablations: List[Dict[str, Any]], full_primary: Optional[flo
     return "; ".join(parts)
 
 
+# Model-family bookkeeping (team policy 2026-08-29): develop ONE alternative family until the harness declares it a
+# dead end, then move to the best remaining one. The FM is retired (see run.retire_fm).
+FAMILY_ALIASES = (("xdeepfm", "xdeepfm"), ("deepfm", "deepfm"), ("dcn", "dcn"), ("autoint", "autoint"), ("nfm", "nfm"),
+                  ("dien", "dien"), ("din", "din"), ("deep interest", "din"), ("sasrec", "sasrec"), ("bert4rec", "bert4rec"),
+                  ("gru4rec", "gru"), ("gru", "gru"), ("lstm", "lstm"), ("transformer", "transformer"), ("mmoe", "mmoe"),
+                  ("ple", "ple"), ("esmm", "esmm"), ("shared.bottom", "shared-bottom"), ("lightgbm", "gbdt"),
+                  ("lgbm", "gbdt"), ("gbdt", "gbdt"), ("xgboost", "gbdt"), ("catboost", "gbdt"), ("gradient boost", "gbdt"),
+                  ("two.tower", "two-tower"), ("wide", "wide-and-deep"), ("mlp", "mlp"), ("attention", "attention"),
+                  ("factori[sz]ation machine", "fm"), ("ffm", "fm"), ("fm", "fm"))
+COMPOSITION_WORDS = ("ensemble", "blend", "stack", "hybrid of", "combined with", "rank-avg", "rank average", "averaged with")
+
+
+def canonical_family(name: str) -> str:
+    """Group free-text `model_family` strings into one key per architecture, so 'DIN target attention', 'DIN + session
+    fields' and 'deep interest network' are all the same family. The list is priority-ordered: the most specific
+    architecture wins, and words like 'attention' only decide when nothing more specific matched. A name that composes
+    TWO architectures ('LightGBM ensemble with DIN') is its own combined family — adding a second model is a switch,
+    not a deepening of the first."""
+    n = (name or "").strip().lower()
+    if not n:
+        return ""
+    keys: List[str] = []
+    for pat, key in FAMILY_ALIASES:
+        if key not in keys and re.search(r"(?<![a-z0-9])" + pat + r"(?![a-z0-9])", n):
+            keys.append(key)
+    if not keys:
+        return re.sub(r"[^a-z0-9]+", "-", n).strip("-")[:40]
+    if len(keys) > 1 and any(w in n for w in COMPOSITION_WORDS):
+        return "+".join(sorted(keys))                      # an explicit ensemble of two models = a family of its own
+    return keys[0]                                          # otherwise the most specific architecture named
+
+
+def family_stats(history: Iterable[Dict[str, Any]], epsilon: float, deadend_after: int) -> Dict[str, Any]:
+    """Per-family record and the harness's dead-end verdict. A family is a DEAD END once `deadend_after` consecutive
+    iterations on it have failed to improve ITS OWN best by more than epsilon (crashes and timeouts count). The ACTIVE
+    family is the living non-FM family with the best measured primary (ties: the most recently worked on)."""
+    fams: Dict[str, Dict[str, Any]] = {}
+    for h in history:
+        key = canonical_family(h.get("model_family") or "")
+        if not key or key == "fm":
+            continue
+        f = fams.setdefault(key, {"key": key, "label": h.get("model_family") or key, "iters": [], "best": None,
+                                  "best_iter": None, "flat_tail": 0, "scored": 0})
+        f["iters"].append(h["iteration"])
+        p = h.get("primary") if h.get("status") == "scored" else None
+        if p is not None:
+            f["scored"] += 1
+        if p is not None and (f["best"] is None or p > f["best"] + epsilon):
+            f["flat_tail"] = 0
+        else:
+            f["flat_tail"] += 1
+        if p is not None and (f["best"] is None or p > f["best"]):
+            f["best"], f["best_iter"] = p, h["iteration"]
+    for f in fams.values():
+        f["dead"] = f["flat_tail"] >= deadend_after
+        f["status"] = ("DEAD END" if f["dead"] else "ACTIVE")
+    alive_scored = [f for f in fams.values() if not f["dead"] and f["best"] is not None]
+    active = sorted(alive_scored, key=lambda f: (f["best"], max(f["iters"])))[-1] if alive_scored else None
+    for f in fams.values():
+        if f["dead"]:
+            continue
+        if active is not None and f["key"] == active["key"]:
+            f["status"] = "ACTIVE"
+        elif f["best"] is None:
+            f["status"] = "unproven (never produced a score — cannot lead)"
+        else:
+            f["status"] = "alive (not the leader)"
+    return {"families": sorted(fams.values(), key=lambda f: max(f["iters"])), "active": active,
+            "deadend_after": deadend_after, "epsilon": epsilon}
+
+
+def render_family_status(stats: Dict[str, Any]) -> str:
+    rows = ["# MODEL FAMILY STATUS (harness-measured — which architecture you are developing)",
+            "| family | iterations | best primary | consecutive non-improving | status |", "|---|---|---|---|---|"]
+    for f in stats["families"]:
+        best = f"{f['best']:.4f} (it{f['best_iter']:02d})" if f["best"] is not None else "— (nothing scored)"
+        rows.append(f"| {f['label']} | {', '.join(f'it{i:02d}' for i in f['iters'])} | {best} | {f['flat_tail']} | {f['status']} |")
+    if not stats["families"]:
+        rows.append("| (none yet — the champion is the retired FM baseline) | — | — | 0 | choose the first alternative family |")
+    return "\n".join(rows)
+
+
 def synthesis_numbers_ok(synthesis: str, digest: str) -> bool:
     """Guard: every number the Scribe wrote must appear in the harness digest (no invented figures)."""
     import re as _re
