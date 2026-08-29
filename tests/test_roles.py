@@ -577,7 +577,33 @@ def test_fallback_reasons_are_recorded(monkeypatch, tmp_path):
     assert resp.fallback_notes[1].startswith("mute: empty response (finish_reason='stop', 25 output tokens, 0 reasoning chars,") and "wasted" in resp.fallback_notes[1]
     log = CallLog(str(tmp_path / "calls.jsonl"))
     log.record(1, "researcher", resp)
-    assert json.loads(open(log.path).read())["fallback_notes"] == resp.fallback_notes
+    rows = [json.loads(l) for l in open(log.path)]
+    # every BILLED generation gets a row: the mute model burned tokens and produced nothing, so it is on record too
+    assert len(rows) == 2 and rows[0]["ok"] is False and rows[1]["ok"] is True
+    assert rows[0]["model"] == "served-model" and rows[0]["output_tokens"] == 25 and "empty response" in rows[0]["discarded_reason"]
+    assert rows[1]["fallback_notes"] == resp.fallback_notes and rows[1]["output_tokens"] == 25
+
+
+def test_tokens_of_discarded_attempts_are_counted_in_the_run_totals(tmp_path, base_cfg):
+    """A model that spends its whole budget on hidden reasoning and returns nothing (GLM-5.2 as Engineer, run ten12:
+    40,000 tokens, finish_reason='length') is still billed. Those tokens must appear in the run's accounting."""
+    from agent.llm_client import LLMResponse
+
+    class Client:
+        provider = "fake"
+        def complete(self, **kw):
+            return LLMResponse(text="{}", usage=TokenUsage(10, 20), model="cheap", latency_s=1.0, stop_reason="end_turn",
+                               discarded=[{"model": "thinker", "usage": TokenUsage(10, 40000), "stop_reason": "length",
+                                           "latency_s": 198.0, "reasoning_chars": 152500, "reason": "empty response"}])
+    r = Roles(Client(), base_cfg, os.path.join(ROOT, "prompts"), os.path.join(ROOT, "knowledge", "library.md"),
+              call_log=CallLog(str(tmp_path / "calls.jsonl")))
+    r.begin_iteration(1, None)
+    r._call("engineer", ["S"], [{"role": "user", "content": "x"}], "engineer")
+    assert r.iteration_usage.total == 30 + 40010                      # winner + the discarded attempt
+    assert r.iteration_role_usage["engineer"] == 40040
+    rows = [json.loads(l) for l in open(tmp_path / "calls.jsonl")]
+    assert [x["ok"] for x in rows] == [False, True] and rows[0]["stop_reason"] == "length"
+    assert rows[0]["reasoning_chars"] == 152500 and rows[0]["output_tokens"] == 40000
 
 
 # ---------------- reflect step: the training-log tail reaches the Scribe and the next Researcher briefing ----------------

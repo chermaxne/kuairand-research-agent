@@ -606,8 +606,14 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * Engineer is back to `deepseek/deepseek-v4-flash` (effort low, 32k budget), fallbacks qwen3-coder -> codestral, with
   GLM-5.2 deliberately absent from the coding chain (asserted in tests). GLM-5.2 stays the Researcher, where its long
   reasoning produces good plans and the visible output is ~2k tokens.
-* Should the Engineer cap be raised? Measured over all 28 V4-Flash Engineer calls in this project: median 8,782
-  output tokens, p90 14,653, and **not one call was ever truncated** (every `stop_reason` is `end_turn`; the only 3
+* Accounting gap this exposed (fixed): a failed candidate model produced no row in `llm_calls.jsonl` — only the
+  succeeding call was logged, with the failure in a note — and its tokens were left out of `tokens_total`,
+  `tokens_by_role` and the spend line. GLM's 46,651 wasted tokens in ten12 were therefore invisible to any query over
+  the log. `LLMResponse.discarded` now carries every billed-but-unusable attempt; `CallLog.record` writes a row per
+  attempt (`ok: false`, `discarded_reason`, `reasoning_chars`) and `Roles._call` adds their usage to the run totals.
+* Should the Engineer cap be raised? The GLM attempt DID hit the cap (`finish_reason='length'` at 40,000), but the
+  cap was not the constraint — 38k of it went to hidden reasoning before any output. Measured over all 28 V4-Flash
+  Engineer calls: median 8,782 output tokens, p90 14,653, and **not one was ever truncated** (every `stop_reason` is `end_turn`; the only 3
   truncations in the whole project are the Researcher on GLM at the old 12k cap). Three outliers (29k / 44k / 48k
   tokens, 164-618 s) completed even when the cap was 24,000 — OpenRouter did not enforce `max_tokens` on that route,
   so a bigger number would not have changed them; they were slow because of reasoning, not short of room. 32k stays:

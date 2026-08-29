@@ -218,9 +218,11 @@ class Roles:
     def _call(self, role: str, system_blocks: Sequence[str], messages: List[Dict[str, str]], purpose: str, attempt: int = 1) -> LLMResponse:
         resp = self.client.complete(role=role, model=self._model(role), system_blocks=system_blocks, messages=messages,
                                     max_tokens=self._max_tokens(role))
-        self.iteration_usage.add(resp.usage)
-        self.role_usage[role] = self.role_usage.get(role, 0) + resp.usage.total
-        self.iteration_role_usage[role] = self.iteration_role_usage.get(role, 0) + resp.usage.total
+        billed = [resp.usage] + [d["usage"] for d in (getattr(resp, "discarded", []) or [])]
+        for u in billed:                       # discarded attempts were billed too: count them (spec §2.8 honest accounting)
+            self.iteration_usage.add(u)
+            self.role_usage[role] = self.role_usage.get(role, 0) + u.total
+            self.iteration_role_usage[role] = self.iteration_role_usage.get(role, 0) + u.total
         self.calls_this_iteration += 1
         if self.log:
             self.log(f"[llm] {purpose}: {resp.model} answered in {resp.latency_s:.0f}s "
