@@ -8,18 +8,19 @@ llm:
   provider: openrouter             # -> https://openrouter.ai/api/v1 (OpenAI-compatible Chat Completions)
   api_key_env: OPENROUTER_API_KEY  # key from https://openrouter.ai/keys — put it in .env, never in git
   # Model choice (2026-08-28): quality where it matters, cost where it does not.
-  #   Researcher  google/gemini-3-flash-preview  TRIAL 2026-08-29 (user's call): $0.50/$3.00 per M, the model behind
-  #                                           LoongFlow's 62.7% on MLE-bench; ~35% cheaper than GLM-5.3 per run.
-  #                                           Previous: z-ai/glm-5.3 (good plans; first fallback now).
-  #   Engineer    google/gemini-3-flash-preview  TRIAL 2026-08-29 (user's call). deepseek/deepseek-v4-flash stays the
+  #   Researcher  google/gemini-3.7-flash    TRIAL 2026-08-29 (user's call): newest Flash (Aug 13), $0.75/$3.75 per M,
+  #                                           99.8% uptime on both routes. gemini-3-flash-preview ($0.50/$3.00) ran
+  #                                           two clean iterations in ten14 (25-29 s researcher calls, ~4.3k out);
+  #                                           z-ai/glm-5.3 is the first fallback.
+  #   Engineer    google/gemini-3.7-flash    TRIAL 2026-08-29 (user's call). deepseek/deepseek-v4-flash stays the
   #                                           first fallback (writes a full pipeline in ~90 s / 11k tokens, never
   #                                           failed to emit a file), so a mute call costs money and time, not an
   #                                           iteration. Revert with: --set llm.engineer_model=deepseek/deepseek-v4-flash
   #   Debugger    deepseek/deepseek-v4-flash  fast, correct on tracebacks; qwen3-coder: 2/6 correct, one label leak.
   #   Scribe      mistralai/codestral-2508    0.4 s, $0.0028.
   # ≈ $0.03 per iteration; ~6 min per iteration -> 50 iterations in ~5 h. Faster/cheaper coder: --llm-profile fast.
-  researcher_model: google/gemini-3-flash-preview
-  engineer_model: google/gemini-3-flash-preview
+  researcher_model: google/gemini-3.7-flash
+  engineer_model: google/gemini-3.7-flash
   debugger_model: deepseek/deepseek-v4-flash
   scribe_model: mistralai/codestral-2508
   fallback_models:                 # tried in order when the primary stalls, is rate-limited (429) or unavailable

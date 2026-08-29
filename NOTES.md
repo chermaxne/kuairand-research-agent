@@ -640,6 +640,13 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   vs ~$1.6 for GLM-5.3 in both seats. Researcher fallbacks: GLM-5.3, then V4 Flash; Engineer fallbacks unchanged
   (V4 Flash first). The GLM-5.3 trial ran two iterations before this switch (ten13 it01-02) without a mute call.
 
+### Gemini-3.7-flash trial for Researcher + Engineer (2026-08-29, user's call)
+* Switched from gemini-3-flash-preview after two clean iterations in ten14 (researcher 25-29 s / ~4.3k out, engineer
+  16-17 s / ~4.4k out, no fallbacks, no truncation) to `google/gemini-3.7-flash` ($0.75/$3.75 per M, newest Flash,
+  99.8% uptime). ~$1.2 per 10-iteration run estimated. Fallback chains unchanged (GLM-5.3 / V4 Flash first).
+  Note the Gemini Flash models answer in ~20 s where GLM took 2-4 min: the LLM share of an iteration is now
+  negligible next to the training run.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)
