@@ -180,6 +180,10 @@ run:
   PROMOTE_MARGIN: 0.0002           # promotion needs primary > best + PROMOTE_MARGIN (separate from EPSILON). Team decision
                                    # 2026-08-29: 0.0002 ≈ the seed noise of a 3-seed-averaged pipeline. 0.0005 discarded two
                                    # real +0.0004 gains in one run, so nothing compounded. Spec default was 0.0010.
+  MAX_SPEND_USD: 5.0                # real-dollar stop guard (checked via provider_balance each iteration start);
+                                     # separate from llm.max_total_tokens since $/token varies ~10x across profiles/models
+                                     # (e.g. the default gemini-3.1-pro-preview vs a free-tier profile). null disables;
+                                     # only enforced when the provider exposes a credit endpoint (OpenRouter today).
   DEBUG_RETRIES: 3                 # debugger attempts per iteration; retries never consume iterations
   EXPERIMENT_TIMEOUT_S: 1500       # hard kill for one pipeline run (train + predict val + in-run ablation fits)
   FINALIZE_TIMEOUT_S: 1800         # hard kill for the single champion --split test pass

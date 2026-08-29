@@ -53,7 +53,13 @@ PIPELINE_CONTRACT_NOTE = """`python pipeline.py --data <data_dir> --split val --
   line `ABLATION <name> primary=<f> gauc=<f> ndcg5=<f>` (real numbers from real fits only). The written predictions are
   always the full bundle.
 - Evaluating the metric is expensive (~125k rows). For early stopping, score at most every ~50 boosting rounds or once
-  per epoch — NOT every few rounds. Scoring after every 10 rounds turned a 30 s fit into 6 minutes in run ten16."""
+  per epoch — NOT every few rounds. Scoring after every 10 rounds turned a 30 s fit into 6 minutes in run ten16.
+- If this change replaces or adds a LOSS FUNCTION (e.g. pointwise -> pairwise/BPR, adding an auxiliary
+  head): the learning rate and any other optimizer constants were tuned for the OLD objective's gradient
+  scale and are not guaranteed to transfer. Reusing them unchanged is a common cause of loss divergence
+  (loss climbing epoch over epoch instead of falling). If the change_spec does not already address this,
+  pick a conservative LR for the new objective (or add gradient clipping) rather than inheriting the old
+  value silently."""
 
 STALL_DIRECTIVE = """# STALL RECOVERY DIRECTIVE (injected by the harness)
 The last {n} iterations ALL failed (crash / timeout / rejected output). Do NOT propose anything ambitious now.
@@ -188,7 +194,9 @@ class Harness:
             self.phase0()
         done = 0
         while True:
-            reason = stop_reason(state.streak, state.iteration, state.elapsed_s(self.clock()), state.tokens_total, self.limits)
+            spend_usd = self._current_spend_usd() if self.limits.max_total_spend_usd is not None else None
+            reason = stop_reason(state.streak, state.iteration, state.elapsed_s(self.clock()), state.tokens_total, self.limits,
+                                 spend_usd=spend_usd)
             if reason:
                 return self.finalize(reason)
             if session_iteration_limit is not None and done >= session_iteration_limit:
@@ -728,6 +736,16 @@ class Harness:
         text = "\n".join(lines) + "\n"
         atomic_write_text(os.path.join(self.run_dir, "results_summary.md"), text)
         return text
+
+    def _current_spend_usd(self) -> Optional[float]:
+        """Real dollars this run has consumed so far (start snapshot vs. a fresh balance check), used only
+        as a stop-condition input — never raises, returns None if the provider has no credit endpoint."""
+        from .llm_client import provider_balance
+        s0 = self.state.spend_start or {}
+        s1 = provider_balance(self.cfg) or {}
+        if s0.get("usage_usd") is None or s1.get("usage_usd") is None:
+            return None
+        return s1["usage_usd"] - s0["usage_usd"]
 
     def _spend_line(self) -> str:
         """Provider credit actually consumed by this run (start snapshot minus end snapshot)."""

@@ -26,6 +26,7 @@ class RunLimits:
     wall_clock_s: float = 6 * 3600.0
     promote_margin: float = 0.0010
     max_total_tokens: Optional[int] = None
+    max_total_spend_usd: Optional[float] = None
 
     @classmethod
     def from_config(cls, cfg: dict) -> "RunLimits":
@@ -34,7 +35,8 @@ class RunLimits:
         return cls(epsilon=float(run["EPSILON"]), n_flat=int(run["N_FLAT"]), max_iters=int(run["MAX_ITERS"]),
                    wall_clock_s=float(run["WALL_CLOCK_HOURS"]) * 3600.0,
                    promote_margin=float(run["PROMOTE_MARGIN"]),
-                   max_total_tokens=(int(llm["max_total_tokens"]) if llm.get("max_total_tokens") else None))
+                   max_total_tokens=(int(llm["max_total_tokens"]) if llm.get("max_total_tokens") else None),
+                   max_total_spend_usd=(float(run["MAX_SPEND_USD"]) if run.get("MAX_SPEND_USD") else None))
 
 
 def should_promote(primary: Optional[float], best_primary: Optional[float], margin: float) -> bool:
@@ -60,8 +62,12 @@ def decision_label(status: str, promoted: bool) -> str:
     return "promoted" if promoted else "kept_champion"
 
 
-def stop_reason(streak: int, iteration: int, elapsed_s: float, tokens_total: int, limits: RunLimits) -> Optional[str]:
-    """Checked at the top of the loop BEFORE starting a new iteration (spec §2.5: never start past the ceiling)."""
+def stop_reason(streak: int, iteration: int, elapsed_s: float, tokens_total: int, limits: RunLimits,
+                spend_usd: Optional[float] = None) -> Optional[str]:
+    """Checked at the top of the loop BEFORE starting a new iteration (spec §2.5: never start past the ceiling).
+    `spend_usd` is real provider-reported dollars consumed by this run so far (None when unavailable/not
+    checked this tick) — a separate guard from the token cap because per-token price varies ~10x across
+    profiles (e.g. switching from the default OpenRouter models to a Gemini Pro profile)."""
     if streak >= limits.n_flat:
         return STOP_CONVERGED
     if iteration >= limits.max_iters:
@@ -69,6 +75,8 @@ def stop_reason(streak: int, iteration: int, elapsed_s: float, tokens_total: int
     if elapsed_s >= limits.wall_clock_s:
         return STOP_WALL_CLOCK
     if limits.max_total_tokens is not None and tokens_total >= limits.max_total_tokens:
+        return STOP_SPEND_GUARD
+    if limits.max_total_spend_usd is not None and spend_usd is not None and spend_usd >= limits.max_total_spend_usd:
         return STOP_SPEND_GUARD
     return None
 
