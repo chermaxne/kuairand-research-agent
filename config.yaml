@@ -10,30 +10,33 @@ llm:
   # Model choice (2026-08-28): quality where it matters, cost where it does not.
   #   Researcher  z-ai/glm-5.2               best plans seen in this project (precise specs, cites the ledger and the
   #                                           playbook); reasons 15-30k chars per call, so ~1-2 min; ~$0.02 per call.
-  #   Engineer    z-ai/glm-5.2               team choice 2026-08-29 (with the FM retired, experiments are torch/GBDT
-  #                                           models, not FM edits: the stronger coder is worth its extra minutes);
-  #                                           deepseek-v4-flash stays first fallback (correct non-trivial code unaided).
+  #   Engineer    deepseek/deepseek-v4-flash ~90 s for a full pipeline, correct non-trivial code unaided. GLM-5.2 was
+  #                                           tried as Engineer on 2026-08-29 and REVERTED: it spent the whole 40k
+  #                                           budget on hidden reasoning (152,500 reasoning chars, ZERO visible output,
+  #                                           finish_reason=length) and fell back anyway — ~200 s and ~47k tokens
+  #                                           wasted per call. A model that must emit a ~26k-char file cannot also
+  #                                           think for 38k tokens inside the same budget.
   #   Debugger    deepseek/deepseek-v4-flash  fast, correct on tracebacks; qwen3-coder: 2/6 correct, one label leak.
   #   Scribe      mistralai/codestral-2508    0.4 s, $0.0028.
   # ≈ $0.03 per iteration; ~6 min per iteration -> 50 iterations in ~5 h. Faster/cheaper coder: --llm-profile fast.
   researcher_model: z-ai/glm-5.2
-  engineer_model: z-ai/glm-5.2
+  engineer_model: deepseek/deepseek-v4-flash
   debugger_model: deepseek/deepseek-v4-flash
   scribe_model: mistralai/codestral-2508
   fallback_models:                 # tried in order when the primary stalls, is rate-limited (429) or unavailable
     researcher: [deepseek/deepseek-v4-flash, qwen/qwen3-coder]
-    engineer:   [deepseek/deepseek-v4-flash, qwen/qwen3-coder]
+    engineer:   [qwen/qwen3-coder, mistralai/codestral-2508]   # GLM-5.2 deliberately NOT here: it returns nothing
     debugger:   [qwen/qwen3-coder, mistralai/codestral-2508]
     scribe:     [qwen/qwen3-coder]
   reasoning:                       # OpenRouter unified parameter (`effort` works on every model here; Claude 5 rejects
     researcher: {effort: high}     # team decision 2026-08-29; NOTE run `ten` showed GLM ignoring a reasoning token cap, so this may be soft
-    engineer: {effort: medium}     # GLM-5.2 writing a whole torch/GBDT pipeline: medium reasoning; low for FM-sized edits
+    engineer: {effort: low}        # reasoning helps correctness; low leaves the budget for the file itself
     debugger: {effort: low}
     scribe: {}
   # researcher 40000: GLM-5.2's hidden reasoning on a ~25k-char briefing exhausted 12000 (50k reasoning chars, zero
   # visible plan) in 9 of 11 calls; the cap covers reasoning + visible output. Worst case ~4 min / ~$0.15 per call.
-  max_output_tokens: {researcher: 40000, engineer: 40000, debugger: 24000, scribe: 600}   # includes any thinking;
-                                   # engineer 40000: GLM-5.2 reasons before a ~8k-token file and ignored a token cap once
+  max_output_tokens: {researcher: 40000, engineer: 32000, debugger: 24000, scribe: 600}   # includes any thinking;
+                                   # engineer 32000: whole-pipeline files are ~8k tokens; the rest is V4 Flash's reasoning
   # Streaming timeouts (OpenAI-compatible providers): a stalled generation is abandoned after inactivity_timeout_s
   # without a token, every call is capped at call_timeout_s, one retry, then the next fallback model.
   inactivity_timeout_s: 120

@@ -625,9 +625,11 @@ def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
     run, llm = base_cfg["run"], base_cfg["llm"]
     assert run["sizing_directive"] is True and run["implausible_gauc_below"] == 0.5
     assert run["EXPERIMENT_TIMEOUT_S"] >= 1200 and "one_change_per_iteration" not in run and "structural_first_until_iter" not in run
-    assert llm["researcher_model"] == "z-ai/glm-5.2" and llm["engineer_model"] == "z-ai/glm-5.2"
-    assert llm["debugger_model"] == "deepseek/deepseek-v4-flash" and llm["fallback_models"]["engineer"][0] == "deepseek/deepseek-v4-flash"
-    assert llm["max_output_tokens"]["engineer"] >= 30000                         # reasoning + a whole pipeline file
+    assert llm["researcher_model"] == "z-ai/glm-5.2" and llm["engineer_model"] == "deepseek/deepseek-v4-flash"
+    assert llm["debugger_model"] == "deepseek/deepseek-v4-flash"
+    # GLM-5.2 as Engineer returned ZERO visible output (whole budget spent reasoning): keep it out of the coding chain
+    assert "z-ai/glm-5.2" not in llm["fallback_models"]["engineer"] + [llm["engineer_model"]]
+    assert llm["max_output_tokens"]["engineer"] >= 24000                         # reasoning + a whole pipeline file
     assert "minimax" not in json.dumps([llm[f"{r}_model"] for r in ("researcher", "engineer", "debugger", "scribe")])
     for role in ("researcher", "engineer", "debugger", "scribe"):          # initial phase: no Claude-priced model anywhere
         assert not any("claude" in m for m in [llm[f"{role}_model"]] + llm["fallback_models"][role])

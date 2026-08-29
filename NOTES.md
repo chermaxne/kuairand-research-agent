@@ -598,6 +598,17 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   medium, output budget 24k -> 40k (GLM reasons before writing and once ignored a token cap). Expect ~3-5 min per
   Engineer call and ~2-4x the per-iteration LLM cost (still well under $1).
 
+### GLM-5.2 as Engineer: reverted after one call (2026-08-29)
+* Run ten12, it01: `z-ai/glm-5.2` (engineer, effort medium, 40k budget) produced **152,500 characters of hidden
+  reasoning and zero visible output** (`finish_reason='length'`), 198 s and ~46,651 billed tokens, then the harness
+  fell back to `deepseek/deepseek-v4-flash`, which wrote the file in 90 s / 11,286 tokens. The Engineer has to emit a
+  ~26k-character file; a model that reasons for ~38k tokens inside the same budget cannot.
+* Engineer is back to `deepseek/deepseek-v4-flash` (effort low, 32k budget), fallbacks qwen3-coder -> codestral, with
+  GLM-5.2 deliberately absent from the coding chain (asserted in tests). GLM-5.2 stays the Researcher, where its long
+  reasoning produces good plans and the visible output is ~2k tokens.
+* Same failure mode as the Researcher at a 12k budget in run `ten`: with these models, reasoning effort has to be
+  budgeted against how much VISIBLE output the role must produce, not against how hard the task feels.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)
