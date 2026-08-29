@@ -127,6 +127,12 @@ any feedback column named in a field list before the code runs; the best leak-cl
 tracked as `best_measured` and finalize builds the submission from it when it beats the champion, so a gain that
 missed the margin is never lost.
 
+Hard rule (`run.retire_fm: true`): the kit's factorization machine is retired — the organizers swept its capacity
+and features to a plateau, and every FM variant this team measured sits within noise of 0.605 — so every plan must
+name a different `model_family` (DIN-style attention over user history, two-tower/MLP, sequence model, GBDT over
+past-only features, MMoE/PLE, watch-time model); the harness re-asks once and then rejects a plan naming the FM.
+Proven FM components (ListNet loss, session-position field, seed averaging) may ride along in the new model.
+
 Sizing and in-run attribution (`config.yaml` → `run`): convergence is the organizers' rule verbatim (each
 iteration vs best-so-far, ε = 0.002, N = 3; there is no alternative reading in the code), so every briefing carries
 a **SIZING DIRECTIVE**: one hypothesis sized to clear ε on its own, a numeric `expected_gain` with evidence, every

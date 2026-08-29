@@ -578,6 +578,19 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
 * The quoted runtime numbers in the spec (900 s limit, FM epoch ≈ 2 s) are stale relative to config (1500 s); the
   briefing carries the live limit.
 
+### Hard rule: the FM is retired (2026-08-29, team decision)
+* Evidence: organizers (capacity k = 8/16/32 flat, 13 fields vs 5 flat); our probes (15+ FM variants within ±0.0006 of
+  0.6049); run ten10 (ListNet +0.0016, position field +0.0014, then converged). The user's call: shift away from the
+  FM from iteration 1 as a hard rule rather than a posture.
+* Implemented as `run.retire_fm: true`, harness-enforced: the plan carries a required `model_family`; `ResearcherPlan.is_fm`
+  recognises the FM and its re-skins (blank counts as FM; hybrids named DeepFM/DIN/… do not); a violating plan gets one
+  re-ask with the rule text, a second violation fails the iteration (costs a life — the prompt states the rule up
+  front as rule 00 so this should not happen). The Engineer is told the family replaces the FM and to carry over the
+  champion's data loading/CLI and the components marked as riders. `--set run.retire_fm=false` restores the old policy.
+* My reservation, on record: the first non-FM iteration pays the full engineering risk (torch on CPU, cheap Engineer)
+  before any history signal has been shown to exist; a crash there is a lost life. The Debugger's three free retries
+  and the 1500 s limit are the mitigation.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

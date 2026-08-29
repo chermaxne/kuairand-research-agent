@@ -77,10 +77,10 @@ literature in §8): (2) the user's behaviour history as a sequence (DIN-style ta
 past-only fields), (3) multi-task learning on the auxiliary behaviours, (4) watch-time modelling (censored /
 ordinal targets), (6) time and drift features, (7) unbiased validation on the random-exposure log, and (5) a model
 family only where it consumes a new signal; direction (1), the ranking loss, is already in the champion.
-Treat "a better FM over the same five id fields" as explored: the organizers swept its
-capacity and its static features to a plateau, so proposals whose only novelty lies inside that model (its loss,
-its regularisation, its seeds, fields derived from the same columns) are not structural bets — the open directions
-are the ones that add a signal the model does not have."""
+HARD RULE (harness-enforced, run.retire_fm): the kit's factorization machine is retired — the organizers swept its
+capacity and features to a plateau and every FM variant measured on this data sits within noise of the same score.
+Every experiment must train a DIFFERENT architecture, named in `model_family` (a plan naming the FM is refused);
+its proven components (ranking loss, session-position field, seed averaging) may be carried into the new model."""
 
 POSTURE_STEADY = """Posture at streak {streak}: still structural, but choose the variant with the best evidence rather than the highest
 ceiling, stack every validated rider, keep the champion's seed averaging, and prefer the implementation with the

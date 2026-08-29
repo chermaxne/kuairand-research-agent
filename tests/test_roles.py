@@ -15,7 +15,7 @@ from tests.conftest import ROOT, make_toy_harness
 
 GOOD = {"hypothesis": "Use BPR loss", "category": "training", "change_spec": "1. ...", "expected_risk": "medium",
         "expected_gain": 0.003, "gain_evidence": "organizers' direction #1", "ablation_plan": "champion_equiv: pointwise loss",
-        "builds_on": "champion", "rationale": "organizers' top pick"}
+        "model_family": "DIN target attention", "builds_on": "champion", "rationale": "organizers' top pick"}
 
 
 # ---------------------------------------------------------------- parsing
@@ -65,7 +65,7 @@ def test_prompt_files_exist_and_split_into_system_and_task():
         sys_p, task = load_prompt(os.path.join(ROOT, "prompts"), role)
         assert sys_p and task and "<!-- TASK -->" not in sys_p
     sys_p, task = load_prompt(os.path.join(ROOT, "prompts"), "researcher")
-    for key in ("hypothesis", "category", "change_spec", "expected_risk", "expected_gain", "gain_evidence", "ablation_plan", "builds_on"):
+    for key in ("hypothesis", "category", "change_spec", "expected_risk", "model_family", "expected_gain", "gain_evidence", "ablation_plan", "builds_on"):
         assert key in sys_p and key in task
     assert os.path.getsize(os.path.join(ROOT, "knowledge", "library.md")) > 4000
 
@@ -720,7 +720,7 @@ def test_sizing_directive_every_iteration_except_the_last_shot(tmp_path, base_cf
         h.run_iteration(it)
     assert "SIZING DIRECTIVE (harness policy: flat streak 0 of 3 — 3 more miss(es)" in briefings[0] and "Posture at streak 0" in briefings[0]
     assert "boldest" in briefings[0] and "ablation_plan" in briefings[0] and "ATTRIBUTION DIRECTIVE" not in briefings[0]
-    assert "a better FM over the same five id fields" in briefings[0]          # steer away from FM-internal tweaks at streak 0
+    assert "HARD RULE (harness-enforced, run.retire_fm)" in briefings[0]      # the FM is retired from iteration 1
     assert "flat streak 1 of 3" in briefings[1] and "Posture at streak 1" in briefings[1]
     assert "LAST-SHOT DIRECTIVE" in briefings[2] and "SIZING DIRECTIVE" not in briefings[2]
     # the Engineer is told the predicted gain and the ablation plan
@@ -861,3 +861,35 @@ def test_console_shows_the_full_researcher_plan_with_evidence_and_citations(tmp_
     assert "EVIDENCE FOR THE GAIN:" in joined and "organizers' direction #1" in joined
     assert "ABLATION PLAN:" in joined and "CHANGE SPEC:" in joined and "│   2. keep CLI" in joined
     assert "Concretely, \"structural\" means one of the organizers' open directions" in load_prompt(os.path.join(ROOT, "prompts"), "researcher")[0]
+
+
+# ---------------------------------------------------------------- hard rule: the FM is retired (2026-08-29)
+def test_retire_fm_rule_refuses_fm_plans_after_one_reask_and_accepts_other_architectures(base_cfg):
+    from agent.llm_client import LLMResponse
+    from agent.schemas import ResearcherPlan
+    for fam, is_fm in (("FM", True), ("factorization machine with ListNet loss", True), ("", True), ("field-aware FM", True),
+                       ("DIN target attention", False), ("DeepFM", False), ("LightGBM over past-only features", False),
+                       ("two-tower MLP", False), ("MMoE multi-task", False)):
+        assert ResearcherPlan.is_fm(fam) is is_fm, fam
+    assert base_cfg["run"]["retire_fm"] is True
+    replies = [json.dumps({**GOOD, "model_family": "FM with ListNet loss"}), json.dumps({**GOOD, "model_family": "DIN target attention"})]
+    seen = []
+
+    class Client:
+        provider = "fake"
+        def complete(self, **kw):
+            seen.append(kw["messages"][-1]["content"])
+            return LLMResponse(text=replies[len(seen) - 1], usage=TokenUsage(1, 1), model="m", latency_s=0.1)
+    r = Roles(Client(), base_cfg, os.path.join(ROOT, "prompts"), os.path.join(ROOT, "knowledge", "library.md"))
+    plan, err, _ = r.researcher("briefing")
+    assert plan is not None and plan.model_family == "DIN target attention" and err == ""
+    assert len(seen) == 2 and "HARD RULE (run.retire_fm)" in seen[1] and "DIN-style" in seen[1]    # re-asked with the rule
+    seen.clear(); replies[:] = [json.dumps({**GOOD, "model_family": "FM"}), json.dumps({**GOOD, "model_family": "factorisation machine"})]
+    plan, err, _ = r.researcher("briefing")
+    assert plan is None and "researcher_malformed" in err and "retire_fm" in err                    # two FM plans -> iteration fails
+    cfg_off = json.loads(json.dumps(base_cfg)); cfg_off["run"]["retire_fm"] = False
+    seen.clear(); replies[:] = [json.dumps({**GOOD, "model_family": "FM"})]
+    plan, err, _ = Roles(Client(), cfg_off, os.path.join(ROOT, "prompts"), os.path.join(ROOT, "knowledge", "library.md")).researcher("b")
+    assert plan is not None and len(seen) == 1                                                       # rule off -> accepted
+    eng = r.engineer_message(parse_researcher(json.dumps(GOOD)), {"pipeline.py": "x"}, "T", "C")
+    assert "MODEL FAMILY (replaces the champion's FM): DIN target attention" in eng

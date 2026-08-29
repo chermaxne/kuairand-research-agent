@@ -5,6 +5,7 @@ Nothing here is written by an LLM: the harness fills these from measured values.
 from __future__ import annotations
 
 import json
+import re
 import os
 import time
 from dataclasses import asdict, dataclass, field
@@ -59,8 +60,23 @@ class ResearcherPlan:
     expected_gain: Optional[float] = None   # the Researcher's predicted primary delta (a number, checked against the measurement)
     gain_evidence: str = ""       # why that number: own measured deltas and/or published results
     ablation_plan: str = ""       # variants the pipeline should also score and print as ABLATION lines (in-run attribution)
+    model_family: str = ""        # the architecture the experiment trains (team hard rule: not the FM — see run.retire_fm)
 
-    REQUIRED = ("hypothesis", "category", "change_spec", "expected_risk", "builds_on", "expected_gain")
+    REQUIRED = ("hypothesis", "category", "change_spec", "expected_risk", "builds_on", "expected_gain", "model_family")
+    FM_PATTERNS = (r"\bfm\b", r"factori[sz]ation", r"\bffm\b", r"field-aware")
+
+    @classmethod
+    def is_fm(cls, family: str) -> bool:
+        """True when the named architecture is the factorization machine the kit ships (or a re-skin of it). Hybrids
+        that merely embed an FM component inside a different model (e.g. DeepFM, DIN + FM term) count as NOT FM only
+        when the name says so explicitly — 'deepfm', 'xdeepfm', 'din' etc."""
+        f = (family or "").strip().lower()
+        if not f:
+            return True
+        if any(k in f for k in ("deepfm", "xdeepfm", "din", "attention", "transformer", "sasrec", "gru", "lstm", "mlp", "dcn",
+                                "tower", "gbdt", "lightgbm", "xgboost", "mmoe", "ple", "esmm", "autoint", "nfm", "afm", "wide")):
+            return False
+        return any(re.search(p, f) for p in cls.FM_PATTERNS)
 
     @classmethod
     def from_obj(cls, obj: Any) -> "ResearcherPlan":
@@ -95,7 +111,8 @@ class ResearcherPlan:
                    rationale=rationale.strip() or obj["change_spec"].strip(),
                    expected_gain=gain,
                    gain_evidence=(evidence if isinstance(evidence, str) else json.dumps(evidence)).strip(),
-                   ablation_plan=(ablation if isinstance(ablation, str) else json.dumps(ablation)).strip())
+                   ablation_plan=(ablation if isinstance(ablation, str) else json.dumps(ablation)).strip(),
+                   model_family=str(obj.get("model_family", "")).strip())
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

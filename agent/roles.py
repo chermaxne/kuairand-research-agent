@@ -265,7 +265,9 @@ class Roles:
         except LLMError as e:
             return None, f"researcher_llm_error: {e}", ""
         try:
-            return parse_researcher(resp.text), "", resp.text
+            plan = parse_researcher(resp.text)
+            self._check_plan_rules(plan)
+            return plan, "", resp.text
         except ContractError as e:
             err1 = str(e)
         messages += [{"role": "assistant", "content": resp.text}, {"role": "user", "content": REASK.format(error=err1)}]
@@ -274,15 +276,30 @@ class Roles:
         except LLMError as e:
             return None, f"researcher_llm_error: {e}", resp.text
         try:
-            return parse_researcher(resp2.text), "", resp2.text
+            plan = parse_researcher(resp2.text)
+            self._check_plan_rules(plan)
+            return plan, "", resp2.text
         except ContractError as e:
             return None, f"researcher_malformed: {e} (after one re-ask; first error: {err1})", resp2.text
+
+    def _check_plan_rules(self, plan: ResearcherPlan) -> None:
+        """Team hard rules on the plan (harness-enforced, not advisory). run.retire_fm: the kit's factorization machine
+        has been tuned to its plateau (organizers: capacity and features flat; our runs: every FM variant within noise of
+        0.605), so every experiment must train a different architecture. Its proven components may ride along."""
+        if self.cfg.get("run", {}).get("retire_fm", False) and ResearcherPlan.is_fm(plan.model_family):
+            raise ContractError(f"HARD RULE (run.retire_fm): model_family {plan.model_family!r} is the retired factorization machine "
+                                f"(or unnamed). Propose a DIFFERENT architecture — e.g. DIN-style target attention over the user's "
+                                f"history, a two-tower/MLP model over embeddings + history features, a sequence model (SASRec/GRU), "
+                                f"a GBDT over engineered past-only features, or a multi-task MMoE/PLE — and name it in `model_family`. "
+                                f"The champion's proven components (ListNet loss, session-position field, seed averaging) may be reused "
+                                f"inside the new model.")
 
     # -- engineer ------------------------------------------------------------
     @staticmethod
     def engineer_message(plan: ResearcherPlan, champion_files: Dict[str, str], task: str, contract_note: str = "") -> str:
         return (f"# Change specification (from the Researcher)\nHYPOTHESIS: {plan.hypothesis}\nCATEGORY: {plan.category}\n"
-                f"EXPECTED RISK: {plan.expected_risk}\nEXPECTED GAIN (Researcher's prediction): {plan.expected_gain}\n"
+                f"EXPECTED RISK: {plan.expected_risk}\nMODEL FAMILY (replaces the champion's FM): {plan.model_family}\n"
+                f"EXPECTED GAIN (Researcher's prediction): {plan.expected_gain}\n"
                 f"ABLATION PLAN (variants to also score and print as ABLATION lines): {plan.ablation_plan or '(none given: print at least the champion-equivalent variant if time allows)'}\n"
                 f"CHANGE SPEC:\n{plan.change_spec}\n\n"
                 f"# Current champion files\n{render_file_blocks(champion_files)}\n\n"

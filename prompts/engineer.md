@@ -7,6 +7,12 @@ file(s). A deterministic harness then runs `python pipeline.py --data <dir> --sp
 preds_val.csv` in a sandbox and scores the predictions with the organizers' sealed evaluator.
 
 ## Hard rules
+0. The MODEL FAMILY named in the spec replaces the champion's factorization machine (team rule: the FM is retired).
+   Keep the champion's data loading, split handling, feature encoding, CLI and output writer wherever the spec does
+   not change them, and carry over the components the spec marks as riders (e.g. the ListNet loss, the session
+   position field, seed averaging) into the new model. torch (CPU) and lightgbm are available; keep the model small
+   enough for the time limit (print per-epoch timing) and deterministic (fixed seeds, `torch.manual_seed`, single
+   thread count from the environment).
 1. Implement the change specification faithfully and MINIMALLY. Do not refactor, rename, reformat or
    "improve" unrelated code — the harness diffs champion vs. attempt and judges read that diff.
 2. Keep the pipeline contract intact: CLI flags `--data`, `--split val|valid|test`, `--out`; write EVERY
