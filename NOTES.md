@@ -378,11 +378,137 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   Engineer had added the self-check the playbook recommends (`assert epoch-1 primary > 0.55`), which fires on a copy where
   ALL validation labels are flipped; v1 treated "crashed on flipped labels" as a leak. A streak step and a real gain lost.
 * v2: flip a deterministic **10% of validation users** (md5 bucket of user_id) and score only those users' TRUE labels
-  (sealed evaluate on the subset); a clean pipeline scores them like everyone else (validated on the real baseline),
-  a leaking one inverts them. If the pipeline crashes on the 10% copy, retry at 2% (a legit validation metric barely
-  moves; ~450 users still give a decisive signal); crashes on both = INCONCLUSIVE → not promoted (conservative: a leaky
-  champion is catastrophic, a lost iteration is not). Engineer prompt and playbook: assert on train-side quantities
-  only, never hard-assert on the validation metric.
+  (sealed evaluate on the subset); a clean pipeline scores them like everyone else, a leaking one inverts them. If the
+  pipeline crashes on the 10% copy, retry at 2%; crashes on both = INCONCLUSIVE → not promoted (conservative: a leaky
+  champion is catastrophic, a lost iteration is not). A free plausibility ceiling (`run.implausible_primary_above: 0.70`)
+  flags oracle-style leaks with no re-run at all. Engineer prompt and playbook: assert on TRAIN-side quantities only.
+* **Validated on real data** (`knowledge/evidence/leak_test_validation*`): baseline champion → clean, flipped users score
+  0.6029 on their true labels vs 0.6015 full-set (30 s); the falsely-flagged ten6 it01 bundle → crashed at 10% (that same
+  assert), retried at 2% → **clean**, 0.5881 / GAUC 0.672 on 493 users (18 min total); the real ten5 leaker → **LEAK**,
+  0.1456 / **GAUC 0.00015** — perfectly inverted. Honest 0.588–0.603 vs leak 0.146 around a 0.5 threshold: wide margin.
+* Cost: one extra experiment-length per would-be promotion (18 min in the crash+retry case; ~1 pass once pipelines stop
+  asserting on the validation metric). `run.leak_check: off` disables it.
+
+### Briefing depth — the Researcher could not judge its own bundles (2026-08-29)
+* Symptom in run `ten7`: it02 bundled three changes (5 seeds + hour-of-day field + 2 negatives per positive) and moved
+  +0.0001; it03 bundled two more and moved −0.0002. The briefing showed only a 160-char-truncated hypothesis, the result
+  and a one-line lesson, so the Researcher could not tell WHICH component of a bundle helped — exactly the judgement the
+  convergence rule forces it to make. Meanwhile the briefing used 5,633 tokens of a ~1M-token context window, and the
+  `change_spec`, `rationale` (592 chars) and `code_diff` (9,354 chars) were already stored in `logs/iter_NN.json`.
+* Fix: `Harness.render_recent_iterations()` gives the last `run.briefing_recent_iterations` (5) iterations in full —
+  untruncated hypothesis, the change spec it wrote, its own rationale, the unified diff (2,500 chars), the delta against
+  the champion at that time, debug attempts with fixes, the leak-test verdict, the deduplicated training curve and the
+  lesson — with an instruction to state which component it is keeping or dropping. `training_log_tail` now drops repeated
+  boilerplate lines (keeping each distinct line's last occurrence) so the 12-line budget carries the metric curve.
+  History stores the full hypothesis. Cost: a briefing of roughly 15–25k tokens instead of 5.6k — still ~2% of context.
+
+### Attribution vs the convergence rule (2026-08-29, team proposal + assessment)
+* Team proposal: fewer changes per iteration so the next Researcher knows what helped, and run feedback should outweigh
+  the pre-injected knowledge file. Assessment: the attribution half is right — `ten7` it02 bundled three changes for
+  +0.0001 and it03 two more for −0.0002, teaching nothing about five distinct ideas. But pure one-change-per-iteration
+  is arithmetically fatal under our reading of the convergence rule: every measured lever here is ≈ +0.001, the streak
+  resets only on > +0.002 over the champion at iteration start, so three *successful, promoted* iterations totalling
+  +0.0039 still converge (simulated; see the table in this entry's commit).
+* Implemented synthesis: `run.one_change_per_iteration: true` injects an ATTRIBUTION DIRECTIVE requiring exactly ONE new
+  component on top of the champion — except on iteration 1 and on the last shot before convergence, where the harness
+  already requires a bundle because a single lever cannot clear ε. Researcher rule 1 now states that **this run's
+  measurements outrank the knowledge file** (the library still records what is already ruled out, so iterations are not
+  spent rediscovering it), and rule 1b requires naming the single component and what its delta will tell you.
+* Rules question surfaced by this: spec §6's pseudocode compares each iteration to the champion at its start
+  (implemented, default `streak_mode: iteration`), but spec §2.5's prose ("no improvement > EPSILON over N consecutive
+  iterations"), the kit README's wording, and standard early stopping (the kit's own FM baseline) all read cumulatively.
+  `streak_mode: window` implements the cumulative reading (`promotion.window_streak`, unit-tested): under it, five
+  stacked +0.001 changes keep the run alive (streak 1,1,2,2,2) instead of converging at iteration 3. **HUMANS: ask the
+  organizers which reading applies.** If cumulative, switch to `window` and one-change-per-iteration becomes fully viable.
+
+### Component ablations and the knowledge file's framing (2026-08-29)
+* Ran one-component-at-a-time ablations offline (numpy FM, no LLM cost, ~4 min; `knowledge/evidence/ablations*`) on top of
+  the pairwise+position champion, covering exactly what the agent had been bundling blindly across ten3/ten7. Result:
+  **every one of them is neutral or harmful** — 5 seeds +0.0002, patience 6 +0.0000, hour-of-day field −0.0003,
+  session-gap field −0.0003, 2 negatives/positive −0.0006, lower LR −0.0009, video×tab cross −0.0018, user×author rate
+  field −0.0158. Frontier follow-ups: pointwise FM on the same fields 0.6033, rank-avg ensemble with the pairwise model
+  0.6049 (2:1 weighting 0.6053), k=32 under the pairwise loss 0.6041. **The FM family is at a plateau around 0.605**;
+  extra categorical fields and correlated ensemble members do not move it.
+* Framing decision (team): the library must not read as a lookup table the agent reproduces — judges would rightly
+  discount that, and exact expected gains stop the agent from learning when they are wrong. §4 was rewritten as
+  directional guidance ("directions that have repaid effort" / "have not repaid effort" / "the open frontier") with **no
+  expected-gain numbers**; §5 is now "reference implementations" for the pieces that are easy to get wrong, not a ranked
+  script. A test enforces that no `±0.0xxx` deltas reappear in the guidance sections.
+* Provenance is NOT hidden: the ablation scripts, outputs and the earlier probe/evaluator evidence stay in
+  `knowledge/evidence/` and are described here, so the honest answer to "how was the playbook built" is available. What
+  changed is what the *agent* reads, not what the *humans* document.
+* Kept in the library because they are methodology rather than answers: the rungs and oracle from the organizers' own
+  `baseline_scores.json`, the noise floor (seed std 0.0003, validation bootstrap SE 0.0022), the traps, and the runtime
+  budget.
+
+### Knowledge file stripped to background only (2026-08-29, team decision)
+* Team decision: remove our own experiment results from the file the agent reads, so the agent genuinely discovers
+  rather than reproduces. `knowledge/library.md` now contains only: task/metric mechanics, the label definition, the
+  dataset's measurable properties, **the organizers' own published findings and their ranked list of unexplored
+  directions** (from the kit README — public), the leakage/plausibility traps, the noise-floor methodology (measure
+  your own seed spread), the runtime budget and literature pointers. Removed: every "direction X gained +0.000Y"
+  statement, the R1–R6 reference implementations, and the plateau/frontier synthesis. A test fails if any of them
+  reappear. The Researcher prompt now says its own measurements are the only evidence of what works.
+* Provenance retained (the team's stated reason is agent autonomy, not concealment): the probe/evaluator/ablation
+  scripts and outputs stay in `knowledge/evidence/` and are described in this file, so "how was the playbook built"
+  has an honest answer. The library simply no longer hands the agent the answers.
+* Trade-off accepted knowingly: the agent will re-derive things we already know (e.g. that extra categorical fields
+  are flat), which costs iterations under a 3-miss convergence rule — but the per-iteration research log is a large
+  share of the marks, and a log of genuine discovery is worth more than a log of reproduction.
+
+### Domain knowledge section + grounding rule (2026-08-29, team request)
+* The library's literature notes were thin and, worse, still referred to our own results. Replaced by §8 "Recommender-
+  systems domain knowledge": for each of the organizers' seven unexplored directions, the published methods (BPR/UAI'09,
+  ranking calibration JASA'17, sampled softmax TOIS'24, PSL'24, negative-sampling surveys TOIS/TPAMI'24; DIN KDD'18,
+  SASRec ICDM'18, BERT4Rec CIKM'19, SIM CIKM'20, TWIN-V2 CIKM'24, Ludewig & Jannach UMUAI'18; MMoE KDD'18, PLE RecSys'20,
+  ESMM SIGIR'18; D2Q KDD'22, TPM KDD'23, CWM KDD'24, DML CIKM'23, D2Co RecSys'23; DeepFM, xDeepFM KDD'18, DCN, FiBiNET
+  RecSys'19, AutoFIS KDD'20, FEFM; unbiased LTR — Joachims WSDM'17, Wang WSDM'18, Wu WSDM'21, Oosterhuis TOIS'22; KuaiRand
+  CIKM'22) with, for each, what it assumes and whether this dataset satisfies it (nested labels, short histories, observed
+  negatives, within-user metric). No results of ours appear; a test pins the section and its key methods.
+* Researcher prompt rule 1a: ground every proposal in a published method, name it in `rationale`, state which assumptions
+  hold here, derive the smallest faithful version; novelty allowed with a stated reason the published alternatives do not apply.
+
+### Banking fix — gains could not compound (2026-08-29)
+* Run `ten8` ended with a champion (0.604219) worse than its own best measurement (0.604661): it03 (+0.00040) and it04
+  (+0.00044) both beat the champion and both fell just under the 0.0005 promotion margin, so nothing was banked and it04
+  built on it01 instead of it03. Fixes: (1) `PROMOTE_MARGIN` 0.0005 → **0.0002**, the seed noise of a 3-seed-averaged
+  pipeline; (2) `run.leak_check: on_improvement` — every iteration that beats the champion is leak-tested, not only
+  would-be promotions; (3) `run_state.best_measured` records the best leak-clean score whether or not it was promoted,
+  and `finalize()` builds the submission from that iteration's code when it beats the champion (it must still pass the
+  kit checker; the champion and earlier promotions remain the fallbacks). `results_summary.md` reports it. Tests cover
+  the below-margin path and that a leak is never recorded as best_measured.
+* Trade-off stated plainly: a 0.0002 margin promotes on ~1σ of seed noise, so the champion's recorded score can drift
+  up by luck (winner's curse) and later real gains must beat an inflated bar. Accepted because losing real gains cost
+  more in practice; the noise floor is documented in the library and the Researcher is told to measure its own seed
+  spread.
+
+### Research digest + Scribe synthesis (2026-08-29)
+* Gap: iterations older than the last 5 reached the Researcher only as 120-char/20-word ledger lines, and nothing
+  aggregated across the run, so "already tried in it12, flat" was easy to miss. Team asked why not an LLM-written digest.
+* Design: **both, with the LLM constrained like the lesson.** `memory.research_digest()` is a harness-written fact table
+  over every iteration (grouped by direction: full hypothesis, delta vs then-champion, decision, failure/leak status,
+  lesson, totals and never-attempted directions) — deterministic, spec §2.2-compliant. Scribe job (c) `scribe_digest`
+  writes a ≤150-word synthesis **from that table only, regenerated every iteration** (never from its previous synthesis,
+  so it cannot drift), with no causal claims and no recommendations; `synthesis_numbers_ok` rejects any synthesis whose
+  numbers are not all present in the table (logged as a warning). Both appear in every briefing, the synthesis labelled
+  interpretive. Cost: one small Scribe call per iteration. `llm.scribe_digest: false` disables the synthesis.
+
+### GLM-5.2 Researcher: output budget 12k → 40k, effort high (2026-08-29, team decision)
+* Diagnosis (independent agent, from the runs' records): once briefings grew to 19–35k chars (digest + full recent
+  records), GLM-5.2 exhausted its 12,000-token output cap on hidden reasoning (38–51k chars, zero visible plan) in 9 of
+  11 calls; V4 Flash silently wrote almost every plan via the fallback chain. In run `ten` a `reasoning: {max_tokens:
+  6000}` cap was ignored, so the reasoning parameter is soft on this provider. Fix chosen by the team: raise the
+  Researcher output budget to 40,000 tokens (room to finish) and set effort high (better plans, if the parameter is
+  honoured). Cost: up to ~4 min / ~$0.15 per call. Watch the first iterations' `[llm] researcher: … answered` lines; if
+  GLM still caps at 40k, `--set llm.researcher_model=deepseek/deepseek-v4-flash` is the fallback. Fallback notes now
+  record the wasted latency/tokens of a failed candidate.
+
+### Provider routing: throughput, not price (2026-08-29)
+* Symptom: an Engineer call on `deepseek-v4-flash` streamed reasoning at ~7 tok/s (12.9k chars in 483 s) while the
+  previous call in the same run ran at 74 tok/s. OpenRouter routes by price by default, so the same model lands on
+  whichever backend is cheapest at that moment; V4 Flash has 17 backends with very different speeds. Fix: request-level
+  `provider: {sort: throughput, allow_fallbacks: true}` in `llm.extra_body` — OpenRouter then picks the backend with the
+  highest current tokens/s per request. Price impact: cents per million tokens. Applies to all OpenRouter profiles.
 
 ## 5. What works, what is untested against real data, what the humans must verify next
 

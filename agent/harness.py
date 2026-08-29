@@ -26,8 +26,8 @@ import yaml
 from . import tools
 from .llm_client import CallLog, make_client
 from .memory import (append_intervention, append_ledger, fmt_elapsed, init_interventions, init_ledger, ledger_line, load_run_state,
-                     one_line, read_ledger, render_state_block, result_string, save_run_state, write_iteration_log,
-                     write_iteration_narrative, write_state_block)
+                     one_line, read_iteration_detail, read_ledger, render_state_block, research_digest, result_string,
+                     save_run_state, synthesis_numbers_ok, write_iteration_log, write_iteration_narrative, write_state_block)
 from .phase0 import Phase0Error, install_champion, run_phase0
 from .promotion import RunLimits, judge_iteration, stop_reason, vs_best_string
 from .roles import Roles
@@ -66,6 +66,15 @@ highest-probability bundle: keep every component of the champion that produced i
 its seed averaging) exactly as is, add more seeds if the champion uses fewer than 5, and add ONE genuinely new
 signal. Do NOT replace or remove a proven component, do NOT re-try a lever kind whose last result was within
 ±0.0006 (noise), and state in `rationale` why this bundle should clear +{epsilon}."""
+
+
+ATTRIBUTION_DIRECTIVE = """# ATTRIBUTION DIRECTIVE (harness policy, iteration {it})
+Change exactly ONE thing relative to the champion this iteration — one new field, one loss change, one training
+change — so that the measured delta is attributable to it and the next iteration knows what worked. The champion
+already contains everything previously proven; keep all of it untouched. Name that single component in the
+hypothesis, and in `rationale` say what its delta will tell you either way.
+(The exceptions are handled by the harness: iteration 1 and the last shot before convergence, where a single
++0.001-class lever cannot clear the +{epsilon} streak threshold and bundling is required.)"""
 
 
 class FinalizeError(RuntimeError):
@@ -196,21 +205,20 @@ class Harness:
         parts.append("# CHAMPION CODE (current best pipeline; every experiment builds on it)\n" +
                      "\n".join(f"--- {n} ---\n{c}" for n, c in sorted(champ.items())))
         parts.append("# LEDGER (full history, oldest first)\n" + (read_ledger(self.run_dir) or "(empty)"))
-        recent = [h for h in state.history[-3:]]
-        if recent:
-            lines = ["# RECENT ITERATION DETAILS (harness-measured; the training-log tail is the experiment's own stdout)"]
-            for h in recent:
-                lines.append(f"- it{h['iteration']:02d} [{h['category']}] {h['hypothesis']}\n  result: {h['status']} primary={h.get('primary')} "
-                             f"decision={h['decision']} runtime={h.get('runtime_s')}s\n  lesson: {h.get('lesson', '')}")
-                if h.get("error_short"):
-                    lines.append(f"  error: {h['error_short']}")
-                if h.get("training_log_tail"):
-                    lines.append("  training log tail:\n" + "\n".join("    " + l for l in h["training_log_tail"].splitlines()))
-            parts.append("\n".join(lines))
+        digest = research_digest(state.history, lambda n: read_iteration_detail(self.run_dir, n))
+        if digest:
+            parts.append(digest)
+            if state.synthesis:
+                parts.append("# RESEARCH SYNTHESIS (written by the Scribe from the digest above — interpretive; verify any claim "
+                             "against the table)\n" + state.synthesis)
+        parts.append(self.render_recent_iterations(state))
         n_struct = int(self.run_cfg.get("structural_first_until_iter", 0) or 0)
         if it <= n_struct:
             parts.append(STRUCTURAL_DIRECTIVE.format(n=n_struct, it=it))
-        if self.limits.n_flat > 1 and state.streak >= self.limits.n_flat - 1:
+        last_shot = self.limits.n_flat > 1 and state.streak >= self.limits.n_flat - 1
+        if self.run_cfg.get("one_change_per_iteration", True) and it > 1 and not last_shot:
+            parts.append(ATTRIBUTION_DIRECTIVE.format(it=it, epsilon=self.limits.epsilon))
+        if last_shot:
             parts.append(STREAK_DIRECTIVE.format(streak=state.streak, n_flat=self.limits.n_flat, epsilon=self.limits.epsilon,
                                                  best=f"{state.best_primary:.4f}" if state.best_primary is not None else "n/a"))
         if state.consecutive_failures >= int(self.run_cfg.get("STALL_FAILURES", 3)):
@@ -262,8 +270,12 @@ class Harness:
 
         # --- leak test: a would-be promotion must survive flipped validation labels (harness-measured) ---
         leak: Dict[str, Any] = {}
-        if status == "scored" and score is not None and self.run_cfg.get("leak_check", "on_promotion") != "off":
+        leak_mode = str(self.run_cfg.get("leak_check", "on_promotion"))
+        if status == "scored" and score is not None and leak_mode != "off":
             would_promote = best_at_start is None or score.primary > best_at_start + self.limits.promote_margin
+            improves = best_at_start is None or score.primary > best_at_start
+            if leak_mode == "on_improvement":
+                would_promote = would_promote or improves            # verify every improvement so none is ever lost
             ceiling = self.run_cfg.get("implausible_primary_above")
             if would_promote and ceiling is not None and score.primary > float(ceiling):
                 # Free first line of defence: no honest model on this task reaches here (oracle 0.8484, baseline 0.6015,
@@ -310,6 +322,9 @@ class Harness:
                 else:
                     self.log(f"[leak-test] clean: flipped users score {leak['subset_primary']:.4f} on their true labels "
                              f"(>= {floor}); full-set {leak['full_primary']:.4f}")
+                    if score.primary > float((state.best_measured or {}).get("primary", -1)):
+                        state.best_measured = {"iteration": it, "primary": score.primary, "gauc": score.gauc, "ndcg5": score.ndcg5,
+                                               "workspace": os.path.relpath(ws, self.run_dir)}
             atomic_write_json(os.path.join(ws, "leak_test.json"), leak) if leak else None
 
         # --- the two separate judgments (pure functions; no LLM involvement) ---
@@ -317,7 +332,12 @@ class Harness:
         if dec.promoted:
             install_champion(self.run_dir, files, os.path.join(ws, tools.PREDS_VAL), score, it, ws)
             state.best_primary, state.best_gauc, state.best_ndcg5, state.best_iter = score.primary, score.gauc, score.ndcg5, it
-        state.streak = dec.streak_after
+        state.best_history.append(dec.best_primary_after)
+        if str(self.run_cfg.get("streak_mode", "iteration")) == "window":
+            from .promotion import window_streak
+            state.streak = window_streak(state.best_history, self.limits.n_flat, self.limits.epsilon)
+        else:
+            state.streak = dec.streak_after
         if status == "scored":
             state.consecutive_failures = 0
         else:
@@ -344,6 +364,20 @@ class Harness:
         if self.cfg["llm"].get("scribe_narrative", True):
             write_iteration_narrative(self.run_dir, it, self.roles.scribe_logentry(facts))
 
+        # Scribe job (c): research synthesis of the whole run so far, rebuilt from the harness digest every iteration
+        # (this iteration included). Numbers are checked against the digest; a synthesis that invents one is dropped.
+        hist_preview = {"iteration": it, "hypothesis": one_line(plan_for_scribe.hypothesis, 0), "category": plan_for_scribe.category,
+                        "status": status, "primary": primary, "decision": dec.decision, "promoted": dec.promoted, "lesson": lesson,
+                        "error_short": one_line(error_reason.splitlines()[-1] if error_reason else "", 200)}
+        if self.cfg["llm"].get("scribe_digest", True):
+            digest_now = research_digest(state.history + [hist_preview], lambda n: read_iteration_detail(self.run_dir, n) if n != it else
+                                         {"hypothesis": plan_for_scribe.hypothesis, "harness_extra": {"best_at_iteration_start": best_at_start, "leak_test": leak or None}})
+            synth = self.roles.scribe_digest(digest_now)
+            if synth and synthesis_numbers_ok(synth, digest_now):
+                state.synthesis = synth
+            elif synth:
+                state.warnings.append(f"it{it:02d}: scribe synthesis rejected (contained a number not in the digest)")
+                self.log(f"[scribe] synthesis rejected: it contained a number not present in the harness digest")
         usage = self.roles.iteration_usage
         state.tokens_total += usage.total
         state.tokens_input += usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens
@@ -366,7 +400,7 @@ class Harness:
                                             "workspace": os.path.relpath(ws, self.run_dir)})
         write_iteration_log(self.run_dir, entry)
 
-        hist = {"iteration": it, "hypothesis": one_line(plan_for_scribe.hypothesis, 160), "category": plan_for_scribe.category,
+        hist = {"iteration": it, "hypothesis": one_line(plan_for_scribe.hypothesis, 0), "category": plan_for_scribe.category,
                 "training_log_tail": train_tail,
                 "status": status, "primary": primary, "gauc": score.gauc if (score and status == "scored") else None,
                 "ndcg5": score.ndcg5 if (score and status == "scored") else None, "decision": dec.decision, "promoted": dec.promoted,
@@ -380,6 +414,60 @@ class Harness:
                  f"| streak {dec.streak_after}/{self.limits.n_flat} | tokens {usage.total} | {runtime_s:.0f}s")
         return hist
 
+    def render_recent_iterations(self, state: RunState) -> str:
+        """Full record of the most recent iterations: what was proposed (hypothesis + change spec + rationale), what
+        the Engineer actually changed (diff), what was measured (delta vs the champion at the time), what went wrong
+        (debug attempts, leak verdict) and the training curve. Everything here is harness-measured or previously
+        LLM-authored; the point is that the Researcher can judge WHICH PART of a bundled change worked."""
+        n = int(self.run_cfg.get("briefing_recent_iterations", 5))
+        diff_chars = int(self.run_cfg.get("briefing_diff_chars", 2500))
+        spec_chars = int(self.run_cfg.get("briefing_spec_chars", 1200))
+        recent = state.history[-n:]
+        if not recent:
+            return ""
+        out = ["# RECENT ITERATION DETAILS (harness-measured facts + what was actually changed)",
+               "Use these to decide whether to CONTINUE an idea: when a bundled change moved little, the diff shows which",
+               "components were in it, so you can keep the part that plausibly worked and drop the rest. State which",
+               "component you are keeping or dropping, and why, in `rationale`."]
+        for h in recent:
+            it = h["iteration"]
+            d = read_iteration_detail(self.run_dir, it) or {}
+            x = d.get("harness_extra", {})
+            r = d.get("result", {})
+            best_before = x.get("best_at_iteration_start")
+            delta = (f"{r.get('primary', 0) - best_before:+.4f} vs the then-champion {best_before:.4f}"
+                     if (best_before is not None and r.get("status") == "scored") else "n/a")
+            out.append(f"\n## it{it:02d} [{h.get('category')}] — {h.get('decision')} ({r.get('status')}), {delta}")
+            out.append(f"HYPOTHESIS: {d.get('hypothesis') or h.get('hypothesis')}")
+            if d.get("rationale"):
+                out.append(f"RATIONALE (yours, at the time): {one_line(d['rationale'], 600)}")
+            plan_path = os.path.join(self.iteration_dir(it), "plan.json")
+            if os.path.exists(plan_path):
+                try:
+                    spec = json.load(open(plan_path)).get("change_spec", "")
+                    if spec:
+                        out.append(f"CHANGE SPEC you gave the Engineer:\n{spec[:spec_chars]}" + ("…" if len(spec) > spec_chars else ""))
+                except (OSError, ValueError):
+                    pass
+            out.append(f"WHAT CHANGED: {x.get('change_summary', 'n/a')}")
+            diff = d.get("code_diff") or ""
+            if diff:
+                out.append("DIFF (champion -> attempt):\n```diff\n" + diff[:diff_chars] + ("\n… (diff truncated)" if len(diff) > diff_chars else "") + "\n```")
+            if r.get("status") == "scored":
+                out.append(f"MEASURED: primary {r.get('primary'):.4f} (GAUC {r.get('gauc'):.4f} / nDCG@5 {r.get('ndcg5'):.4f}), runtime {r.get('runtime_s')}s")
+            else:
+                out.append(f"OUTCOME: {r.get('status')} — {one_line(r.get('error_excerpt', ''), 400)}")
+            for a in d.get("errors_and_recovery", []):
+                out.append(f"  debug attempt {a['attempt']}: {one_line(a.get('error'), 160)} -> fix: {one_line(a.get('fix_summary'), 160)} ({a.get('status_after')})")
+            lt = x.get("leak_test")
+            if lt:
+                out.append(f"  leak test: {lt.get('verdict')}" + (f" (flipped users scored {lt['subset_primary']:.4f} on their true labels)"
+                                                                  if lt.get("subset_primary") is not None else ""))
+            if h.get("training_log_tail"):
+                out.append("TRAINING CURVE (the experiment's own stdout):\n" + "\n".join("  " + l for l in h["training_log_tail"].splitlines()))
+            out.append(f"LESSON: {h.get('lesson', '')}")
+        return "\n".join(out)
+
     def training_log_tail(self, ws: str, n_lines: int = 12, max_chars: int = 1500) -> str:
         """Last lines of the experiment's stdout (epoch curve, early-stop message) — lets the Scribe and the
         Researcher see HOW a run behaved, not just its final score. Empty when nothing ran."""
@@ -391,7 +479,16 @@ class Harness:
                 lines = [l.rstrip() for l in fh.read().splitlines() if l.strip()]
         except OSError:
             return ""
-        tail = "\n".join(lines[-n_lines:])
+        # drop repeated boilerplate (e.g. "Number of pairs this epoch: 765158" printed every epoch), keeping each
+        # distinct line's LAST occurrence, so the line budget is spent on the metric curve rather than on repeats
+        seen, kept = set(), []
+        for l in reversed(lines):
+            if l in seen:
+                continue
+            seen.add(l)
+            kept.append(l)
+        dedup = list(reversed(kept))
+        tail = "\n".join(dedup[-n_lines:])
         return tail[-max_chars:]
 
     # ------------------------------------------------------------------ run + debug loop
@@ -517,9 +614,15 @@ class Harness:
         self.log(f"\n[finalize] stop reason: {reason} — generating submission from the champion (it{state.best_iter:02d})")
         fin_dir = os.path.join(self.run_dir, "finalize")
         os.makedirs(fin_dir, exist_ok=True)
-        candidates: List[Tuple[int, str]] = [(state.best_iter, self.best_code_dir)]
+        candidates: List[Tuple[int, str]] = []
+        bm = state.best_measured or {}
+        if bm and bm.get("primary", -1) > (state.best_primary or -1) + 1e-12 and bm.get("iteration") != state.best_iter:
+            self.log(f"[finalize] best leak-clean measurement it{bm['iteration']:02d} ({bm['primary']:.4f}) beats the champion "
+                     f"({state.best_primary:.4f}) — it was below the promotion margin; using it first")
+            candidates.append((int(bm["iteration"]), self.iteration_dir(int(bm["iteration"]))))
+        candidates.append((state.best_iter, self.best_code_dir))
         for h in reversed(state.history):
-            if h.get("promoted") and h["iteration"] != state.best_iter:
+            if h.get("promoted") and h["iteration"] != state.best_iter and (h["iteration"], self.iteration_dir(h["iteration"])) not in candidates:
                 candidates.append((h["iteration"], self.iteration_dir(h["iteration"])))
         if state.best_iter != 0:
             candidates.append((0, self.task.champion_src_dir))
@@ -567,6 +670,9 @@ class Harness:
                  if state.best_primary is not None else "- best validation: n/a",
                  f"- published baseline (valid): {b} → delta **{delta:+.4f}**" if delta is not None else "- published baseline: n/a",
                  f"- iterations used: {state.iteration} (promoted {len(promoted)}, failed {len(failed)}); final streak {state.streak}",
+                 (f"- best leak-clean measurement: it{state.best_measured['iteration']:02d} at {state.best_measured['primary']:.4f}"
+                  + (" (below the promotion margin; used for the submission)" if state.best_measured['primary'] > (state.best_primary or -1) + 1e-12 else "")
+                  if state.best_measured else "- best leak-clean measurement: n/a"),
                  f"- tokens: {state.tokens_total:,} total ({state.tokens_input:,} in / {state.tokens_output:,} out) over {state.llm_calls} LLM calls; by role: {json.dumps(state.tokens_by_role)}",
                  f"- wall-clock: {fmt_elapsed(state.elapsed_s(self.clock()))} (started {state.start_ts})",
                  f"- manual interventions: {state.interventions} (resumes {state.resumes}) — see interventions.md",

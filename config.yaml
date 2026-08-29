@@ -24,11 +24,13 @@ llm:
     debugger:   [qwen/qwen3-coder, mistralai/codestral-2508]
     scribe:     [qwen/qwen3-coder]
   reasoning:                       # OpenRouter unified parameter (`effort` works on every model here; Claude 5 rejects
-    researcher: {effort: medium}   # GLM-5.2: medium keeps its reasoning to ~1-2 min per plan
+    researcher: {effort: high}     # team decision 2026-08-29; NOTE run `ten` showed GLM ignoring a reasoning token cap, so this may be soft
     engineer: {effort: low}        # reasoning helps correctness; low keeps the call ~2-3 min
     debugger: {effort: low}
     scribe: {}
-  max_output_tokens: {researcher: 12000, engineer: 24000, debugger: 24000, scribe: 600}   # includes any thinking
+  # researcher 40000: GLM-5.2's hidden reasoning on a ~25k-char briefing exhausted 12000 (50k reasoning chars, zero
+  # visible plan) in 9 of 11 calls; the cap covers reasoning + visible output. Worst case ~4 min / ~$0.15 per call.
+  max_output_tokens: {researcher: 40000, engineer: 24000, debugger: 24000, scribe: 600}   # includes any thinking
   # Streaming timeouts (OpenAI-compatible providers): a stalled generation is abandoned after inactivity_timeout_s
   # without a token, every call is capped at call_timeout_s, one retry, then the next fallback model.
   inactivity_timeout_s: 120
@@ -36,10 +38,16 @@ llm:
   timeout_retries: 1
   heartbeat_s: 30                  # progress line while a long generation streams
   extra_headers: {HTTP-Referer: "https://github.com/", X-Title: "kuairand-research-agent"}
+  # OpenRouter routes by PRICE by default; the same model then lands on whichever of ~17 backends is cheapest, and
+  # one call ran at 7 tok/s vs 74 tok/s on the previous call (2026-08-29). Throughput sorting picks, per request,
+  # the backend currently serving the most tokens/s; the price difference is a few cents per million tokens.
+  extra_body: {provider: {sort: throughput, allow_fallbacks: true}}
   max_total_tokens: 4000000        # spend guard: stop the run (finalize from best/) past this many total tokens
   request_timeout_s: 600
   max_retries: 3                   # rate-limit / 5xx retries per model, then the next fallback model
   scribe_narrative: true           # Scribe job (b): render logs/iter_NN.md from harness-supplied facts
+  scribe_digest: true              # Scribe job (c): ≤150-word research synthesis of the harness digest (every iteration so
+                                   # far), rebuilt each iteration from the table, number-checked; shown to the Researcher
   # --- the settings below are only read by the native Anthropic client (provider: anthropic) ---
   allow_sdk_default_credentials: false
   effort: {researcher: high, engineer: high, debugger: medium, scribe: null}
@@ -172,9 +180,9 @@ run:
   N_FLAT: 3                        # converged after N_FLAT consecutive flat/failed iterations
   MAX_ITERS: 50
   WALL_CLOCK_HOURS: 6
-  PROMOTE_MARGIN: 0.0005           # promotion needs primary > best + PROMOTE_MARGIN (separate from EPSILON). Team decision
-                                   # 2026-08-29: 0.0005 (~2x the 3-seed FM noise of 0.0003) so small real gains are banked and
-                                   # stacked; the spec default was 0.0010.
+  PROMOTE_MARGIN: 0.0002           # promotion needs primary > best + PROMOTE_MARGIN (separate from EPSILON). Team decision
+                                   # 2026-08-29: 0.0002 ≈ the seed noise of a 3-seed-averaged pipeline. 0.0005 discarded two
+                                   # real +0.0004 gains in one run, so nothing compounded. Spec default was 0.0010.
   DEBUG_RETRIES: 3                 # debugger attempts per iteration; retries never consume iterations
   EXPERIMENT_TIMEOUT_S: 900        # hard kill for one pipeline run (train + predict val)
   FINALIZE_TIMEOUT_S: 1800         # hard kill for the single champion --split test pass
@@ -183,10 +191,25 @@ run:
                                    # sign/logic fix before the result is accepted (set null to disable)
   implausible_primary_above: 0.70  # free first-line leak check: a would-be promotion scoring above this is flagged as a
                                    # LEAK without a re-run (oracle 0.8484, baseline 0.6015, best known lever +0.003)
-  leak_check: on_promotion         # every would-be promotion is re-run on a copy where 10% of validation users have their
+  leak_check: on_improvement       # every iteration that beats the champion (promoted or not) is re-run on a copy where 10%
+                                   # of validation users have their feedback columns flipped; clean improvements below the
+                                   # margin are still recorded as best_measured and used at finalize (never lost)
   leak_check_min_primary: 0.5      # feedback columns flipped; those users' TRUE labels scored below this (random) = the
                                    # code reads validation labels -> LEAK, never promoted. A crash on the 10% copy retries
                                    # at 2%; crashes on both = inconclusive, not promoted. (leak_check: off disables)
+  one_change_per_iteration: true   # attribution: every iteration changes exactly ONE thing on top of the champion, so the
+                                   # measured delta is attributable. The harness exempts iteration 1 and the last shot
+                                   # before convergence, where a single +0.001-class lever cannot clear EPSILON.
+  streak_mode: iteration           # iteration = spec §6 pseudocode (each iteration vs the champion at its start; three
+                                   # +0.001 promotions in a row still converge). window = spec §2.5 prose / kit README /
+                                   # standard early stopping (best score vs the best N iterations ago, so stacked small
+                                   # gains keep the run alive). HUMANS: ask the organizers which reading applies.
+  # Briefing depth: the context window is ~1M tokens and a briefing costs ~6k, so detail is nearly free. The Researcher
+  # gets the full hypothesis, change spec, rationale, code diff and training curve of the last N iterations, so it can
+  # tell WHICH component of a bundled change worked and decide whether to continue it.
+  briefing_recent_iterations: 5
+  briefing_diff_chars: 2500
+  briefing_spec_chars: 1200
   structural_first_until_iter: 3   # briefing directive for the first N iterations (the window in which three misses
                                    # end the run): aim for > +0.002, no hyperparameter-only proposals (0 disables)
   retry_timeouts_with_debugger: true    # a timeout usually IS a bug (a Python loop over users x rows): one Debugger pass

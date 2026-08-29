@@ -549,6 +549,10 @@ def test_default_config_is_openrouter_and_complete(base_cfg, monkeypatch):
         assert model and llm["max_output_tokens"][role] > 0
         assert c.candidates(role, model)[0] == model and len(c.candidates(role, model)) >= 2
     assert llm["max_output_tokens"]["engineer"] >= 8000        # a full ~250-line pipeline.py must fit
+    assert llm["max_output_tokens"]["researcher"] >= 30000     # GLM-5.2 reasoning needs the headroom (12k was exhausted)
+    assert llm["extra_body"]["provider"]["sort"] == "throughput"   # never let price routing pick a 7 tok/s backend
+    req = c.build_request(role="engineer", model=llm["engineer_model"], system_blocks=["S"], messages=[{"role": "user", "content": "x"}], max_tokens=100)
+    assert req["extra_body"]["provider"]["sort"] == "throughput"
     for name in ("anthropic", "openrouter", "openrouter_free", "openrouter_glm", "openrouter_claude", "gemini", "poe"):
         assert name in llm["profiles"]
     assert not llm["researcher_model"].endswith(":free")     # the default is the paid tier (free variants are contended)
@@ -565,7 +569,8 @@ def test_fallback_reasons_are_recorded(monkeypatch, tmp_path):
     c._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
     resp = c.complete(role="researcher", model="a", system_blocks=[], messages=[{"role": "user", "content": "x"}], max_tokens=10)
     assert resp.text == "fine"
-    assert resp.fallback_notes == ["a: APIStatusError 429 after 1 attempts", "mute: empty response (finish_reason='stop', 25 output tokens, 0 reasoning chars)"]
+    assert resp.fallback_notes[0] == "a: APIStatusError 429 after 1 attempts"
+    assert resp.fallback_notes[1].startswith("mute: empty response (finish_reason='stop', 25 output tokens, 0 reasoning chars,") and "wasted" in resp.fallback_notes[1]
     log = CallLog(str(tmp_path / "calls.jsonl"))
     log.record(1, "researcher", resp)
     assert json.loads(open(log.path).read())["fallback_notes"] == resp.fallback_notes
@@ -592,7 +597,7 @@ def test_training_log_tail_reaches_scribe_and_next_briefing(tmp_path, base_cfg, 
     assert "TRAINING LOG TAIL" in seen["scribe"] and "wrote preds_val.csv" in seen["scribe"]     # the dummy pipeline's stdout
     h.run_iteration(2)
     b = seen["briefings"][1]
-    assert "training log tail:" in b and "wrote preds_val.csv" in b
+    assert "TRAINING CURVE" in b and "wrote preds_val.csv" in b
     d = json.load(open(os.path.join(h.run_dir, "logs", "iter_01.json")))
     assert "wrote preds_val.csv" in h.state.history[0]["training_log_tail"]
 
@@ -640,10 +645,15 @@ def test_default_config_prioritises_structure_and_cheap_models(base_cfg):
     for role in ("researcher", "engineer", "debugger", "scribe"):          # initial phase: no Claude-priced model anywhere
         assert not any("claude" in m for m in [llm[f"{role}_model"]] + llm["fallback_models"][role])
     lib = open(os.path.join(ROOT, "knowledge", "library.md")).read()
-    assert lib.index("R1. Pairwise within-user loss") < lib.index("R6. Multi-task")      # evidence-ranked ladder
-    for must in ("0.6042", "Leave-one-out target", "1.9% of valid users", "bootstrap standard error",
-                 "train GAUC after epoch 1", "video_features_statistic_pure.csv"):
+    # background only: mechanics, public findings, traps, budget — never our own experiment results
+    for must in ("What the organizers have already published", "Leave-one-out target", "1.9% of valid users",
+                 "bootstrap standard error", "video_features_statistic_pure.csv", "Trap list",
+                 "Recommender-systems domain knowledge", "BPR", "DIN", "ESMM", "SASRec", "MMoE", "DeepFM", "CWM",
+                 "Unbiased LTR", "How to use this section"):
         assert must in lib, must
+    for forbidden in ("Directions that have repaid effort", "R1. Pairwise within-user loss", "R3. Seed rank-average",
+                      "0.6042", "0.6044", "0.6049"):
+        assert forbidden not in lib, f"our own experiment results leaked back into the library: {forbidden}"
 
 
 def test_last_shot_directive_appears_at_streak_n_minus_1(tmp_path, base_cfg, mini_data):
@@ -665,3 +675,131 @@ def test_last_shot_directive_appears_at_streak_n_minus_1(tmp_path, base_cfg, min
     assert "LAST-SHOT DIRECTIVE" not in briefings[0] and "LAST-SHOT DIRECTIVE" not in briefings[1]
     assert "LAST-SHOT DIRECTIVE (harness policy: flat streak 2 of 3)" in briefings[2]
     assert "ENDS THE RUN" in briefings[2] and "do NOT replace" in briefings[2].lower() or "Do NOT replace" in briefings[2]
+
+
+def test_briefing_carries_the_full_record_of_recent_iterations(tmp_path, base_cfg, mini_data):
+    """The Researcher must be able to see WHAT was changed, not just that something was: full hypothesis, the change
+    spec it wrote, the diff, the delta vs the then-champion, debug attempts and the training curve."""
+    briefings = []
+
+    def researcher(role, system, messages):
+        briefings.append(messages[-1]["content"])
+        return default_mock_handlers()["researcher"](role, system, messages)
+    handlers = default_mock_handlers()
+    handlers["researcher"] = researcher
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 2, "N_FLAT": 99, "structural_first_until_iter": 0}})
+    h.init_or_resume()
+    h.phase0()
+    h.run_iteration(1)
+    h.run_iteration(2)
+    b = briefings[1]
+    assert "# RECENT ITERATION DETAILS" in b and "## it01" in b
+    assert "HYPOTHESIS:" in b and "CHANGE SPEC you gave the Engineer:" in b and "RATIONALE (yours, at the time):" in b
+    assert "DIFF (champion -> attempt):" in b and "```diff" in b and "THETA" in b        # the actual code change is visible
+    assert "WHAT CHANGED: pipeline.py" in b and "MEASURED: primary" in b
+    assert "vs the then-champion" in b and "TRAINING CURVE" in b and "LESSON:" in b
+    hyp_line = next(l for l in b.splitlines() if l.startswith("HYPOTHESIS:"))
+    assert not hyp_line.endswith("…")                                                     # no 160-char truncation
+
+
+def test_training_tail_collapses_repeated_lines(tmp_path, base_cfg, mini_data):
+    h = make_toy_harness(tmp_path, base_cfg, mini_data)
+    ws = tmp_path / "ws_tail"
+    ws.mkdir()
+    lines = []
+    for e in range(1, 9):
+        lines += ["Number of pairs this epoch: 765158", f"epoch {e} | loss 0.5{e} | primary 0.60{e}"]
+    (ws / "stdout.txt").write_text("\n".join(lines) + "\n")
+    tail = h.training_log_tail(str(ws))
+    assert tail.count("Number of pairs this epoch") <= 2                                  # repeats collapsed
+    assert "epoch 8" in tail and "epoch 7" in tail                                        # the curve survives
+
+
+def test_attribution_directive_appears_except_on_iteration_1_and_the_last_shot(tmp_path, base_cfg, mini_data):
+    briefings = []
+
+    def researcher(role, system, messages):
+        briefings.append(messages[-1]["content"])
+        return default_mock_handlers()["researcher"](role, system, messages)
+    handlers = default_mock_handlers()
+    handlers["researcher"] = researcher
+    handlers["engineer"] = lambda r, s, m: render_file_blocks(parse_file_blocks(
+        m[-1]["content"].split("# Current champion files", 1)[-1].split("# Pipeline contract", 1)[0]))   # flat -> streak climbs
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 3, "N_FLAT": 3, "structural_first_until_iter": 0, "one_change_per_iteration": True}})
+    st = h.init_or_resume()
+    h.phase0()
+    for it in (1, 2, 3):
+        h.run_iteration(it)
+    assert "ATTRIBUTION DIRECTIVE" not in briefings[0]                     # iteration 1 may bundle
+    assert "ATTRIBUTION DIRECTIVE" in briefings[1] and "exactly ONE thing" in briefings[1]
+    assert "LAST-SHOT DIRECTIVE" in briefings[2] and "ATTRIBUTION DIRECTIVE" not in briefings[2]   # last shot may bundle
+
+
+def test_researcher_prompt_puts_run_evidence_above_the_library():
+    sys_p, _ = load_prompt(os.path.join(ROOT, "prompts"), "researcher")
+    assert "YOUR MEASUREMENTS ARE THE ONLY EVIDENCE OF WHAT WORKS" in sys_p
+    assert "Ground every proposal in published work" in sys_p and "name the method and paper" in sys_p
+    assert "One change at a time" in sys_p
+
+
+
+# ---------------- research digest (harness facts over ALL iterations) + Scribe synthesis (number-guarded) ----------------
+def test_research_digest_covers_every_iteration_and_synthesis_reaches_the_briefing(tmp_path, base_cfg, mini_data):
+    briefings, synth_inputs = [], []
+
+    def researcher(role, system, messages):
+        briefings.append(messages[-1]["content"])
+        return default_mock_handlers()["researcher"](role, system, messages)
+
+    def digest_scribe(role, system, messages):
+        synth_inputs.append(messages[-1]["content"])
+        return "Synthesis: feature direction tried in it01; see table."
+    handlers = default_mock_handlers()
+    handlers["researcher"] = researcher
+    handlers["scribe_digest"] = digest_scribe
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers,
+                         overrides={"run": {"MAX_ITERS": 7, "N_FLAT": 99, "structural_first_until_iter": 0, "briefing_recent_iterations": 2}})
+    st = h.init_or_resume()
+    h.phase0()
+    for it in range(1, 8):
+        h.run_iteration(it)
+    b = briefings[-1]                                                       # briefing for iteration 7
+    assert "# RESEARCH DIGEST" in b
+    for it in range(1, 7):
+        assert f"| it{it:02d} |" in b                                       # ALL past iterations, not just the last 2
+    assert "Totals: 6 iterations" in b and "never attempted" in b
+    assert "# RESEARCH SYNTHESIS" in b and "Synthesis: feature direction tried" in b
+    assert "RESEARCH DIGEST" in synth_inputs[-1] and "| it07 |" in synth_inputs[-1]   # the Scribe saw the current iteration too
+    assert st.synthesis.startswith("Synthesis:")
+
+
+def test_synthesis_with_invented_number_is_rejected(tmp_path, base_cfg, mini_data):
+    from agent.memory import synthesis_numbers_ok
+    table = "| it01 | feature | x | +0.0031 | promoted | scored | l |"
+    assert synthesis_numbers_ok("it01 gained 0.0031 and was promoted", table)
+    assert not synthesis_numbers_ok("it01 gained 0.0050", table)               # 0.0050 is not in the table
+    assert synthesis_numbers_ok("promoted once; nothing else tried", table)   # no numbers at all is fine
+    handlers = default_mock_handlers()
+    handlers["scribe_digest"] = lambda r, s, m: "Everything improved by 0.9999 which is great."
+    h = make_toy_harness(tmp_path, base_cfg, mini_data, handlers=handlers, overrides={"run": {"MAX_ITERS": 1}})
+    st = h.init_or_resume()
+    h.phase0()
+    h.run_iteration(1)
+    assert st.synthesis == "" and any("synthesis rejected" in w for w in st.warnings)
+
+
+def test_digest_is_deterministic_and_never_llm_authored_except_lessons():
+    from agent.memory import research_digest
+    hist = [{"iteration": 1, "category": "feature", "hypothesis": "add X", "primary": 0.61, "decision": "promoted", "promoted": True,
+             "status": "scored", "lesson": "X helped"},
+            {"iteration": 2, "category": "training", "hypothesis": "loss Y", "primary": None, "decision": "failed", "promoted": False,
+             "status": "failed", "lesson": "crashed", "error_short": "ValueError: boom"}]
+    details = {1: {"hypothesis": "add X (full)", "harness_extra": {"best_at_iteration_start": 0.6}},
+               2: {"hypothesis": "loss Y (full)", "harness_extra": {"best_at_iteration_start": 0.61, "leak_test": None}}}
+    d = research_digest(hist, lambda n: details[n])
+    assert "| it01 | feature | add X (full) | +0.0100 | promoted | scored | X helped |" in d
+    assert "| it02 | training | loss Y (full) | n/a | failed | failed: ValueError: boom | crashed |" in d
+    assert "promoted 1 (it01)" in d and "never attempted: model, multitask, other" in d
+    assert research_digest(hist, lambda n: details[n]) == d

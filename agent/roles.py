@@ -20,7 +20,7 @@ from .memory import one_line, truncate_words
 from .schemas import ContractError, HarnessResult, ResearcherPlan, TokenUsage
 
 ROLE_FILES = {"researcher": "researcher.md", "engineer": "engineer.md", "debugger": "debugger.md",
-              "scribe_lesson": "scribe_lesson.md", "scribe_logentry": "scribe_logentry.md"}
+              "scribe_lesson": "scribe_lesson.md", "scribe_logentry": "scribe_logentry.md", "scribe_digest": "scribe_digest.md"}
 TASK_MARKER = "<!-- TASK -->"
 
 FILE_START = re.compile(r"^=== FILE: (?P<name>[^\s=]+) ===\s*$", re.M)
@@ -135,6 +135,7 @@ def parse_debugger(text: str) -> DebugOutcome:
 # default prompts (used only when prompts/<role>.md is missing, e.g. the Phase-1 stub loop)
 # ---------------------------------------------------------------------------
 DEFAULT_SYSTEM = {
+    "scribe_digest": "You are the Scribe. Summarise the fact table in <=150 words using only its numbers; no recommendations.",
     "researcher": "You are the Researcher. Output ONLY the JSON object described in the task.",
     "engineer": "You are the Engineer. Output the full modified file(s) as === FILE: name === blocks.",
     "debugger": "You are the Debugger. Output fixed file(s) as === FILE: name === blocks or {\"action\":\"abandon\",\"reason\":\"...\"}.",
@@ -142,6 +143,7 @@ DEFAULT_SYSTEM = {
     "scribe_logentry": "You are the Scribe. Render the supplied facts as a short markdown narrative. Copy numbers verbatim.",
 }
 DEFAULT_TASK = {
+    "scribe_digest": "Write the synthesis (max 150 words) from the fact table above, numbers only from the table.",
     "researcher": (
         "Propose the next experiment. Reply with ONLY this JSON object:\n"
         '{"hypothesis": "...", "category": "feature | model | training | multitask | other", '
@@ -343,6 +345,18 @@ class Roles:
         if not lesson:
             lesson = truncate_words(f"{decision}: {result.status} {result.vs_best} for {plan.hypothesis}", 20)
         return lesson
+
+    def scribe_digest(self, digest_table: str) -> str:
+        """Scribe job (c): interpretive synthesis of the harness digest. Regenerated from the table each time — never
+        from its own previous output — so it cannot drift from the record."""
+        _, task = load_prompt(self.prompts_dir, "scribe_digest")
+        messages = [{"role": "user", "content": f"{digest_table}\n\n# TASK\n{task}"}]
+        try:
+            resp = self._call("scribe_digest", self._system_blocks("scribe_digest"), messages, "scribe_digest")
+            return resp.text.strip()
+        except LLMError as e:
+            self.last_error = f"scribe_digest_llm_error: {e}"
+            return ""
 
     def scribe_logentry(self, facts: Dict[str, Any]) -> str:
         _, task = load_prompt(self.prompts_dir, "scribe_logentry")

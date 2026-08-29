@@ -390,7 +390,8 @@ class OpenAICompatClient:
                 if not parsed["text"].strip():
                     last_err = LLMError(f"empty response from {candidate} (finish_reason={parsed['finish_reason']!r})")
                     notes.append(f"{candidate}: empty response (finish_reason={parsed['finish_reason']!r}, "
-                                 f"{parsed['usage'].output_tokens} output tokens, {parsed.get('reasoning_chars', 0)} reasoning chars)")
+                                 f"{parsed['usage'].output_tokens} output tokens, {parsed.get('reasoning_chars', 0)} reasoning chars, "
+                                 f"{parsed.get('latency_s', 0):.0f}s and ~{parsed['usage'].total} tokens wasted)")
                     break                                                            # a mute model is a dead model
                 if self.progress and notes:
                     self.progress(f"[llm] {role}: served by fallback {candidate} after: " + "; ".join(notes))
