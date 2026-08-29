@@ -44,9 +44,18 @@ PIPELINE_CONTRACT_NOTE = """`python pipeline.py --data <data_dir> --split val --
 - Exit 0 on success. Single process, no network, no package installs, only pre-installed libraries
   (numpy, pandas, scikit-learn, lightgbm, torch-cpu). Same-row feedback columns are NOT features (leakage).
 - Hard wall-clock limit: {timeout}s for the whole run (load + train + predict).
-- In-run attribution: for each variant in the ablation plan, also score it on validation with the official `evaluate()`
-  and print one line `ABLATION <name> primary=<f> gauc=<f> ndcg5=<f>` (real numbers from real fits only; skip variants
-  that would not fit in the time limit and say so in a printed line). The written predictions are the full bundle."""
+- TIME BUDGET (hard): `KUAIRAND_TIME_BUDGET_S` is in the environment ({timeout}s here) and the process is killed at it.
+  Budget it explicitly with arithmetic, not hope:
+  1. Fit the FULL bundle first and WRITE ITS PREDICTIONS before anything else. It must finish inside 40% of the budget.
+  2. Only then run ablations, and before each one check `time.time() - t0` against the budget: start a variant only if
+     at least 25% of the budget remains, else print `ABLATION <name> skipped: <reason>` and move on.
+  3. Ablation variants are DIAGNOSTICS, not submissions: make them cheap (a subsample of the training rows, or a fixed
+     small number of rounds/epochs, or one seed). A variant must never cost as much as the full fit.
+- In-run attribution: for each variant you do run, score it on validation with the official `evaluate()` and print one
+  line `ABLATION <name> primary=<f> gauc=<f> ndcg5=<f>` (real numbers from real fits only). The written predictions are
+  always the full bundle.
+- Evaluating the metric is expensive (~125k rows). For early stopping, score at most every ~50 boosting rounds or once
+  per epoch — NOT every few rounds. Scoring after every 10 rounds turned a 30 s fit into 6 minutes in run ten16."""
 
 STALL_DIRECTIVE = """# STALL RECOVERY DIRECTIVE (injected by the harness)
 The last {n} iterations ALL failed (crash / timeout / rejected output). Do NOT propose anything ambitious now.

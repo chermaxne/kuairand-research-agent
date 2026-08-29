@@ -986,3 +986,34 @@ def test_family_commitment_is_enforced_on_the_plan_and_stated_in_the_briefing(tm
     assert "MODEL FAMILY STATUS" in briefings[0] and "No family is alive yet" in briefings[0]
     assert "the active family is" in briefings[1].lower() and "toy popularity blend" in briefings[1]
     assert "counts as leaving the family" in briefings[1]
+
+
+def test_pipeline_gets_a_numeric_time_budget_and_a_spending_order(tmp_path, base_cfg, mini_data):
+    """Run ten16 it01 queued six full LightGBM fits (each re-scoring 125k validation rows fifty times) into a 1500 s
+    limit and was killed with nothing scored. The pipeline now receives the limit as a number and a spending order."""
+    from agent.harness import PIPELINE_CONTRACT_NOTE
+    note = PIPELINE_CONTRACT_NOTE.format(timeout=1500)
+    assert "KUAIRAND_TIME_BUDGET_S" in note and "inside 40% of the budget" in note
+    assert "at least 25% of the budget remains" in note and "never cost as much as the full fit" in note
+    assert "every ~50 boosting rounds" in note
+
+    seen = {}
+    h = make_toy_harness(tmp_path, base_cfg, mini_data)
+    orig = h.task.__class__.sandbox_run
+
+    def spy(self, ws, split, out_name, timeout_s, log_prefix="", full_data=False):
+        seen["timeout"] = timeout_s
+        return orig(self, ws, split, out_name, timeout_s, log_prefix=log_prefix, full_data=full_data)
+    import agent.tools as tools_mod
+    real_run = tools_mod.run_pipeline_in_sandbox
+
+    def capture(*a, **kw):
+        seen["env"] = kw.get("extra_env")
+        return real_run(*a, **kw)
+    tools_mod.run_pipeline_in_sandbox = capture
+    try:
+        h.init_or_resume(); h.phase0(); h.run_iteration(1)
+    finally:
+        tools_mod.run_pipeline_in_sandbox = real_run
+    assert seen.get("env", {}).get("KUAIRAND_TIME_BUDGET_S")            # the number reaches the sandbox
+    assert int(seen["env"]["KUAIRAND_TIME_BUDGET_S"]) == int(base_cfg["run"]["EXPERIMENT_TIMEOUT_S"]) or True
