@@ -38,6 +38,10 @@ llm:
   timeout_retries: 1
   heartbeat_s: 30                  # progress line while a long generation streams
   extra_headers: {HTTP-Referer: "https://github.com/", X-Title: "kuairand-research-agent"}
+  # OpenRouter routes by PRICE by default; the same model then lands on whichever of ~17 backends is cheapest, and
+  # one call ran at 7 tok/s vs 74 tok/s on the previous call (2026-08-29). Throughput sorting picks, per request,
+  # the backend currently serving the most tokens/s; the price difference is a few cents per million tokens.
+  extra_body: {provider: {sort: throughput, allow_fallbacks: true}}
   max_total_tokens: 4000000        # spend guard: stop the run (finalize from best/) past this many total tokens
   request_timeout_s: 600
   max_retries: 3                   # rate-limit / 5xx retries per model, then the next fallback model

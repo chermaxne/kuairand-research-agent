@@ -503,6 +503,13 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   GLM still caps at 40k, `--set llm.researcher_model=deepseek/deepseek-v4-flash` is the fallback. Fallback notes now
   record the wasted latency/tokens of a failed candidate.
 
+### Provider routing: throughput, not price (2026-08-29)
+* Symptom: an Engineer call on `deepseek-v4-flash` streamed reasoning at ~7 tok/s (12.9k chars in 483 s) while the
+  previous call in the same run ran at 74 tok/s. OpenRouter routes by price by default, so the same model lands on
+  whichever backend is cheapest at that moment; V4 Flash has 17 backends with very different speeds. Fix: request-level
+  `provider: {sort: throughput, allow_fallbacks: true}` in `llm.extra_body` — OpenRouter then picks the backend with the
+  highest current tokens/s per request. Price impact: cents per million tokens. Applies to all OpenRouter profiles.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

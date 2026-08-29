@@ -550,6 +550,9 @@ def test_default_config_is_openrouter_and_complete(base_cfg, monkeypatch):
         assert c.candidates(role, model)[0] == model and len(c.candidates(role, model)) >= 2
     assert llm["max_output_tokens"]["engineer"] >= 8000        # a full ~250-line pipeline.py must fit
     assert llm["max_output_tokens"]["researcher"] >= 30000     # GLM-5.2 reasoning needs the headroom (12k was exhausted)
+    assert llm["extra_body"]["provider"]["sort"] == "throughput"   # never let price routing pick a 7 tok/s backend
+    req = c.build_request(role="engineer", model=llm["engineer_model"], system_blocks=["S"], messages=[{"role": "user", "content": "x"}], max_tokens=100)
+    assert req["extra_body"]["provider"]["sort"] == "throughput"
     for name in ("anthropic", "openrouter", "openrouter_free", "openrouter_glm", "openrouter_claude", "gemini", "poe"):
         assert name in llm["profiles"]
     assert not llm["researcher_model"].endswith(":free")     # the default is the paid tier (free variants are contended)
