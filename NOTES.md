@@ -647,6 +647,15 @@ ab01bb2b970ae2a9f2ead299f5240b71ff4126c2d9bb0e0c4de6c7e245dc148c  submit.py
   Note the Gemini Flash models answer in ~20 s where GLM took 2-4 min: the LLM share of an iteration is now
   negligible next to the training run.
 
+### Reverted to GLM-5.2 Researcher + V4 Flash Engineer (2026-08-29, user's call)
+* Rolled back both Gemini trials. Researcher `z-ai/glm-5.2`, Engineer `deepseek/deepseek-v4-flash`, fallbacks
+  V4 Flash -> qwen3-coder for both roles. GLM-5.2 stays out of the Engineer seat (test-enforced): it returned zero
+  visible output there, burning ~200 s and ~47k tokens per call before falling back.
+* On record, since the stated reason was speed: GLM-5.2 is the SLOWER Researcher. Measured medians in this project
+  are 126 s per call (range 126-233 s) against 25-29 s for gemini-3-flash-preview across the two clean ten14
+  iterations. The Gemini trial produced no failures in the calls that were logged; the `ten15` run directory was
+  removed before it wrote any state, so there is no run-level evidence either way.
+
 ## 5. What works, what is untested against real data, what the humans must verify next
 
 ### Works (verified here)

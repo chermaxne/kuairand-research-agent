@@ -8,23 +8,23 @@ llm:
   provider: openrouter             # -> https://openrouter.ai/api/v1 (OpenAI-compatible Chat Completions)
   api_key_env: OPENROUTER_API_KEY  # key from https://openrouter.ai/keys — put it in .env, never in git
   # Model choice (2026-08-28): quality where it matters, cost where it does not.
-  #   Researcher  google/gemini-3.7-flash    TRIAL 2026-08-29 (user's call): newest Flash (Aug 13), $0.75/$3.75 per M,
-  #                                           99.8% uptime on both routes. gemini-3-flash-preview ($0.50/$3.00) ran
-  #                                           two clean iterations in ten14 (25-29 s researcher calls, ~4.3k out);
-  #                                           z-ai/glm-5.3 is the first fallback.
-  #   Engineer    google/gemini-3.7-flash    TRIAL 2026-08-29 (user's call). deepseek/deepseek-v4-flash stays the
-  #                                           first fallback (writes a full pipeline in ~90 s / 11k tokens, never
-  #                                           failed to emit a file), so a mute call costs money and time, not an
-  #                                           iteration. Revert with: --set llm.engineer_model=deepseek/deepseek-v4-flash
+  #   Researcher  z-ai/glm-5.2               reverted to it 2026-08-29 (user's call). Best plans seen in this project;
+  #                                           $1.19/$3.74 per M. NOTE it is the SLOW option: measured median 126 s per
+  #                                           call (up to 233 s) vs ~27 s for the Gemini Flash models it replaces.
+  #   Engineer    deepseek/deepseek-v4-flash ~90 s for a full pipeline rewrite, correct non-trivial code unaided; the
+  #                                           fastest proven writer here. GLM-5.2 is deliberately NOT in this seat:
+  #                                           on 2026-08-29 it spent its whole 40k budget on hidden reasoning and
+  #                                           returned NOTHING (finish_reason=length), ~200 s and ~47k tokens wasted
+  #                                           per call before falling back to V4 Flash anyway.
   #   Debugger    deepseek/deepseek-v4-flash  fast, correct on tracebacks; qwen3-coder: 2/6 correct, one label leak.
   #   Scribe      mistralai/codestral-2508    0.4 s, $0.0028.
   # ≈ $0.03 per iteration; ~6 min per iteration -> 50 iterations in ~5 h. Faster/cheaper coder: --llm-profile fast.
-  researcher_model: google/gemini-3.7-flash
-  engineer_model: google/gemini-3.7-flash
+  researcher_model: z-ai/glm-5.2
+  engineer_model: deepseek/deepseek-v4-flash
   debugger_model: deepseek/deepseek-v4-flash
   scribe_model: mistralai/codestral-2508
   fallback_models:                 # tried in order when the primary stalls, is rate-limited (429) or unavailable
-    researcher: [z-ai/glm-5.3, deepseek/deepseek-v4-flash]
+    researcher: [deepseek/deepseek-v4-flash, qwen/qwen3-coder]
     engineer:   [deepseek/deepseek-v4-flash, qwen/qwen3-coder]  # V4 Flash first: it has never failed to emit a file
     debugger:   [qwen/qwen3-coder, mistralai/codestral-2508]
     scribe:     [qwen/qwen3-coder]
