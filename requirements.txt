@@ -7,6 +7,7 @@ lightgbm>=4.0
 pyyaml>=6.0
 anthropic>=0.40
 openai>=1.60           # OpenAI-compatible gateways (Gemini / Groq / OpenRouter / Cerebras / DeepSeek)
+requests>=2.31          # Researcher tool-calling: arxiv_search / web_fetch (agent/research_tools.py)
 # tests
 pytest>=8.0
 # optional (large): CPU torch for DeepFM-style experiments

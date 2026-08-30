@@ -48,6 +48,18 @@ class ContractError(ValueError):
     """Raised when a role's output does not satisfy its frozen contract."""
 
 
+def _ci_get(obj: Dict[str, Any], key: str) -> Any:
+    """Case-insensitive fallback lookup: returns the value of the first key in `obj` that matches
+    `key` ignoring case, or None. Only used for optional free-text fields as a second line of
+    defense — the required structural fields (hypothesis, category, ...) rely on prompts alone,
+    since every real run so far has produced those with the correct case."""
+    lowered = key.lower()
+    for k, v in obj.items():
+        if isinstance(k, str) and k.lower() == lowered:
+            return v
+    return None
+
+
 @dataclass
 class ResearcherPlan:
     hypothesis: str
@@ -59,6 +71,15 @@ class ResearcherPlan:
     expected_gain: Optional[float] = None   # the Researcher's predicted primary delta (a number, checked against the measurement)
     gain_evidence: str = ""       # why that number: own measured deltas and/or published results
     ablation_plan: str = ""       # variants the pipeline should also score and print as ABLATION lines (in-run attribution)
+    new_knowledge: str = ""       # optional: a durable, reusable finding (paraphrase + source URL) from a tool
+                                   # call this iteration. The harness appends it to knowledge/library.md via
+                                   # append_knowledge() — this field is NEVER written to the library directly by
+                                   # the LLM; see agent/research_tools.py's dedup/size-cap contract.
+    search_check: str = ""        # REQUIRED (enforced in Roles.researcher(), not here — this schema is shared
+                                   # with research_tools-disabled runs) whenever research tools are enabled: the
+                                   # specific technique/direction under consideration, plus either what was
+                                   # searched and found, or a SPECIFIC reason (not general familiarity) why a
+                                   # search wasn't needed this iteration.
 
     REQUIRED = ("hypothesis", "category", "change_spec", "expected_risk", "builds_on", "expected_gain")
 
@@ -89,13 +110,21 @@ class ResearcherPlan:
             raise ContractError(f"expected_gain must be a primary delta in [-1, 1], got {gain}")
         evidence = obj.get("gain_evidence") or ""
         ablation = obj.get("ablation_plan") or ""
+        # defensive case-insensitive fallback for these two: observed a real model write "SEARCH_CHECK"
+        # (matching the directive text's label style) instead of the exact lowercase key the schema wants.
+        # The directive text is now unambiguous about the required casing; this fallback is a cheap second
+        # line of defense against the same class of mismatch recurring with a different model.
+        new_knowledge = obj.get("new_knowledge") or _ci_get(obj, "new_knowledge") or ""
+        search_check = obj.get("search_check") or _ci_get(obj, "search_check") or ""
         return cls(hypothesis=obj["hypothesis"].strip(), category=category,
                    change_spec=obj["change_spec"].strip(), expected_risk=risk,
                    builds_on=str(obj.get("builds_on", "champion")).strip() or "champion",
                    rationale=rationale.strip() or obj["change_spec"].strip(),
                    expected_gain=gain,
                    gain_evidence=(evidence if isinstance(evidence, str) else json.dumps(evidence)).strip(),
-                   ablation_plan=(ablation if isinstance(ablation, str) else json.dumps(ablation)).strip())
+                   ablation_plan=(ablation if isinstance(ablation, str) else json.dumps(ablation)).strip(),
+                   new_knowledge=(new_knowledge if isinstance(new_knowledge, str) else json.dumps(new_knowledge)).strip(),
+                   search_check=(search_check if isinstance(search_check, str) else json.dumps(search_check)).strip())
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

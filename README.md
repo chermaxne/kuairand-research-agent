@@ -16,6 +16,7 @@ Read `IMPLEMENTATION_SPEC.md` for the design contract and `NOTES.md` for every d
 | The LLM never grades itself | scores/promotion/streaks/budgets computed only in `agent/promotion.py` + `agent/harness.py` from measured values |
 | The checkpoint is sacred | only `install_champion()` (harness) writes `runs/RUN_ID/best/`; failed/worse experiments leave it byte-identical (test) |
 | No external training data; hidden-test rows are invisible during the loop | experiments run on a derived train+valid-only data dir and are read-denied on the full dir (macOS `sandbox-exec`) |
+| The experiment sandbox has no network — unaffected by Researcher tool-calling | `sandbox.py`'s network denial is about the sandboxed subprocess only; the harness *process* itself makes real outbound calls when `research_tools.enabled: true` (arxiv.org only, Researcher role only) — a different scope, not a contradiction. See `agent/research_tools.py`. |
 | Stopping rules: streak ≥ 3 flat (ε = 0.002), 50 iterations, 6 h wall clock, token spend guard | `agent/promotion.py: stop_reason()`; failed iterations tick the streak |
 | Promotion (margin 0.0010) ≠ convergence (ε 0.002) | two separate pure functions, unit-tested |
 | One timestamped run directory holds everything | `runs/<RUN_ID>/` — ledger, state block, per-iteration JSON, workspaces, best/, submission, interventions, token log |

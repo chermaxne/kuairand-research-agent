@@ -15,7 +15,8 @@ from tests.conftest import ROOT, make_toy_harness
 
 GOOD = {"hypothesis": "Use BPR loss", "category": "training", "change_spec": "1. ...", "expected_risk": "medium",
         "expected_gain": 0.003, "gain_evidence": "organizers' direction #1", "ablation_plan": "champion_equiv: pointwise loss",
-        "builds_on": "champion", "rationale": "organizers' top pick"}
+        "builds_on": "champion", "rationale": "organizers' top pick",
+        "search_check": "BPR: 2009 closed-form result, no active research direction changing its risk profile"}
 
 
 # ---------------------------------------------------------------- parsing

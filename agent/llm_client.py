@@ -40,13 +40,14 @@ class LLMResponse:
     stop_reason: str = ""
     estimated_usage: bool = False     # True when the client had no API usage field (mock)
     fallback_notes: List[str] = field(default_factory=list)   # why earlier candidate models were skipped
+    tool_calls: Optional[List[Dict[str, Any]]] = None   # OpenAI-shaped [{"id","type":"function","function":{"name","arguments"}}]
 
 
 class LLMClient(Protocol):
     provider: str
 
     def complete(self, *, role: str, model: str, system_blocks: Sequence[str], messages: Sequence[Dict[str, str]],
-                 max_tokens: int) -> LLMResponse: ...
+                 max_tokens: int, tools: Optional[Sequence[Dict[str, Any]]] = None) -> LLMResponse: ...
 
 
 class LLMError(RuntimeError):
@@ -75,7 +76,9 @@ class MockLLMClient:
         self.calls: List[Dict[str, Any]] = []
 
     def complete(self, *, role: str, model: str, system_blocks: Sequence[str], messages: Sequence[Dict[str, str]],
-                 max_tokens: int) -> LLMResponse:
+                 max_tokens: int, tools: Optional[Sequence[Dict[str, Any]]] = None) -> LLMResponse:
+        # mock handlers produce final text directly (no tool loop needed offline); `tools` is
+        # accepted for Protocol compatibility and ignored, matching --mock's deterministic design.
         t0 = time.time()
         h = self.handlers.get(role) or self.handlers.get(role_key(role)) or self.default
         if h is None:
@@ -169,7 +172,14 @@ class AnthropicClient:
         return {"text": text, "usage": usage, "model": str(getattr(msg, "model", "")), "stop_reason": stop, "refusal_category": category}
 
     def complete(self, *, role: str, model: str, system_blocks: Sequence[str], messages: Sequence[Dict[str, str]],
-                 max_tokens: int) -> LLMResponse:
+                 max_tokens: int, tools: Optional[Sequence[Dict[str, Any]]] = None) -> LLMResponse:
+        if tools:
+            # native Anthropic tool-call shape (content blocks: tool_use/tool_result) differs from the
+            # OpenAI-shaped tools this repo's tool loop speaks -- deliberately not implemented here yet,
+            # fail loud rather than silently drop the tools and pretend the call succeeded normally.
+            raise LLMError("tool calling is not implemented for the native Anthropic client path "
+                           "(role={!r}); route this role through an OpenAI-compatible profile "
+                           "(e.g. openrouter) if it needs tools".format(role))
         req = self.build_request(role=role, model=model, system_blocks=system_blocks, messages=messages, max_tokens=max_tokens)
         last_err: Optional[Exception] = None
         for attempt in range(self.max_retries + 1):
@@ -248,13 +258,17 @@ class OpenAICompatClient:
 
     # -- request assembly (pure; unit-tested without network) --------------
     def build_request(self, *, role: str, model: str, system_blocks: Sequence[str], messages: Sequence[Dict[str, str]],
-                      max_tokens: int) -> Dict[str, Any]:
-        msgs: List[Dict[str, str]] = []
+                      max_tokens: int, tools: Optional[Sequence[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        msgs: List[Dict[str, Any]] = []
         blocks = [b for b in system_blocks if b]
         if blocks:
             msgs.append({"role": "system", "content": "\n\n".join(blocks)})
-        msgs += [{"role": m["role"], "content": m["content"]} for m in messages]
+        # tool-loop turns already carry OpenAI-shaped assistant/tool messages (with tool_calls / tool_call_id) --
+        # pass those through verbatim rather than collapsing to {"role","content"}, which would drop them.
+        msgs += [dict(m) for m in messages]
         req: Dict[str, Any] = {"model": model, "messages": msgs, self.max_tokens_field: int(max_tokens)}
+        if tools:
+            req["tools"] = list(tools)
         body = dict(self.extra_body)
         r = self.reasoning.get(role_key(role))
         if r:
@@ -298,6 +312,9 @@ class OpenAICompatClient:
         last_beat = t0
         parts: List[str] = []
         finish, usage_obj, served, reasoning_chars = "", None, "", 0
+        # streamed tool calls arrive as fragments across many chunks, keyed by index; accumulate
+        # id/name/argument-string pieces per index, then finalize into one dict per call at the end
+        tool_call_frags: Dict[int, Dict[str, Any]] = {}
         kwargs = dict(req)
         kwargs["stream"] = True
         kwargs["stream_options"] = {"include_usage": True}
@@ -324,6 +341,17 @@ class OpenAICompatClient:
                         rd = getattr(delta, "reasoning", None)
                         if rd:
                             reasoning_chars += len(rd)
+                        for tc in (getattr(delta, "tool_calls", None) or []):
+                            idx = getattr(tc, "index", 0)
+                            frag = tool_call_frags.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                            if getattr(tc, "id", None):
+                                frag["id"] = tc.id
+                            fn = getattr(tc, "function", None)
+                            if fn is not None:
+                                if getattr(fn, "name", None):
+                                    frag["name"] += fn.name          # some gateways send the full name in one piece
+                                if getattr(fn, "arguments", None):
+                                    frag["arguments"] += fn.arguments   # arguments always arrive as string fragments
                     fr = getattr(choices[0], "finish_reason", None)
                     if fr:
                         finish = str(fr)
@@ -339,8 +367,11 @@ class OpenAICompatClient:
                 except Exception:  # noqa: BLE001
                     pass
         text = "".join(parts)
+        tool_calls = [{"id": f["id"] or f"call_{i}", "type": "function", "function": {"name": f["name"], "arguments": f["arguments"]}}
+                     for i, f in sorted(tool_call_frags.items())] or None
         return {"text": text, "finish_reason": finish, "usage": self._usage_from(usage_obj, text), "model": served or candidate,
-                "estimated": usage_obj is None, "latency_s": time.time() - t0, "reasoning_chars": reasoning_chars}
+                "estimated": usage_obj is None, "latency_s": time.time() - t0, "reasoning_chars": reasoning_chars,
+                "tool_calls": tool_calls}
 
     def candidates(self, role: str, model: str) -> List[str]:
         """Primary model first, then the role's configured alternates (deduplicated, order preserved)."""
@@ -351,12 +382,13 @@ class OpenAICompatClient:
         return out
 
     def complete(self, *, role: str, model: str, system_blocks: Sequence[str], messages: Sequence[Dict[str, str]],
-                 max_tokens: int) -> LLMResponse:
+                 max_tokens: int, tools: Optional[Sequence[Dict[str, Any]]] = None) -> LLMResponse:
         last_err: Optional[Exception] = None
         notes: List[str] = []
         models = self.candidates(role, model)
         for m_i, candidate in enumerate(models):
-            req = self.build_request(role=role, model=candidate, system_blocks=system_blocks, messages=messages, max_tokens=max_tokens)
+            req = self.build_request(role=role, model=candidate, system_blocks=system_blocks, messages=messages,
+                                     max_tokens=max_tokens, tools=tools)
             timeouts = 0
             attempt = 0
             while True:
@@ -397,7 +429,9 @@ class OpenAICompatClient:
                 stop = self._stop_reason(parsed["finish_reason"])
                 if stop == "refusal":
                     raise LLMError(f"content filter refused the {role} call ({candidate})")
-                if not parsed["text"].strip():
+                # a pure tool-call turn (stop == "tool_use") legitimately has empty text -- the model's
+                # whole turn is the tool invocation, not a mute/dead response
+                if not parsed["text"].strip() and not parsed.get("tool_calls"):
                     last_err = LLMError(f"empty response from {candidate} (finish_reason={parsed['finish_reason']!r})")
                     notes.append(f"{candidate}: empty response (finish_reason={parsed['finish_reason']!r}, "
                                  f"{parsed['usage'].output_tokens} output tokens, {parsed.get('reasoning_chars', 0)} reasoning chars, "
@@ -407,7 +441,7 @@ class OpenAICompatClient:
                     self.progress(f"[llm] {role}: served by fallback {candidate} after: " + "; ".join(notes))
                 return LLMResponse(text=parsed["text"], usage=parsed["usage"], model=parsed["model"] or candidate,
                                    latency_s=parsed.get("latency_s", 0.0), stop_reason=stop, estimated_usage=bool(parsed.get("estimated")),
-                                   fallback_notes=notes)
+                                   fallback_notes=notes, tool_calls=parsed.get("tool_calls"))
         raise LLMError(f"all models failed for role {role} ({', '.join(models)}): "
                        f"{type(last_err).__name__}: {str(last_err)[:300]}")
 

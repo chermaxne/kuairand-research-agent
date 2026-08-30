@@ -61,6 +61,31 @@ PIPELINE_CONTRACT_NOTE = """`python pipeline.py --data <data_dir> --split val --
   pick a conservative LR for the new objective (or add gradient clipping) rather than inheriting the old
   value silently."""
 
+TOOL_USE_DIRECTIVE = """# TOOL USE (arxiv_search / web_fetch available this iteration)
+You have access to arxiv_search and web_fetch tools. Budget: at most 3 search/fetch calls this
+iteration (a hard cap of {max_turns} tool-call turns applies on top of that as a backstop, not a
+target). Paraphrase what you find in your own words; do not quote passages verbatim. web_fetch
+only accepts a URL that arxiv_search itself returned (arxiv.org only) — it will refuse anything
+else.
+
+Before skipping web_search, you must explicitly justify it. Your JSON output must include an
+ADDITIONAL top-level key, spelled EXACTLY "search_check" (all lowercase, a sibling of "hypothesis"
+and "change_spec", not nested inside rationale or any other field), whose string value states:
+(a) the specific technique/direction you are considering, and (b) why you're confident nothing
+published in the last 12 months changes its risk profile or offers a better variant. "I already
+know this technique" is not sufficient justification — cite what specifically makes this case
+exempt (e.g. "this is a closed-form statistical baseline with no active research direction," not
+"MMoE is well-established"). If you cannot articulate a specific reason beyond general
+familiarity, search. The "search_check" key is required in every reply this iteration, whether or
+not you actually called a tool; a reply missing this exact key is rejected and you will be asked
+again.
+
+If you find something durable and reusable beyond this one experiment, add another top-level key
+spelled EXACTLY "new_knowledge" (all lowercase, optional): a string with a 2-3 sentence paraphrase
+plus the source URL. The harness appends this to the knowledge library for future iterations —
+don't restate it at length in gain_evidence beyond what justifies this iteration specifically."""
+
+
 STALL_DIRECTIVE = """# STALL RECOVERY DIRECTIVE (injected by the harness)
 The last {n} iterations ALL failed (crash / timeout / rejected output). Do NOT propose anything ambitious now.
 Propose the SIMPLEST, most reliable change to the champion that is still a real hypothesis (e.g. one
@@ -260,6 +285,8 @@ class Harness:
                                                  best=f"{state.best_primary:.4f}" if state.best_primary is not None else "n/a"))
         if state.consecutive_failures >= int(self.run_cfg.get("STALL_FAILURES", 3)):
             parts.append(STALL_DIRECTIVE.format(n=state.consecutive_failures))
+        if self.roles.research_tools_enabled:
+            parts.append(TOOL_USE_DIRECTIVE.format(max_turns=self.roles.max_tool_turns))
         return "\n\n".join(p for p in parts if p)
 
     # ------------------------------------------------------------------ one iteration
@@ -283,13 +310,22 @@ class Harness:
 
         briefing = self.assemble_briefing(it)
         atomic_write_text(os.path.join(ws, "briefing.md"), briefing)
-        plan, err, _raw = self.roles.researcher(briefing)
+        plan, err, _raw, tool_log = self.roles.researcher(briefing)
         if plan is None:
             error_reason = err
             self.log(f"[it{it:02d}] researcher failed: {one_line(err, 200)}")
         else:
             atomic_write_json(os.path.join(ws, "plan.json"), plan.to_dict())
             self.log(f"[it{it:02d}] HYP ({plan.category}, risk {plan.expected_risk}): {one_line(plan.hypothesis, 200)}")
+            if plan.new_knowledge:
+                from .research_tools import append_knowledge
+                lib_path = os.path.join(self.root, self.cfg["paths"]["knowledge"])
+                added = append_knowledge(lib_path, plan.new_knowledge)
+                if added:
+                    with open(lib_path, encoding="utf-8") as fh:   # refresh the in-memory copy so THIS run's
+                        self.roles.knowledge = fh.read()            # later iterations see it too, not just future runs
+                self.log(f"[it{it:02d}] new_knowledge {'appended' if added else 'skipped (duplicate or library full)'}: "
+                        f"{one_line(plan.new_knowledge, 160)}")
             new_files, err = self.roles.engineer(plan, champion_files, PIPELINE_CONTRACT_NOTE.format(timeout=int(self.run_cfg["EXPERIMENT_TIMEOUT_S"])))
             if new_files is None:
                 error_reason = err
@@ -445,6 +481,7 @@ class Harness:
                                             "leak_test": leak or None,
                                             "expected_gain": plan_for_scribe.expected_gain, "gain_evidence": plan_for_scribe.gain_evidence,
                                             "ablation_plan": plan_for_scribe.ablation_plan, "ablations": ablations,
+                                            "research_tool_calls": tool_log, "new_knowledge_added": bool(plan.new_knowledge) if plan else False,
                                             "workspace": os.path.relpath(ws, self.run_dir)})
         write_iteration_log(self.run_dir, entry)
 

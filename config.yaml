@@ -172,6 +172,23 @@ llm:
       effort: {researcher: null, engineer: null, debugger: null, scribe: null}
       max_output_tokens: {researcher: 3000, engineer: 12000, debugger: 12000, scribe: 300}
 
+# Researcher-only tool-calling: arxiv_search / web_fetch (agent/research_tools.py), ON TOP OF the
+# static knowledge library (still always read in full every call — this is additive, not a
+# replacement). A durable finding can be appended to knowledge/library.md via the NEW_KNOWLEDGE
+# field (harness-written, deduped, capped). Deliberately NOT available to the Debugger (would blur
+# its narrow bounded-repair role into research) and NOT implemented on the native `anthropic`
+# profile (tool-call message shape differs there; using research_tools with that profile fails
+# loud with a clear LLMError, never silently). The tool round-trip itself is confirmed live
+# end-to-end (2026-08-30) against OpenRouter's gemini-3.1-pro-preview. SEARCH_CHECK enforcement
+# (roles.py's _parse_researcher_checked) is unit-tested only so far, not yet exercised against the
+# real model in a live run -- worth one real --max-iters 1 check before trusting it unattended.
+research_tools:
+  enabled: true
+  max_tool_turns: 6                # hard cap on tool-call turns per Researcher call; keep it above
+                                    # the stated per-iteration budget in prompts/researcher.md (see
+                                    # NEW_KNOWLEDGE instructions there) so the soft budget and the
+                                    # hard ceiling are never the same number
+
 run:
   EPSILON: 0.002                   # streak resets only on improvement > EPSILON over best-so-far
   N_FLAT: 3                        # converged after N_FLAT consecutive flat/failed iterations

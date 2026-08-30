@@ -36,7 +36,10 @@ def stub_researcher(role: str, system: List[str], messages: List[Dict[str, str]]
             "category": CATS[(it - 1) % len(CATS)],
             "change_spec": f"In pipeline.py change the line `THETA = <x>` to THETA = x{delta:+.2f} (clamp to [0,1]). delta={delta:+.2f}",
             "expected_risk": "low", "builds_on": "champion", "expected_gain": 0.003,
-            "rationale": "Stub agent: random tiny perturbation of the dummy pipeline (Phase 1 skeleton)."}
+            "rationale": "Stub agent: random tiny perturbation of the dummy pipeline (Phase 1 skeleton).",
+            # always present so this handler satisfies the schema whether or not research_tools is
+            # enabled in the loaded config -- a stub agent has no real judgment to report here.
+            "search_check": "stub agent: no real research judgment, this field is a fixed placeholder"}
     return json.dumps(plan)
 
 
@@ -125,7 +128,9 @@ def kuairand_researcher(role: str, system: List[str], messages: List[Dict[str, s
     plan = {"hypothesis": step["hypothesis"], "category": step["category"],
             "change_spec": f"In pipeline.py apply exactly these line substitutions (leave everything else untouched): {edits}. "
                            f"Keep the CLI, the train-only rule and the output format. [mock it{it:02d}]",
-            "expected_risk": step["risk"], "builds_on": "champion", "expected_gain": 0.003, "rationale": step["rationale"] + f" (mock, it{it:02d})"}
+            "expected_risk": step["risk"], "builds_on": "champion", "expected_gain": 0.003, "rationale": step["rationale"] + f" (mock, it{it:02d})",
+            # see stub_researcher's identical comment: satisfies the schema regardless of config state
+            "search_check": "mock agent: no real research judgment, this field is a fixed placeholder"}
     return json.dumps(plan)
 
 
