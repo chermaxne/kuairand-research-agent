@@ -194,7 +194,11 @@ class Harness:
             self.phase0()
         done = 0
         while True:
-            spend_usd = self._current_spend_usd() if self.limits.max_total_spend_usd is not None else None
+            spend_usd = None
+            if self.limits.max_total_spend_usd is not None:
+                # prefer real per-call cost (immune to teammates sharing the API key); only fall back to the
+                # account-wide balance diff (one extra HTTP round-trip) when the provider never reported one
+                spend_usd = state.real_spend_usd if state.real_spend_usd is not None else self._current_spend_usd()
             reason = stop_reason(state.streak, state.iteration, state.elapsed_s(self.clock()), state.tokens_total, self.limits,
                                  spend_usd=spend_usd)
             if reason:
@@ -422,6 +426,8 @@ class Harness:
         state.tokens_total += usage.total
         state.tokens_input += usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens
         state.tokens_output += usage.output_tokens
+        if usage.cost_usd is not None:
+            state.real_spend_usd = (state.real_spend_usd or 0.0) + usage.cost_usd
         for role, n in self.roles.iteration_role_usage.items():
             state.tokens_by_role[role] = state.tokens_by_role.get(role, 0) + n
         state.llm_calls += self.roles.calls_this_iteration
@@ -748,12 +754,24 @@ class Harness:
         return s1["usage_usd"] - s0["usage_usd"]
 
     def _spend_line(self) -> str:
-        """Provider credit actually consumed by this run (start snapshot minus end snapshot)."""
+        """Provider credit actually consumed by this run. Prefers the sum of real per-call costs (OpenRouter
+        `usage.cost`), which stays correct even when the API key is shared with teammates; the account-wide
+        balance diff (start snapshot vs. end snapshot) is shown alongside as context only, since on a shared
+        key it reflects everyone's activity in the same time window, not just this run's."""
         s0, s1 = (self.state.spend_start or {}), (self.state.spend_end or {})
-        if s0.get("usage_usd") is None or s1.get("usage_usd") is None:
-            return f"- provider spend: not reported by this provider (models: {json.dumps(self._models())})"
-        return (f"- **provider spend: ${s1['usage_usd'] - s0['usage_usd']:.4f}** this run "
-                f"(account total ${s1['usage_usd']:.2f}, remaining ${s1.get('remaining_usd', float('nan')):.2f})")
+        acct_ok = s0.get("usage_usd") is not None and s1.get("usage_usd") is not None
+        acct_delta = (s1["usage_usd"] - s0["usage_usd"]) if acct_ok else None
+        real = self.state.real_spend_usd
+        if real is not None:
+            line = f"- **provider spend: ${real:.4f}** this run (real per-call cost, sums {json.dumps(self._models())})"
+            if acct_ok:
+                line += f" — account balance moved ${acct_delta:.4f} in the same window (shared key: may include other activity)"
+            return line
+        if acct_ok:
+            return (f"- provider spend: not tracked per call for this provider; account balance moved ${acct_delta:.4f} "
+                    f"this run's window (account total ${s1['usage_usd']:.2f}, remaining ${s1.get('remaining_usd', float('nan')):.2f}) "
+                    f"— on a shared key this may include other activity, not only this run")
+        return f"- provider spend: not reported by this provider (models: {json.dumps(self._models())})"
 
     def _models(self) -> Dict[str, str]:
         llm = self.cfg["llm"]

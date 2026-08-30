@@ -234,6 +234,12 @@ class OpenAICompatClient:
         self.max_tokens_field = max_tokens_field
         self.extra_body = dict(extra_body or {})
         self.extra_headers = dict(extra_headers or {})
+        # OpenRouter-only extension: ask for the real per-call cost in the response's usage object. This is
+        # tied to the specific generation, unlike the account-wide balance (/auth/key) — so it stays accurate
+        # even when the API key is shared with teammates making concurrent calls. Other OpenAI-compatible
+        # gateways (Gemini, Groq, Cerebras, DeepSeek) don't support this field; scope it to avoid sending an
+        # unrecognized body key to a stricter gateway.
+        self.track_real_cost = provider_name == "openrouter"
         # role -> ordered alternates tried when the primary model is rate-limited or unavailable (free tiers are flaky)
         self.fallback_models = {k: list(v) for k, v in (fallback_models or {}).items() if v}
         # role -> OpenRouter-style unified `reasoning` object (e.g. {"max_tokens": 4000} or {"effort": "none"})
@@ -274,8 +280,10 @@ class OpenAICompatClient:
         details = getattr(u, "prompt_tokens_details", None)
         if details is not None:
             cached = int(getattr(details, "cached_tokens", 0) or 0)
+        cost = getattr(u, "cost", None)   # OpenRouter-only: present only when usage.include=true was requested
         return TokenUsage(input_tokens=int(getattr(u, "prompt_tokens", 0) or 0) - cached,
-                          output_tokens=int(getattr(u, "completion_tokens", 0) or 0), cache_read_input_tokens=cached)
+                          output_tokens=int(getattr(u, "completion_tokens", 0) or 0), cache_read_input_tokens=cached,
+                          cost_usd=(float(cost) if cost is not None else None))
 
     @staticmethod
     def _stop_reason(finish: str) -> str:
@@ -293,6 +301,8 @@ class OpenAICompatClient:
         kwargs = dict(req)
         kwargs["stream"] = True
         kwargs["stream_options"] = {"include_usage": True}
+        if self.track_real_cost:
+            kwargs["extra_body"] = {**kwargs.get("extra_body", {}), "usage": {"include": True}}
         if self.extra_headers:
             kwargs["extra_headers"] = self.extra_headers
         stream = self._client.chat.completions.create(**kwargs)

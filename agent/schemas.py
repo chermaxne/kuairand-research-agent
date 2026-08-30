@@ -184,6 +184,9 @@ class TokenUsage:
     output_tokens: int = 0
     cache_creation_input_tokens: int = 0
     cache_read_input_tokens: int = 0
+    cost_usd: Optional[float] = None   # real per-call cost in USD when the provider reports one (OpenRouter
+                                        # `usage.include=true`); None when unavailable — never guessed from tokens,
+                                        # since that would silently misrepresent a real number as a real one.
 
     @property
     def total(self) -> int:
@@ -197,8 +200,10 @@ class TokenUsage:
         self.output_tokens += other.output_tokens
         self.cache_creation_input_tokens += other.cache_creation_input_tokens
         self.cache_read_input_tokens += other.cache_read_input_tokens
+        if other.cost_usd is not None:
+            self.cost_usd = (self.cost_usd or 0.0) + other.cost_usd
 
-    def to_dict(self) -> Dict[str, int]:
+    def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
         d["total"] = self.total
         return d
@@ -225,7 +230,11 @@ class RunState:
     tokens_by_role: Dict[str, int] = field(default_factory=dict)
     llm_calls: int = 0
     spend_start: Dict[str, Any] = field(default_factory=dict)   # provider credit snapshot at run start
-    spend_end: Dict[str, Any] = field(default_factory=dict)     # ... and at finalize (delta = this run's cost)
+    spend_end: Dict[str, Any] = field(default_factory=dict)     # ... and at finalize (account-wide; on a shared
+                                                                  # key this delta includes any other activity on it)
+    real_spend_usd: Optional[float] = None   # sum of real per-call costs (OpenRouter usage.cost) — immune to
+                                              # concurrent activity from teammates sharing the same API key;
+                                              # None until the first call that actually reports a cost arrives
     interventions: int = 0
     resumes: int = 0
     blocked: List[str] = field(default_factory=list)
