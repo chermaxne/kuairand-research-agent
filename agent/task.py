@@ -16,7 +16,7 @@ class Task:
     def __init__(self, cfg: Dict[str, Any], root: str, *, kit_dir: str, sealed_dir: str, data_dir: str,
                  loop_data_dir: Optional[str], champion_src_dir: str, name: str = "kuairand",
                  expected: Optional[Dict[str, float]] = None, assert_rungs: bool = True,
-                 run_official_baseline: bool = True, mask_test: bool = True):
+                 run_official_baseline: bool = True, mask_test: bool = True, verify_champion_baseline: bool = True):
         self.cfg = cfg
         self.root = os.path.realpath(root)
         self.name = name
@@ -29,6 +29,11 @@ class Task:
         self.expected = expected or {}
         self.assert_rungs = assert_rungs
         self.run_official_baseline = run_official_baseline
+        # False when champion_src_dir is a SEEDED champion (--seed-champion) rather than the sacred
+        # baseline_repro port: Phase 0 still measures it for real (sandbox + sealed eval), it just
+        # isn't required to land within tolerance of the PUBLISHED baseline -- a seeded champion is
+        # expected to score higher than 0.6016, that's the point of seeding from it.
+        self.verify_champion_baseline = verify_champion_baseline
         self.kit = None
         self.sealed_eval = None
         self.rows_train: List[tuple] = []
@@ -150,7 +155,7 @@ def _p(root: str, rel: str) -> str:
     return rel if os.path.isabs(rel) else os.path.join(root, rel)
 
 
-def make_task(cfg: Dict[str, Any], root: str, toy: bool = False) -> Task:
+def make_task(cfg: Dict[str, Any], root: str, toy: bool = False, seed_champion: Optional[str] = None) -> Task:
     paths = cfg["paths"]
     if toy:
         from . import toy as toymod
@@ -165,8 +170,10 @@ def make_task(cfg: Dict[str, Any], root: str, toy: bool = False) -> Task:
                     expected={}, assert_rungs=False, run_official_baseline=False,
                     mask_test=bool(cfg["run"].get("mask_test_period_in_loop", True)))
     expected = published_expectations(_p(root, paths["baseline_scores"]))
+    champ_dir = _p(root, seed_champion) if seed_champion else _p(root, paths["baseline_repro"])
     return Task(cfg, root, kit_dir=_p(root, paths["starter_kit"]), sealed_dir=_p(root, paths["sealed"]), data_dir=_p(root, paths["data"]),
-                loop_data_dir=_p(root, paths["loop_data"]), champion_src_dir=_p(root, paths["baseline_repro"]), name="kuairand",
+                loop_data_dir=_p(root, paths["loop_data"]), champion_src_dir=champ_dir, name="kuairand",
                 expected=expected, assert_rungs=bool(cfg["phase0"].get("assert_rungs", True)),
                 run_official_baseline=bool(cfg["phase0"].get("run_official_baseline", True)),
-                mask_test=bool(cfg["run"].get("mask_test_period_in_loop", True)))
+                mask_test=bool(cfg["run"].get("mask_test_period_in_loop", True)),
+                verify_champion_baseline=(seed_champion is None))

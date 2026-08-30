@@ -133,7 +133,14 @@ def run_phase0(task, run_dir: str, state: RunState, cfg: Dict[str, Any], log=pri
         raise Phase0Error(f"champion predictions rejected by the sealed checker: {e}")
     res["champion"] = s_ch.to_dict()
     log(f"[phase0] champion: {_fmt(s_ch)} in {sres.runtime_s:.0f}s")
-    check("champion_valid_primary", s_ch.primary, task.expected.get("fm"), btol)
+    if getattr(task, "verify_champion_baseline", True):
+        check("champion_valid_primary", s_ch.primary, task.expected.get("fm"), btol)
+    else:
+        # seeded champion (--seed-champion): measured for real (sandbox + sealed eval above), just not
+        # required to match the PUBLISHED baseline -- it's expected to already beat it.
+        res["checks"].append({"name": "champion_valid_primary", "value": s_ch.primary, "expected": None, "ok": None,
+                              "note": "seeded champion, not checked against published baseline"})
+        log(f"[phase0] seeded champion (not checked against published baseline {task.expected.get('fm')})")
     if task.run_official_baseline and res.get("official_fm", {}).get("primary") is not None:
         res["champion_vs_official"] = round(s_ch.primary - res["official_fm"]["primary"], 6)
 

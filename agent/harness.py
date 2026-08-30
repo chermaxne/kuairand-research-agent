@@ -831,8 +831,8 @@ class Harness:
 # CLI
 # ---------------------------------------------------------------------------
 def build(cfg: Dict[str, Any], root: str, run_dir: str, *, toy: bool = False, mock: bool = False, clock=time.time, log=print,
-          mock_handlers=None) -> Harness:
-    task = make_task(cfg, root, toy=toy)
+          mock_handlers=None, seed_champion: Optional[str] = None) -> Harness:
+    task = make_task(cfg, root, toy=toy, seed_champion=seed_champion)
     if mock and mock_handlers is None and not toy:
         cfg.setdefault("llm", {})["mock_plan"] = "kuairand"      # offline plan of real FM edits for real-data dry runs
     client = make_client(cfg, mock_handlers=mock_handlers, force_mock=mock)
@@ -861,6 +861,11 @@ def main(argv=None) -> int:
     ap.add_argument("--mock", action="store_true", help="offline deterministic LLM roles (no API key needed)")
     ap.add_argument("--toy", action="store_true", help="toy task (mini synthetic dataset + dummy pipeline)")
     ap.add_argument("--max-iters", type=int, default=None, help="override run.MAX_ITERS")
+    ap.add_argument("--seed-champion", default=None, metavar="CODE_DIR",
+                    help="start this NEW run's iteration-0 champion from an existing pipeline.py directory "
+                         "(e.g. runs/<RUN_ID>/best/code) instead of baseline_repro/ -- re-measured for real in "
+                         "Phase 0 via the sandbox + sealed eval, not just trusted from the source run's own record. "
+                         "Not checked against the published baseline (it's expected to already beat it).")
     ap.add_argument("--session-iters", type=int, default=None, help="stop this process after N iterations (resumable)")
     ap.add_argument("--set", action="append", default=[], help="override config: a.b.c=value")
     ap.add_argument("--phase0-only", action="store_true", help="run Phase 0 (baseline reproduction + self-checks) and exit")
@@ -923,7 +928,7 @@ def main(argv=None) -> int:
     runs_dir = os.path.join(root, cfg["paths"]["runs"])
     os.makedirs(runs_dir, exist_ok=True)
     run_dir = os.path.abspath(a.run_dir) if a.run_dir else new_run_dir(runs_dir, a.label or ("toy" if a.toy else ""))
-    h = build(cfg, root, run_dir, toy=a.toy, mock=a.mock)
+    h = build(cfg, root, run_dir, toy=a.toy, mock=a.mock, seed_champion=a.seed_champion)
     try:
         if a.phase0_only:
             st = h.init_or_resume()
