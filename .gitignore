@@ -19,6 +19,10 @@ starter_kit/KuaiRand-Pure/
 starter_kit/KuaiRand-Pure.tar.gz
 data_cache/
 
+# --- KuaiRand-1K (separate dataset variant, used for a manual generalization check; never committed) ---
+KuaiRand-1K/
+KuaiRand-1K.tar.gz
+
 # --- python ---
 .venv/
 __pycache__/
