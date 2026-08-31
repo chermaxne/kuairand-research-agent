@@ -124,7 +124,8 @@ not netted — `runs/20260831_145457_1k_bonus_test/`
 | Self-measured FM baseline | 0.6752 | 0.6105 | 0.6428 |
 | Agent (best val, it05) | 0.6788 | 0.6339 | **0.6563** |
 
-5/50 iterations, 31 LLM calls, 494,477 tokens, wall-clock 7:26, **3 manual interventions**.
+5/50 iterations, 31 LLM calls, 494,477 tokens, wall-clock **7h26m** (elapsed real time, including the pause
+and infra-recovery gaps below — not active compute), **3 manual interventions**.
 **Not fully autonomous**: KuaiRand-1K has no organizer starter kit, so a human built the `starter_kit_1k/`
 scaffolding (filename-ported data/eval/baseline/submit scripts) before Phase 0 — the Researcher/Engineer/Debugger
 loop itself then ran unmodified. Full disclosure in that run's `results_summary.md` Warnings section.
