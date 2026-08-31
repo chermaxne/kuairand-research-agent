@@ -23,6 +23,10 @@ data_cache/
 KuaiRand-1K/
 KuaiRand-1K.tar.gz
 
+# --- KuaiRand-27K (separate dataset variant; large download, never committed) ---
+KuaiRand-27K/
+KuaiRand-27K.tar.gz*
+
 # --- python ---
 .venv/
 __pycache__/
