@@ -3,7 +3,7 @@ Base = pairwise within-user loss from scratch, 5 baseline fields + within-day po
 Each variant changes exactly ONE thing. All features label-free or past-only; scored by sealed evaluate on valid."""
 import numpy as np, pandas as pd, sys, os, time, json, importlib.util, hashlib
 import concurrent.futures as cf
-ROOT = "/Users/ckwang/Documents/TechJam/kuairand-starter-kit"; sys.path.insert(0, ROOT); sys.path.insert(0, f"{ROOT}/sealed")
+ROOT = "."; sys.path.insert(0, ROOT); sys.path.insert(0, f"{ROOT}/sealed")
 from agent import tools
 ev = tools.import_sealed_evaluate(f"{ROOT}/sealed")
 spec = importlib.util.spec_from_file_location("pipe", f"{ROOT}/baseline_repro/pipeline.py"); pipe = importlib.util.module_from_spec(spec); spec.loader.exec_module(pipe)

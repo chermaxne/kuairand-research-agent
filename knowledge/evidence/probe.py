@@ -1,8 +1,8 @@
 """Empirical probes on validation (train-only / past-only features): GBDT stacking, user x author rates, ensembles."""
 import pandas as pd, numpy as np, time, sys, json, os
-sys.path.insert(0, "/Users/ckwang/Documents/TechJam/kuairand-starter-kit")
+sys.path.insert(0, ".")
 from agent import tools
-ROOT = "/Users/ckwang/Documents/TechJam/kuairand-starter-kit"
+ROOT = "."
 D = f"{ROOT}/starter_kit/KuaiRand-Pure/data"
 ev = tools.import_sealed_evaluate(f"{ROOT}/sealed")
 t0 = time.time()

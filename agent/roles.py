@@ -31,6 +31,8 @@ FILE_END = re.compile(r"^=== END FILE ===\s*$", re.M)
 # parsing helpers (pure)
 # ---------------------------------------------------------------------------
 def _strip_fence(body: str) -> str:
+    """Removes a wrapping ```/```python fence if the model added one, so a file's saved content is
+    the code itself, never the markdown fence around it."""
     lines = body.strip("\n").splitlines()
     if lines and lines[0].strip().startswith("```"):
         lines = lines[1:]
@@ -61,6 +63,9 @@ def parse_file_blocks(text: str) -> Dict[str, str]:
 
 
 def render_file_blocks(files: Dict[str, str]) -> str:
+    """Inverse of parse_file_blocks(): serializes {filename: content} back into the same
+    === FILE: name === ... === END FILE === format the prompts show the model, for re-prompting
+    (e.g. showing the champion's current files to the Engineer)."""
     out = []
     for name in sorted(files):
         out.append(f"=== FILE: {name} ===\n```python\n{files[name].rstrip()}\n```\n=== END FILE ===")
@@ -110,6 +115,8 @@ def parse_researcher(text: str) -> ResearcherPlan:
 
 @dataclass
 class DebugOutcome:
+    """Result of one debugger() call: either a fix (new file contents) to retry, or an abandon
+    decision with a reason -- never both."""
     action: str                      # fix | abandon
     files: Dict[str, str] = field(default_factory=dict)
     reason: str = ""
@@ -117,6 +124,9 @@ class DebugOutcome:
 
 
 def parse_debugger(text: str) -> DebugOutcome:
+    """Parses a Debugger reply: === FILE === blocks mean a fix (optionally preceded by a FIX SUMMARY:
+    line), otherwise a {"action":"abandon","reason":...} JSON object. Raises ContractError if neither
+    shape is found."""
     files = parse_file_blocks(text)
     if files:
         m = re.search(r"^FIX SUMMARY:\s*(.+)$", text, flags=re.M)
@@ -227,6 +237,9 @@ class Roles:
 
     def _call(self, role: str, system_blocks: Sequence[str], messages: List[Dict[str, Any]], purpose: str, attempt: int = 1,
              tools: Optional[Sequence[Dict[str, Any]]] = None) -> LLMResponse:
+        """Single choke point for every role's LLM call: invokes the client, accounts tokens onto the
+        iteration/role/run totals, logs a console line, records the call, and (if transcript_dir is set)
+        writes the full prompt+response transcript for that (role, purpose)."""
         resp = self.client.complete(role=role, model=self._model(role), system_blocks=system_blocks, messages=messages,
                                     max_tokens=self._max_tokens(role), tools=tools)
         self.iteration_usage.add(resp.usage)
@@ -356,6 +369,8 @@ class Roles:
                 f"# Pipeline contract\n{contract_note}\n\n# TASK\n{task}")
 
     def engineer(self, plan: ResearcherPlan, champion_files: Dict[str, str], contract_note: str = "") -> Tuple[Optional[Dict[str, str]], str]:
+        """Returns (files | None, error). One re-ask if the reply has no `pipeline.py` file block, same
+        one-shot-retry pattern as researcher() and debugger()."""
         _, task = load_prompt(self.prompts_dir, "engineer")
         messages = [{"role": "user", "content": self.engineer_message(plan, champion_files, task, contract_note)}]
         try:
@@ -386,6 +401,8 @@ class Roles:
                 f"# Error (last lines of the run)\n```\n{error_excerpt}\n```\n\n# TASK\n{task}")
 
     def debugger(self, plan: ResearcherPlan, files: Dict[str, str], error_excerpt: str, attempt: int) -> DebugOutcome:
+        """Returns a DebugOutcome for one fix attempt. One re-ask on a malformed reply; a persistent
+        LLMError or malformed output after the re-ask becomes an abandon, never a raised exception."""
         _, task = load_prompt(self.prompts_dir, "debugger")
         messages = [{"role": "user", "content": self.debugger_message(plan, files, error_excerpt, attempt, task)}]
         try:
@@ -436,6 +453,8 @@ class Roles:
             return ""
 
     def scribe_logentry(self, facts: Dict[str, Any]) -> str:
+        """Scribe job: renders the harness-measured facts as a short markdown narrative. Falls back to a
+        fixed "(narrative unavailable: ...)" string on an LLM error rather than leaving the log empty."""
         _, task = load_prompt(self.prompts_dir, "scribe_logentry")
         messages = [{"role": "user", "content": f"# Facts (measured by the harness)\n```json\n{json.dumps(facts, indent=1, default=str)}\n```\n\n# TASK\n{task}"}]
         try:

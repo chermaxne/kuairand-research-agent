@@ -1,13 +1,21 @@
-"""Validate leak test v2 on real data: two legitimate pipelines (must be clean) and the real 0.8484 leaker (must be LEAK)."""
+"""Validate leak test v2 on real data: two legitimate pipelines (must be clean) and a deliberate label
+leak (must be LEAK).
+
+REGENERATED 2026-09-01: the original candidates (ten5/ten6 it01, from a since-deleted scratch dir) no
+longer exist -- see git history's "caught a 0.8484 oracle score" commit for that incident. These are
+fresh stand-ins that exercise the same three cases with real, currently-available code: the actual
+baseline champion, an actual promoted iteration from a saved run, and a newly-built minimal leaker
+(knowledge/evidence/leak_validation_candidates/real_leaker/) that adds the label as an input field on
+purpose. This validates the leak_test() *mechanism*, not the historical incident's exact numbers."""
 import sys, time, json, yaml
-sys.path.insert(0, "/Users/ckwang/Documents/TechJam/kuairand-starter-kit")
+sys.path.insert(0, ".")
 from agent.task import make_task
-SCR = "/private/tmp/claude-501/-Users-ckwang-Documents-TechJam-kuairand-starter-kit/afbb0d1b-da0b-4c92-b210-73859310e750/scratchpad/leakv2"
-cfg = yaml.safe_load(open("/Users/ckwang/Documents/TechJam/kuairand-starter-kit/config.yaml"))
-t = make_task(cfg, "/Users/ckwang/Documents/TechJam/kuairand-starter-kit", toy=False); t.prepare(lambda *_: None)
-cases = [("clean_baseline", "baseline FM champion (legit, 0.6015)"),
-         ("clean_it01", "ten6 it01 bundle (legit 0.6046, v1 FALSELY flagged)"),
-         ("real_leaker", "ten5 it01 (real leak, scored the 0.8484 oracle)")]
+SCR = "./knowledge/evidence/leak_validation_candidates"
+cfg = yaml.safe_load(open("./config.yaml"))
+t = make_task(cfg, ".", toy=False); t.prepare(lambda *_: None)
+cases = [("clean_baseline", "baseline FM champion (legit, ~0.6015)"),
+         ("clean_it01", "runs/20260830_020718_chermaine_test best/it02 (legit, promoted at 0.6048)"),
+         ("real_leaker", "regenerated deliberate label-as-feature leak (must be LEAK)")]
 out = {}
 for d, label in cases:
     t0 = time.time()

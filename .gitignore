@@ -27,6 +27,10 @@ KuaiRand-1K.tar.gz
 KuaiRand-27K/
 KuaiRand-27K.tar.gz*
 
+# --- regenerable output from knowledge/evidence/leak_test_validation.py ---
+knowledge/evidence/leak_validation_candidates/*/preds_val_leaktest.csv
+knowledge/evidence/leak_validation_candidates/*/leaktest_*_std*.txt
+
 # --- python ---
 .venv/
 __pycache__/

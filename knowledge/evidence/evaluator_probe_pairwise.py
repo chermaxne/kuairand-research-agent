@@ -1,7 +1,7 @@
 """Evaluator probe 2 (E3 + seed check of FM6): within-user pairwise (BPR/logistic) fine-tuning of the pointwise FM,
 sign-checked with train GAUC; FM6 (baseline + within-day position field) on two more seeds."""
 import pandas as pd, numpy as np, time, sys, json, importlib.util, collections
-ROOT = "/Users/ckwang/Documents/TechJam/kuairand-starter-kit"; D = f"{ROOT}/data_cache/loop_train_valid"
+ROOT = "."; D = f"{ROOT}/data_cache/loop_train_valid"
 sys.path.insert(0, f"{ROOT}/sealed")
 spec = importlib.util.spec_from_file_location("pipe", f"{ROOT}/baseline_repro/pipeline.py"); pipe = importlib.util.module_from_spec(spec); spec.loader.exec_module(pipe)
 ev = pipe.evaluate; t0 = time.time()

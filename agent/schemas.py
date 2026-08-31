@@ -26,6 +26,8 @@ def utc_now_iso() -> str:
 # ---------------------------------------------------------------------------
 @dataclass
 class Score:
+    """The sealed evaluator's three official metrics (GAUC, nDCG@5, primary = their mean) for one
+    scored run, plus the population they were computed over."""
     gauc: float
     ndcg5: float
     primary: float
@@ -34,6 +36,8 @@ class Score:
 
     @classmethod
     def from_evaluate(cls, d: Dict[str, Any]) -> "Score":
+        """Builds a Score from the sealed evaluate.py's raw dict, translating its GAUC/nDCG@5 key
+        names into this dataclass's fields."""
         return cls(gauc=float(d["GAUC"]), ndcg5=float(d["nDCG@5"]), primary=float(d["primary"]),
                    users=int(d.get("users", 0)), rows=int(d.get("rows", 0)))
 
@@ -62,6 +66,9 @@ def _ci_get(obj: Dict[str, Any], key: str) -> Any:
 
 @dataclass
 class ResearcherPlan:
+    """The Researcher's frozen output contract (spec §5.1): one experiment hypothesis plus everything
+    downstream roles and the harness need to act on it. Built only via from_obj() from parsed JSON --
+    never constructed by hand from a role's raw text."""
     hypothesis: str
     category: str
     change_spec: str
@@ -85,6 +92,9 @@ class ResearcherPlan:
 
     @classmethod
     def from_obj(cls, obj: Any) -> "ResearcherPlan":
+        """Validates and parses a Researcher JSON reply into a ResearcherPlan, enforcing the §5.1
+        contract (required keys, category/risk vocab, numeric expected_gain). Raises ContractError
+        on any violation; roles.py turns that into the one-time re-ask."""
         if not isinstance(obj, dict):
             raise ContractError("researcher output must be a JSON object")
         missing = [k for k in cls.REQUIRED if k not in obj]
@@ -135,6 +145,8 @@ class ResearcherPlan:
 # ---------------------------------------------------------------------------
 @dataclass
 class HarnessResult:
+    """The measured outcome of running one experiment's pipeline.py -- scored, failed, or timed out.
+    Never touched by an LLM; only the harness writes this, from what it actually observed."""
     status: str                      # scored | failed | timeout
     gauc: float = 0.0
     ndcg5: float = 0.0
@@ -173,6 +185,8 @@ class DebugAttempt:
 # ---------------------------------------------------------------------------
 @dataclass
 class IterationLog:
+    """§5.6 per-iteration log entry -- the judges' deliverable. One of these is written to
+    logs/iter_NN.json for every iteration, whether it was promoted, kept the champion, or failed."""
     iteration: int
     timestamp: str
     hypothesis: str
@@ -209,6 +223,8 @@ class IterationLog:
 # ---------------------------------------------------------------------------
 @dataclass
 class TokenUsage:
+    """Token/cost accounting for one LLM call, one role, or one iteration (same shape, aggregated at
+    different granularities via add()). Fields mirror what providers report in their `usage` object."""
     input_tokens: int = 0
     output_tokens: int = 0
     cache_creation_input_tokens: int = 0
@@ -243,6 +259,9 @@ class TokenUsage:
 # ---------------------------------------------------------------------------
 @dataclass
 class RunState:
+    """Everything the harness needs to resume a run after a crash or Ctrl-C, written atomically to
+    run_state.json after every iteration. This is the run's single source of truth -- ledger.md and
+    state.md are rendered from it, not the other way around."""
     run_id: str
     start_ts: str                     # ISO UTC, human readable
     start_time: float                 # epoch seconds; wall-clock is measured from here (survives resume)
@@ -287,11 +306,16 @@ class RunState:
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "RunState":
+        """Reconstructs a RunState from a saved run_state.json, ignoring any key that isn't a current
+        dataclass field -- so an older run_state.json (from before a field was added or after one was
+        removed) still resumes instead of crashing."""
         known = {f for f in cls.__dataclass_fields__}
         return cls(**{k: v for k, v in d.items() if k in known})
 
 
 def atomic_write_text(path: str, text: str) -> None:
+    """Writes via a temp file + fsync + os.replace so a crash mid-write never leaves `path` truncated
+    or partially written -- the read side always sees either the old content or the new, never a mix."""
     tmp = f"{path}.tmp.{os.getpid()}"
     with open(tmp, "w", encoding="utf-8") as fh:
         fh.write(text)

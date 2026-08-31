@@ -3,7 +3,7 @@
 features + a time-split out-of-fold FM score. All scoring: sealed evaluate.py on the validation split (0422-0428).
 Data: data_cache/loop_train_valid (test rows already removed)."""
 import pandas as pd, numpy as np, time, sys, json, importlib.util
-ROOT = "/Users/ckwang/Documents/TechJam/kuairand-starter-kit"; D = f"{ROOT}/data_cache/loop_train_valid"
+ROOT = "."; D = f"{ROOT}/data_cache/loop_train_valid"
 sys.path.insert(0, f"{ROOT}/sealed")
 spec = importlib.util.spec_from_file_location("pipe", f"{ROOT}/baseline_repro/pipeline.py"); pipe = importlib.util.module_from_spec(spec); spec.loader.exec_module(pipe)
 ev = pipe.evaluate

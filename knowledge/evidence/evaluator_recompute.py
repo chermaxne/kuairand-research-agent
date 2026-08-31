@@ -1,6 +1,6 @@
 """Independent recomputation of data facts A1-A12/B1-B3 + extra checks. Uses ONLY the masked loop data (no test rows)."""
 import pandas as pd, numpy as np, time, sys, importlib.util
-ROOT = "/Users/ckwang/Documents/TechJam/kuairand-starter-kit"; D = f"{ROOT}/data_cache/loop_train_valid"
+ROOT = "."; D = f"{ROOT}/data_cache/loop_train_valid"
 spec = importlib.util.spec_from_file_location("ev", f"{ROOT}/sealed/evaluate.py"); evm = importlib.util.module_from_spec(spec); spec.loader.exec_module(evm); ev = evm.evaluate
 t0 = time.time()
 a = pd.read_csv(f"{D}/log_standard_4_08_to_4_21_pure.csv"); b = pd.read_csv(f"{D}/log_standard_4_22_to_5_08_pure.csv")

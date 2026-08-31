@@ -177,7 +177,10 @@ agent/        harness.py (loop, resume, finalize) · promotion.py (pure decision
               roles.py (briefing assembly, parsing, re-ask) · llm_client.py (Anthropic + mock, token accounting)
               sandbox.py (timeout, env stripping, sandbox-exec) · tools.py · task.py · phase0.py · toy.py · intervene.py
 prompts/      researcher.md engineer.md debugger.md scribe_lesson.md scribe_logentry.md (system + task template)
-knowledge/    library.md — domain playbook injected into every Researcher briefing
+knowledge/    library.md — domain playbook injected into every Researcher briefing; evidence/ — probes that produced it
+docs/         tool_loop_sketch.py — design sketch for Researcher tool-calling, superseded by the real
+              implementation in agent/roles.py + agent/research_tools.py; kept for its native-Anthropic-vs-
+              OpenRouter tool-shape notes
 baseline_repro/pipeline.py — iteration-0 champion (organizers' FM in the pipeline contract)
 sealed/       evaluate.py (verbatim) · submit_check.py (wraps starter_kit/submit.py --check)
 starter_kit/  organizer kit, untouched · data_cache/ derived train+valid-only copy · runs/ one dir per run
@@ -238,5 +241,4 @@ proposed change here — hyperparameter-only proposals are explicitly disallowed
 see any run's `iterations/it*/plan.json`.
 
 ## Contributions
-_Fill in before submitting — not something this repo can state on its own:_ list each team member and what
-they specifically did (harness design, prompt engineering, a specific run's setup, the write-up, etc.).
+Chengke, Chermaine, Benjamin, Aaron, Ryan.

@@ -1,6 +1,6 @@
 """Probe 3: seed ensembling of the FM, recency weighting, tab-context tweaks."""
 import numpy as np, pandas as pd, sys, os, time, json, importlib.util
-ROOT = "/Users/ckwang/Documents/TechJam/kuairand-starter-kit"
+ROOT = "."
 sys.path.insert(0, ROOT); sys.path.insert(0, f"{ROOT}/sealed")
 from agent import tools
 ev = tools.import_sealed_evaluate(f"{ROOT}/sealed")

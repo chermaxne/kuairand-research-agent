@@ -1,8 +1,8 @@
 """Probe 2: within-user objectives and multi-task heads. All features train-only/past-only."""
 import pandas as pd, numpy as np, time, sys, json, os
-sys.path.insert(0, "/Users/ckwang/Documents/TechJam/kuairand-starter-kit")
+sys.path.insert(0, ".")
 from agent import tools
-ROOT = "/Users/ckwang/Documents/TechJam/kuairand-starter-kit"; D = f"{ROOT}/starter_kit/KuaiRand-Pure/data"
+ROOT = "."; D = f"{ROOT}/starter_kit/KuaiRand-Pure/data"
 ev = tools.import_sealed_evaluate(f"{ROOT}/sealed")
 t0 = time.time()
 a = pd.read_csv(f"{D}/log_standard_4_08_to_4_21_pure.csv"); b = pd.read_csv(f"{D}/log_standard_4_22_to_5_08_pure.csv")

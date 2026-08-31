@@ -1,5 +1,5 @@
 import pandas as pd, numpy as np, json, time
-D = "/Users/ckwang/Documents/TechJam/kuairand-starter-kit/starter_kit/KuaiRand-Pure/data"
+D = "./starter_kit/KuaiRand-Pure/data"
 t0 = time.time()
 a = pd.read_csv(f"{D}/log_standard_4_08_to_4_21_pure.csv")
 b = pd.read_csv(f"{D}/log_standard_4_22_to_5_08_pure.csv")

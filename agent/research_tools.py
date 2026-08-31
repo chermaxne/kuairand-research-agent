@@ -87,7 +87,7 @@ def web_fetch(url: str) -> str:
 # Tool schemas -- OpenAI/OpenRouter function-calling shape. This is what most models served
 # through OpenRouter (including glm-5.2, qwen3-coder) expect. If a role is called through a
 # NATIVE Anthropic client instead of via OpenRouter, the tool block shape differs -- see the
-# note at the bottom of tool_loop_sketch.py.
+# note at the bottom of docs/tool_loop_sketch.py.
 # ---------------------------------------------------------------------------
 RESEARCH_TOOLS = [
     {
