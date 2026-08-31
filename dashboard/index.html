@@ -1,282 +1,260 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Convergence Ledger</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
+  /*
+    Palette (deliberate, single committed look): one continuous warm-neutral surface with tonal
+    steps for hierarchy, not two colors stapled together. `chrome` (near-black) is a minority
+    color — a thin strip top and bottom only, never a full panel.
+      bg              #F6F5F1  page ground, warm paper
+      surface         #FDFDFB  cards
+      surface-sunken  #ECEBE6  code/diff backgrounds, table stripes
+      border          #DEDCD4  hairlines
+      ink / ink-muted #17171A / #6B6A66   text
+      chrome          #141316  the one near-black surface (top strip + footer strip only)
+    cyan/magenta are used at full saturation for fills, chart lines and badge backgrounds only;
+    colored TEXT always uses the darkened -ink variant so it stays legible on the light surfaces.
+      cyan    #25F4EE  -> text variant #0E7C7E   "cleared the baseline" / "line added"
+      magenta #FE2C55  -> text variant #B3123F   "behind the baseline" / "line removed" / a problem
+  */
   :root{
-    --ink:#172422; --ink-soft:#4b5b57;
-    --paper:#eef1ed; --panel:#fbfbf8; --panel-2:#f2f4ef;
-    --border:#d9dcd4; --border-soft:#e4e6e0;
-    --accent:#2e6e8e; --accent-soft:#e2ecf1;
-    --amber:#a5651f; --amber-soft:#f3e6d3;
-    --good:#1f7a45; --good-soft:#e1f0e6;
-    --bad:#a8352c; --bad-soft:#f6e2df;
-    --shadow: 0 1px 2px rgba(23,36,34,.06), 0 1px 0 rgba(23,36,34,.03);
+    --bg:#f6f5f1; --surface:#fdfdfb; --surface-sunken:#ecebe6; --border:#dedcd4;
+    --ink:#17171a; --ink-muted:#6b6a66;
+    --chrome:#141316;
+
+    --cyan:#25f4ee; --cyan-ink:#0e7c7e; --cyan-fill:rgba(37,244,238,.16);
+    --magenta:#fe2c55; --magenta-ink:#b3123f; --magenta-fill:rgba(254,44,85,.14);
     color-scheme: light;
-  }
-  @media (prefers-color-scheme: dark){
-    :root:not([data-theme="light"]){
-      --ink:#e7ece7; --ink-soft:#a9b6b1;
-      --paper:#10161a; --panel:#161e22; --panel-2:#1b2429;
-      --border:#2a343a; --border-soft:#222b30;
-      --accent:#74b8d9; --accent-soft:#1c2f38;
-      --amber:#e0a35b; --amber-soft:#332612;
-      --good:#5cc98a; --good-soft:#132a1e;
-      --bad:#e2837a; --bad-soft:#301c1a;
-      --shadow: 0 1px 2px rgba(0,0,0,.4);
-      color-scheme: dark;
-    }
-  }
-  :root[data-theme="dark"]{
-    --ink:#e7ece7; --ink-soft:#a9b6b1;
-    --paper:#10161a; --panel:#161e22; --panel-2:#1b2429;
-    --border:#2a343a; --border-soft:#222b30;
-    --accent:#74b8d9; --accent-soft:#1c2f38;
-    --amber:#e0a35b; --amber-soft:#332612;
-    --good:#5cc98a; --good-soft:#132a1e;
-    --bad:#e2837a; --bad-soft:#301c1a;
-    --shadow: 0 1px 2px rgba(0,0,0,.4);
-    color-scheme: dark;
   }
 
   *{box-sizing:border-box;}
-  body{
-    background:
-      radial-gradient(var(--border-soft) 1px, transparent 1px) 0 0/22px 22px,
-      var(--paper);
-    color:var(--ink);
-    font-family:'IBM Plex Sans', system-ui, sans-serif;
-    line-height:1.5;
-    -webkit-font-smoothing:antialiased;
-  }
+  body{ background:var(--bg); color:var(--ink); font-family:'IBM Plex Sans', system-ui, sans-serif; line-height:1.5; -webkit-font-smoothing:antialiased; }
   h1,h2,h3{ font-family:'IBM Plex Sans Condensed', 'IBM Plex Sans', sans-serif; text-wrap:balance; margin:0; }
-  code, .mono, .tag, .num, table.metrics, .diff{ font-family:'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric:tabular-nums; }
-  a{ color:var(--accent); }
-  ::selection{ background:var(--accent-soft); }
-  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:3px; }
+  code, .mono, table.metrics, .diff{ font-family:'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric:tabular-nums; }
+  ::selection{ background:var(--cyan-fill); }
+  :focus-visible{ outline:2px solid var(--cyan-ink); outline-offset:2px; border-radius:3px; }
 
-  .wrap{ max-width:1040px; margin:0 auto; padding:28px 20px 80px; display:flex; flex-direction:column; gap:22px; }
+  /* full-bleed chrome strips bookend the page; everything else lives in the constrained column */
+  .chrome-strip{ background:var(--chrome); color:var(--bg); }
+  .chrome-strip .inner{ max-width:1040px; margin:0 auto; padding:11px 20px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+  .chrome-top .inner{ font-family:'IBM Plex Mono'; font-size:11px; letter-spacing:.05em; text-transform:uppercase; }
+  .chrome-top .dot{ width:6px; height:6px; border-radius:50%; background:var(--cyan); display:inline-block; margin-right:7px; box-shadow:0 0 0 3px rgba(37,244,238,.22); }
+  .chrome-top .track{ color:#a3a29e; }
 
-  .eyebrow{
-    display:inline-flex; align-items:center; gap:8px;
-    font-family:'IBM Plex Mono'; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase;
-    color:var(--ink-soft);
-  }
-  .eyebrow .dot{ width:6px; height:6px; border-radius:50%; background:var(--good); box-shadow:0 0 0 3px var(--good-soft); }
+  .wrap{ max-width:1040px; margin:0 auto; padding:0 20px; display:flex; flex-direction:column; }
 
-  .panel{
-    background:var(--panel); border:1px solid var(--border); border-radius:8px;
-    padding:22px 24px; box-shadow:var(--shadow);
-  }
-  .panel > .panel-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
-  .panel-head h2{ font-size:19px; font-weight:600; }
-  .panel-note{ font-size:12.5px; color:var(--ink-soft); max-width:52ch; }
+  /* ---------- hero header: no card, sits directly on bg ---------- */
+  .hero{ padding:34px 0 30px; display:flex; justify-content:space-between; align-items:flex-start; gap:28px; flex-wrap:wrap; border-bottom:1px solid var(--border); margin-bottom:28px; }
+  .hero-main{ flex:1; min-width:280px; }
+  .title-row{ display:flex; align-items:center; gap:12px; }
+  .title-row h1{ font-size:32px; font-weight:700; letter-spacing:-.01em; }
+  .hero-main p{ margin:10px 0 0; max-width:56ch; color:var(--ink-muted); font-size:14.5px; }
+  .hero-team{ margin:12px 0 0; font-family:'IBM Plex Mono'; font-size:11px; letter-spacing:.03em; color:var(--ink-muted); }
+  .hero-team b{ color:var(--ink); font-weight:600; }
 
-  /* ---------- header ---------- */
-  header.panel{ padding:26px 26px 22px; }
-  .header-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; }
-  .title-block h1{ font-size:30px; font-weight:700; letter-spacing:-.01em; }
-  .title-block p{ margin:8px 0 0; max-width:62ch; color:var(--ink-soft); font-size:14.5px; }
-  .run-tag{ text-align:right; font-family:'IBM Plex Mono'; font-size:11.5px; color:var(--ink-soft); white-space:nowrap; }
-  .run-tag strong{ color:var(--ink); font-weight:600; }
+  .run-tabs{ display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; }
+  .run-tab{ all:unset; cursor:pointer; font-family:'IBM Plex Mono'; font-size:11.5px; letter-spacing:.03em; padding:7px 14px; border-radius:20px; border:1px solid var(--border); color:var(--ink-muted); background:var(--surface); }
+  .run-tab:hover{ color:var(--ink); border-color:var(--ink-muted); }
+  .run-tab.active{ background:var(--chrome); color:var(--bg); border-color:var(--chrome); font-weight:600; }
 
-  .badge-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-top:20px; }
-  .badge{ border:1px solid var(--border); border-radius:7px; padding:11px 13px; background:var(--panel-2); }
-  .badge .k{ font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft); }
-  .badge .v{ font-family:'IBM Plex Mono'; font-size:19px; font-weight:600; margin-top:3px; }
-  .badge .v.good{ color:var(--good); } .badge .v.amber{ color:var(--amber); }
+  .hero-stats{ display:flex; align-items:flex-end; gap:24px; flex-wrap:wrap; }
+  .hero-number{ text-align:right; }
+  .hero-number .v{ font-family:'IBM Plex Mono'; font-size:44px; font-weight:600; line-height:1; color:var(--cyan-ink); }
+  .hero-number .k{ font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-muted); margin-top:4px; }
+  .mini-stats{ display:flex; gap:18px; padding-left:20px; border-left:1px solid var(--border); }
+  .mini-stat{ text-align:right; }
+  .mini-stat .v{ font-family:'IBM Plex Mono'; font-size:17px; font-weight:600; }
+  .mini-stat .k{ font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-muted); margin-top:2px; }
+
+  /* ---------- generic card ---------- */
+  .panel{ background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:22px 24px; margin-bottom:22px; }
+  .panel-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+  .panel-head h2{ font-size:18px; font-weight:600; }
+  .panel-note{ font-size:12.5px; color:var(--ink-muted); max-width:52ch; }
 
   /* ---------- architecture ---------- */
   .arch-grid{ display:grid; grid-template-columns:1.35fr 1fr; gap:22px; align-items:center; }
   .arch-grid svg{ width:100%; height:auto; display:block; }
-  .role-list{ display:flex; flex-direction:column; gap:10px; }
-  .role-row{ display:flex; align-items:center; gap:10px; border:1px solid var(--border); border-radius:6px; padding:9px 11px; background:var(--panel-2); }
-  .role-swatch{ width:9px; height:9px; border-radius:2px; flex:none; }
+  .role-list{ display:flex; flex-direction:column; gap:9px; }
+  .role-row{ display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); }
+  .role-row:last-child{ border-bottom:none; }
+  .role-swatch{ width:8px; height:8px; border-radius:2px; flex:none; }
   .role-row .rname{ font-weight:600; font-size:13.5px; min-width:82px; }
-  .role-row .rmodel{ font-family:'IBM Plex Mono'; font-size:12px; color:var(--ink-soft); }
-  .arch-cap{ margin-top:14px; font-size:12.5px; color:var(--ink-soft); border-top:1px dashed var(--border); padding-top:12px; }
+  .role-row .rmodel{ font-family:'IBM Plex Mono'; font-size:12px; color:var(--ink-muted); }
+  .arch-cap{ margin-top:14px; font-size:12.5px; color:var(--ink-muted); border-top:1px dashed var(--border); padding-top:12px; }
 
   /* ---------- results + feasibility ---------- */
-  .results-grid{ display:grid; grid-template-columns:1.3fr 1fr; gap:22px; }
+  .results-grid{ display:grid; grid-template-columns:1.4fr 1fr; gap:20px; margin-bottom:22px; }
+  .results-grid .panel{ margin-bottom:0; }
+  .results-grid .panel:last-child{ background:var(--surface-sunken); }
   table.metrics{ width:100%; border-collapse:collapse; font-size:13.5px; }
-  table.metrics th{ text-align:left; font-family:'IBM Plex Sans'; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft); font-weight:600; padding:0 8px 8px 0; border-bottom:1px solid var(--border); }
-  table.metrics td{ padding:9px 8px 9px 0; border-bottom:1px solid var(--border-soft); }
+  table.metrics th{ text-align:left; font-family:'IBM Plex Sans'; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-muted); font-weight:600; padding:0 8px 8px 0; border-bottom:1px solid var(--border); }
+  table.metrics td{ padding:9px 8px 9px 0; border-bottom:1px solid var(--border); }
+  table.metrics tbody tr:nth-child(even){ background:var(--surface-sunken); }
   table.metrics tr:last-child td{ border-bottom:none; }
-  .delta{ display:inline-block; padding:1px 7px; border-radius:20px; font-weight:600; font-size:12.5px; }
-  .delta.pos{ background:var(--good-soft); color:var(--good); }
-  .delta.neg{ background:var(--bad-soft); color:var(--bad); }
+  .delta{ display:inline-block; padding:1px 7px; border-radius:3px; font-weight:600; font-size:12.5px; font-family:'IBM Plex Mono'; }
+  .delta.pos{ background:var(--cyan-fill); color:var(--cyan-ink); }
+  .delta.neg{ background:var(--magenta-fill); color:var(--magenta-ink); }
   .metric-name{ font-weight:600; }
-  .ceiling-note{ font-size:11.5px; color:var(--ink-soft); margin-top:10px; }
+  .ceiling-note{ font-size:11.5px; color:var(--ink-muted); margin-top:10px; }
+  .baseline-note{ font-size:11.5px; color:var(--ink-muted); margin-top:6px; }
 
   .resource-block{ display:flex; flex-direction:column; gap:11px; }
-  .res-row{ display:flex; justify-content:space-between; align-items:baseline; font-size:13.5px; border-bottom:1px dashed var(--border-soft); padding-bottom:9px; }
+  .res-row{ display:flex; justify-content:space-between; align-items:baseline; font-size:13.5px; border-bottom:1px dashed var(--border); padding-bottom:9px; }
   .res-row:last-of-type{ border-bottom:none; }
   .res-row .rv{ font-family:'IBM Plex Mono'; font-weight:600; }
-  .tier-chip{ display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:20px; font-size:12px; font-weight:600; margin-top:2px; }
-  .tier-chip.low{ background:var(--good-soft); color:var(--good); }
-  .tier-chip.medium{ background:var(--amber-soft); color:var(--amber); }
-  .tier-chip.high{ background:var(--bad-soft); color:var(--bad); }
+  .tier-chip{ display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:3px; font-size:12px; font-weight:600; margin-top:2px; font-family:'IBM Plex Mono'; letter-spacing:.03em; }
+  .tier-chip.low{ background:var(--cyan-fill); color:var(--cyan-ink); }
+  .tier-chip.medium{ background:var(--surface); color:var(--ink-muted); border:1px solid var(--border); }
+  .tier-chip.high{ background:var(--magenta-fill); color:var(--magenta-ink); }
 
   /* ---------- chart ---------- */
   .chart-wrap{ position:relative; height:280px; }
-  .legend{ display:flex; gap:18px; flex-wrap:wrap; margin-top:12px; font-size:12.5px; color:var(--ink-soft); }
+  .legend{ display:flex; gap:18px; flex-wrap:wrap; margin-top:12px; font-size:12.5px; color:var(--ink-muted); }
   .legend span{ display:inline-flex; align-items:center; gap:6px; }
   .legend i{ width:14px; height:3px; border-radius:2px; display:inline-block; }
 
-  /* ---------- timeline ---------- */
-  .timeline{ display:flex; flex-direction:column; gap:0; }
-  .iter{ border:1px solid var(--border); border-radius:8px; margin-bottom:12px; background:var(--panel-2); overflow:hidden; }
-  .iter.champion{ border-color:var(--amber); box-shadow:0 0 0 1px var(--amber), var(--shadow); }
-  .iter-head{
-    all:unset; box-sizing:border-box; cursor:pointer; width:100%; display:flex; align-items:center; gap:12px;
-    padding:14px 16px; font-size:13.5px;
-  }
-  .iter-head:hover{ background:var(--border-soft); }
-  .iter-num{ font-family:'IBM Plex Mono'; font-weight:700; font-size:13px; color:var(--accent); flex:none; width:38px; }
-  .iter.champion .iter-num{ color:var(--amber); }
-  .iter-hyp{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink); }
+  /* ---------- timeline: heading sits on bg, entries are the only cards — this section dominates ---------- */
+  .timeline-head{ margin:6px 0 18px; display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .timeline-head h2{ font-size:22px; font-weight:600; }
+  .timeline-head .panel-note{ font-size:12.5px; }
+  .timeline{ display:flex; flex-direction:column; gap:0; margin-bottom:30px; }
+  .iter{ border:1px solid var(--border); border-radius:6px; margin-bottom:12px; background:var(--surface); overflow:hidden; }
+  .iter.champion{ border-color:var(--cyan); box-shadow:2px 2px 0 0 var(--magenta), -1px -1px 0 0 var(--cyan); }
+  .iter-head{ all:unset; box-sizing:border-box; cursor:pointer; width:100%; display:flex; align-items:center; gap:12px; padding:15px 18px; font-size:13.5px; color:var(--ink); }
+  .iter-head:hover{ background:var(--surface-sunken); }
+  .iter-num{ font-family:'IBM Plex Mono'; font-weight:700; font-size:13px; color:var(--ink-muted); flex:none; width:38px; }
+  .iter.champion .iter-num{ color:var(--cyan-ink); }
+  .iter-hyp{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .iter-flags{ display:flex; align-items:center; gap:8px; flex:none; }
-  .champion-star{ display:none; align-items:center; gap:4px; font-size:11px; font-weight:700; color:var(--amber); text-transform:uppercase; letter-spacing:.04em; }
-  .iter.champion .champion-star{ display:inline-flex; }
-  .error-flag{ display:inline-flex; align-items:center; justify-content:center; width:19px; height:19px; border-radius:50%; background:var(--bad-soft); color:var(--bad); font-size:11px; font-weight:700; }
-  .chev{ transition:transform .15s ease; color:var(--ink-soft); flex:none; }
+  .champion-mark{ display:none; align-items:center; gap:5px; font-size:11px; font-weight:700; color:var(--ink); text-transform:uppercase; letter-spacing:.04em; }
+  .iter.champion .champion-mark{ display:inline-flex; }
+  .error-flag{ display:inline-flex; align-items:center; justify-content:center; width:19px; height:19px; border-radius:50%; background:var(--magenta-fill); color:var(--magenta-ink); font-size:11px; font-weight:700; }
+  .chev{ transition:transform .15s ease; color:var(--ink-muted); flex:none; }
   .iter[data-open="true"] .chev{ transform:rotate(90deg); }
   .iter-body{ display:grid; grid-template-rows:0fr; transition:grid-template-rows .18s ease; }
   .iter[data-open="true"] .iter-body{ grid-template-rows:1fr; }
   .iter-body-inner{ overflow:hidden; }
-  .iter-content{ padding:2px 16px 18px; border-top:1px solid var(--border); }
+  .iter-content{ padding:2px 18px 20px; border-top:1px solid var(--border); }
   .iter-section{ margin-top:14px; }
-  .iter-section h4{ font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft); margin-bottom:6px; font-weight:600; }
-  .iter-meta{ display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--ink-soft); margin-top:10px; }
+  .iter-section h4{ font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-muted); margin-bottom:6px; font-weight:600; }
+  .iter-meta{ display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--ink-muted); margin-top:10px; }
   .iter-meta b{ color:var(--ink); font-family:'IBM Plex Mono'; }
-  .diff{ background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:10px 12px; font-size:11.5px; line-height:1.55; max-height:280px; overflow:auto; white-space:pre; }
-  .diff .add{ color:var(--good); background:var(--good-soft); display:block; }
-  .diff .del{ color:var(--bad); background:var(--bad-soft); display:block; }
-  .diff .hunk{ color:var(--accent); display:block; }
+  .diff{ background:var(--surface-sunken); border:1px solid var(--border); border-radius:5px; padding:10px 12px; font-size:11.5px; line-height:1.55; max-height:280px; overflow:auto; white-space:pre; }
+  .diff .add{ color:var(--cyan-ink); background:var(--cyan-fill); display:block; }
+  .diff .del{ color:var(--magenta-ink); background:var(--magenta-fill); display:block; }
+  .diff .hunk{ color:var(--ink-muted); display:block; }
   .metric-chip-row{ display:flex; gap:8px; flex-wrap:wrap; }
-  .metric-chip{ border:1px solid var(--border); background:var(--panel); border-radius:6px; padding:6px 10px; font-size:12px; display:flex; gap:6px; align-items:baseline; }
+  .metric-chip{ border:1px solid var(--border); background:var(--surface-sunken); border-radius:5px; padding:6px 10px; font-size:12px; display:flex; gap:6px; align-items:baseline; }
   .metric-chip b{ font-family:'IBM Plex Mono'; }
-  .error-box{ background:var(--bad-soft); border:1px solid color-mix(in srgb, var(--bad) 40%, transparent); border-radius:6px; padding:10px 12px; font-size:12.5px; }
+  .error-box{ background:var(--magenta-fill); border:1px solid rgba(179,18,63,.3); border-radius:5px; padding:10px 12px; font-size:12.5px; }
   .error-box + .error-box{ margin-top:8px; }
-  .error-box .lbl{ font-weight:700; color:var(--bad); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
-  .decision-tag{ font-family:'IBM Plex Mono'; font-size:11px; padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:.03em; font-weight:600; }
-  .decision-tag.promoted{ background:var(--good-soft); color:var(--good); }
-  .decision-tag.kept_champion{ background:var(--panel); color:var(--ink-soft); border:1px solid var(--border); }
+  .error-box .lbl{ font-weight:700; color:var(--magenta-ink); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  .decision-tag{ font-family:'IBM Plex Mono'; font-size:11px; padding:2px 8px; border-radius:3px; text-transform:uppercase; letter-spacing:.03em; font-weight:600; }
+  .decision-tag.promoted{ background:var(--cyan-fill); color:var(--cyan-ink); }
+  .decision-tag.kept_champion, .decision-tag.seed_champion{ background:var(--surface-sunken); color:var(--ink-muted); border:1px solid var(--border); }
+  .leak-clean{ color:var(--cyan-ink); } .leak-leak{ color:var(--magenta-ink); } .leak-skipped{ color:var(--ink-muted); }
 
-  /* ---------- autonomy strip ---------- */
-  .autonomy{ display:flex; align-items:center; gap:22px; flex-wrap:wrap; }
-  .autonomy .big{ font-family:'IBM Plex Mono'; font-size:34px; font-weight:700; color:var(--good); line-height:1; }
-  .autonomy .big-label{ font-size:12px; color:var(--ink-soft); margin-top:4px; }
-  .autonomy-desc{ flex:1; min-width:220px; font-size:13.5px; color:var(--ink-soft); }
-  .autonomy-desc strong{ color:var(--ink); }
+  /* ---------- autonomy: a thin band, not a card ---------- */
+  .autonomy-band{ display:flex; align-items:center; gap:20px; flex-wrap:wrap; padding:14px 2px; margin-bottom:22px; border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+  .autonomy-band .big{ font-family:'IBM Plex Mono'; font-size:26px; font-weight:700; color:var(--cyan-ink); line-height:1; }
+  .autonomy-band .big-label{ font-size:11px; color:var(--ink-muted); }
+  .autonomy-band .autonomy-desc{ flex:1; min-width:220px; font-size:13px; color:var(--ink-muted); }
+  .autonomy-band .autonomy-desc strong{ color:var(--ink); }
 
   /* ---------- assumptions ---------- */
-  .callout{ border:1px dashed var(--accent); background:var(--accent-soft); border-radius:8px; padding:16px 18px; }
-  .callout h2{ font-size:14px; color:var(--accent); display:flex; align-items:center; gap:8px; }
+  .callout{ border:1px dashed var(--border); background:var(--surface); border-radius:6px; padding:16px 18px; margin-bottom:24px; }
+  .callout h2{ font-size:14px; color:var(--ink); display:flex; align-items:center; gap:8px; }
   .callout ul{ margin:10px 0 0; padding-left:20px; font-size:13px; color:var(--ink); }
   .callout li + li{ margin-top:8px; }
+  .flag-icon{ flex:none; color:var(--ink-muted); }
 
-  /* ---------- footer ---------- */
-  .deliverables{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
-  .deliv{ border:1px solid var(--border); border-radius:7px; padding:13px 14px; background:var(--panel-2); display:flex; gap:10px; align-items:flex-start; }
-  .deliv .n{ font-family:'IBM Plex Mono'; font-weight:700; color:var(--accent); font-size:13px; }
-  .deliv .t{ font-size:13px; font-weight:600; }
-  .deliv .s{ font-size:11.5px; color:var(--ink-soft); margin-top:2px; }
-
-  footer.foot{ text-align:center; font-size:11.5px; color:var(--ink-soft); padding-top:6px; }
+  /* ---------- chrome footer: deliverables + closing note, minority dark surface ---------- */
+  .chrome-foot .inner{ flex-direction:column; align-items:stretch; gap:14px; padding:22px 20px 18px; }
+  .deliverables{ display:flex; flex-wrap:wrap; gap:0; }
+  .deliv{ display:flex; gap:9px; align-items:baseline; padding:6px 22px 6px 0; }
+  .deliv .n{ font-family:'IBM Plex Mono'; font-weight:700; color:var(--cyan); font-size:12px; }
+  .deliv .t{ font-size:13px; font-weight:600; color:var(--bg); }
+  .deliv .s{ font-size:11px; color:#8f8e8a; }
+  footer.foot{ text-align:left; font-size:11.5px; color:#8f8e8a; border-top:1px solid #262427; padding-top:12px; }
 
   @media (max-width:760px){
     .arch-grid, .results-grid{ grid-template-columns:1fr; }
-    .header-top{ flex-direction:column; }
-    .run-tag{ text-align:left; }
+    .hero{ flex-direction:column; }
+    .hero-stats{ width:100%; justify-content:space-between; }
   }
   @media (prefers-reduced-motion:reduce){ *{ transition:none !important; } }
 </style>
-</head>
-<body>
+
+<div class="chrome-strip chrome-top"><div class="inner" id="chrome-top"></div></div>
 
 <div class="wrap">
-
-  <header class="panel" id="header-panel"></header>
+  <div class="hero" id="hero"></div>
 
   <section class="panel" id="arch-panel">
     <div class="panel-head">
       <h2>Agent architecture</h2>
-      <span class="panel-note">Four LLM roles around a deterministic harness loop</span>
+      <span class="panel-note">Four LLM roles around a deterministic harness loop — identical for both runs below</span>
     </div>
     <div class="arch-grid">
       <svg viewBox="0 0 560 420" role="img" aria-labelledby="arch-title arch-desc">
         <title id="arch-title">MLE research loop</title>
-        <desc id="arch-desc">A circular pipeline: Researcher proposes a hypothesis, Engineer edits the pipeline, a sandbox trains it, the sealed evaluator scores it, promotion logic decides champion or keep, the Scribe logs the lesson, and the loop repeats. A Debugger branches off the sandbox step to retry on crashes or timeouts.</desc>
+        <desc id="arch-desc">A circular pipeline: Researcher proposes a hypothesis, Engineer edits the pipeline, a sandbox trains it, the sealed evaluator scores it, promotion logic decides champion or keep, the Scribe logs the lesson, and the loop repeats. A Debugger branches off the sandbox step in magenta to retry on crashes or timeouts.</desc>
         <defs>
-          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"></path>
+          <marker id="arrow-cyan" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#0e7c7e"></path>
           </marker>
-          <marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill="var(--amber)"></path>
+          <marker id="arrow-magenta" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#b3123f"></path>
           </marker>
         </defs>
         <style>
-          .node-box{ fill:var(--panel); stroke:var(--border); stroke-width:1.3; }
-          .node-box.hi{ stroke:var(--accent); stroke-width:1.6; }
-          .node-label{ font-family:'IBM Plex Sans Condensed','IBM Plex Sans',sans-serif; font-weight:600; font-size:13px; fill:var(--ink); }
-          .node-sub{ font-family:'IBM Plex Mono'; font-size:9.5px; fill:var(--ink-soft); }
-          .loop-line{ fill:none; stroke:var(--accent); stroke-width:1.6; }
-          .debug-line{ fill:none; stroke:var(--amber); stroke-width:1.6; stroke-dasharray:5 4; }
+          .node-box{ fill:#ecebe6; stroke:#dedcd4; stroke-width:1.3; }
+          .node-box.hi{ stroke:#a8a6a0; stroke-width:1.6; }
+          .node-label{ font-family:'IBM Plex Sans Condensed','IBM Plex Sans',sans-serif; font-weight:600; font-size:13px; fill:#17171a; }
+          .node-sub{ font-family:'IBM Plex Mono'; font-size:9.5px; fill:#6b6a66; }
+          .loop-line{ fill:none; stroke:#0e7c7e; stroke-width:1.6; }
+          .debug-line{ fill:none; stroke:#b3123f; stroke-width:1.6; stroke-dasharray:5 4; }
         </style>
 
-        <!-- loop nodes, arranged in a ring -->
-        <!-- Researcher top -->
-        <rect class="node-box hi" x="205" y="18" width="150" height="46" rx="7"></rect>
+        <rect class="node-box hi" x="205" y="18" width="150" height="46" rx="5"></rect>
         <text class="node-label" x="280" y="38" text-anchor="middle">Researcher</text>
         <text class="node-sub" x="280" y="54" text-anchor="middle">hypothesis + diff spec</text>
 
-        <!-- Engineer right -->
-        <rect class="node-box hi" x="410" y="100" width="140" height="46" rx="7"></rect>
+        <rect class="node-box hi" x="410" y="100" width="140" height="46" rx="5"></rect>
         <text class="node-label" x="480" y="120" text-anchor="middle">Engineer</text>
         <text class="node-sub" x="480" y="136" text-anchor="middle">rewrites pipeline.py</text>
 
-        <!-- Sandbox lower-right -->
-        <rect class="node-box" x="410" y="215" width="140" height="46" rx="7"></rect>
+        <rect class="node-box" x="410" y="215" width="140" height="46" rx="5"></rect>
         <text class="node-label" x="480" y="235" text-anchor="middle">Sandbox run</text>
         <text class="node-sub" x="480" y="251" text-anchor="middle">train + predict, no network</text>
 
-        <!-- Sealed evaluator bottom -->
-        <rect class="node-box" x="205" y="290" width="150" height="46" rx="7"></rect>
+        <rect class="node-box" x="205" y="290" width="150" height="46" rx="5"></rect>
         <text class="node-label" x="280" y="310" text-anchor="middle">Sealed evaluator</text>
         <text class="node-sub" x="280" y="326" text-anchor="middle">GAUC / nDCG@5, verbatim</text>
 
-        <!-- Promotion lower-left -->
-        <rect class="node-box" x="10" y="215" width="140" height="46" rx="7"></rect>
+        <rect class="node-box" x="10" y="215" width="140" height="46" rx="5"></rect>
         <text class="node-label" x="80" y="235" text-anchor="middle">Promote / keep</text>
         <text class="node-sub" x="80" y="251" text-anchor="middle">margin + leak check</text>
 
-        <!-- Scribe left -->
-        <rect class="node-box hi" x="10" y="100" width="140" height="46" rx="7"></rect>
+        <rect class="node-box hi" x="10" y="100" width="140" height="46" rx="5"></rect>
         <text class="node-label" x="80" y="120" text-anchor="middle">Scribe</text>
         <text class="node-sub" x="80" y="136" text-anchor="middle">lesson + ledger line</text>
 
-        <!-- Debugger, off to the side -->
-        <rect class="node-box" x="220" y="150" width="120" height="42" rx="7" stroke="var(--amber)"></rect>
-        <text class="node-label" x="280" y="169" text-anchor="middle" fill="var(--amber)">Debugger</text>
+        <rect class="node-box" x="220" y="150" width="120" height="42" rx="5" stroke="#b3123f"></rect>
+        <text class="node-label" x="280" y="169" text-anchor="middle" fill="#b3123f">Debugger</text>
         <text class="node-sub" x="280" y="184" text-anchor="middle">crash / timeout retry</text>
 
-        <!-- ring arrows -->
-        <path class="loop-line" marker-end="url(#arrow)" d="M355,45 C 400,55 430,75 465,100"></path>
-        <path class="loop-line" marker-end="url(#arrow)" d="M480,146 L480,215"></path>
-        <path class="loop-line" marker-end="url(#arrow)" d="M410,240 C 340,270 300,285 300,290"></path>
-        <path class="loop-line" marker-end="url(#arrow)" d="M205,300 C 160,285 120,270 90,261"></path>
-        <path class="loop-line" marker-end="url(#arrow)" d="M80,215 L80,146"></path>
-        <path class="loop-line" marker-end="url(#arrow)" d="M150,112 C 175,90 195,65 220,45"></path>
+        <path class="loop-line" marker-end="url(#arrow-cyan)" d="M320,64 C 320,95 368,95 410,110"></path>
+        <path class="loop-line" marker-end="url(#arrow-cyan)" d="M480,146 L480,215"></path>
+        <path class="loop-line" marker-end="url(#arrow-cyan)" d="M410,235 C 372,255 360,280 355,300"></path>
+        <path class="loop-line" marker-end="url(#arrow-cyan)" d="M205,300 C 175,285 160,265 150,250"></path>
+        <path class="loop-line" marker-end="url(#arrow-cyan)" d="M80,215 L80,146"></path>
+        <path class="loop-line" marker-end="url(#arrow-cyan)" d="M150,110 C 175,95 190,70 205,45"></path>
 
-        <!-- debugger branch: sandbox <-> debugger -->
-        <path class="debug-line" marker-end="url(#arrow-amber)" d="M410,225 C 370,205 320,190 300,178"></path>
-        <path class="debug-line" marker-end="url(#arrow-amber)" d="M300,178 C 330,195 375,215 415,232"></path>
+        <path class="debug-line" marker-end="url(#arrow-magenta)" d="M410,222 C 380,208 360,196 340,183"></path>
+        <path class="debug-line" marker-end="url(#arrow-magenta)" d="M300,192 C 320,205 365,220 410,240"></path>
 
         <text class="node-sub" x="280" y="405" text-anchor="middle" style="font-size:10.5px">one iteration = one full turn of this ring; harness computes every score, decision and streak — no role grades itself</text>
       </svg>
@@ -290,11 +268,10 @@
 
   <div class="results-grid">
     <section class="panel" id="results-panel">
-      <div class="panel-head">
-        <h2>Validation results vs. baseline</h2>
-      </div>
+      <div class="panel-head"><h2>Validation results vs. baseline</h2></div>
       <table class="metrics" id="results-table"></table>
       <p class="ceiling-note" id="ceiling-note"></p>
+      <p class="baseline-note" id="baseline-note"></p>
     </section>
 
     <section class="panel" id="feasibility-panel">
@@ -306,67 +283,57 @@
   <section class="panel" id="chart-panel">
     <div class="panel-head">
       <h2>Score trend across iterations</h2>
-      <span class="panel-note">Zero line = published baseline · gold marker = champion iteration</span>
+      <span class="panel-note">Dashed line = baseline · ringed marker = champion iteration</span>
     </div>
     <div class="chart-wrap"><canvas id="trend-chart"></canvas></div>
     <div class="legend" id="chart-legend"></div>
   </section>
 
-  <section class="panel" id="timeline-panel">
-    <div class="panel-head">
-      <h2>Iteration log</h2>
-      <span class="panel-note">Newest first · click a row to expand</span>
-    </div>
-    <div class="timeline" id="timeline"></div>
-  </section>
+  <div class="timeline-head">
+    <h2>Iteration log</h2>
+    <span class="panel-note">Newest first · click a row to expand</span>
+  </div>
+  <div class="timeline" id="timeline"></div>
 
-  <section class="panel" id="autonomy-panel">
-    <div class="panel-head"><h2>Autonomy</h2></div>
-    <div class="autonomy" id="autonomy-body"></div>
-  </section>
+  <div class="autonomy-band" id="autonomy-body"></div>
 
   <section class="callout" id="assumptions-panel">
-    <h2>⚑ Assumptions &amp; clarifications</h2>
+    <h2><span class="flag-icon" id="flag-icon"></span> Assumptions &amp; clarifications</h2>
     <ul id="assumptions-list"></ul>
   </section>
+</div>
 
-  <section class="panel" id="deliverables-panel">
-    <div class="panel-head"><h2>Submission deliverables</h2></div>
+<div class="chrome-strip chrome-foot">
+  <div class="inner">
     <div class="deliverables" id="deliverables-grid"></div>
-  </section>
-
-  <footer class="foot" id="footer-note"></footer>
+    <footer class="foot" id="footer-note"></footer>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js"></script>
-<script src="data.js"></script>
 <script>
-(function(){
-  var D = window.RUN_DATA;
-  var RM = D.run_metadata;
-  var ITERS = D.iterations; // newest first
-  var chronological = ITERS.slice().reverse();
+// AUTO-GENERATED from two real runs under runs/ (gitignored, so this file is the durable record):
+//   runs/20260830_224430_seeded_0605_v2    -- KuaiRand-Pure, the primary competition submission
+//   runs/20260831_145457_1k_bonus_test     -- KuaiRand-1K, a bonus generalization check
+// Regenerate by having the Scribe role emit this shape as its last step each run, or re-run the
+// build script that assembled RUNS below from each run's run_state.json + logs/iter_NN.json.
+window.RUNS = {"pure":{"run_metadata":{"team_name":"KuaiRand Research Agent","team_members":["Benjamin","Chengke","Chermaine","Aaron","Ryan"],"track":"Track 2 \u2014 Autonomous ML Research Agent","benchmark":"KuaiRand-Pure","run_id":"20260830_224430_seeded_0605_v2","baseline_is_published":true,"official_baseline":{"gauc":0.6674,"ndcg5":0.5357,"primary":0.6016,"hidden_test_gauc":0.661,"hidden_test_ndcg5":0.5282,"hidden_test_primary":0.5946},"champion_iteration":0,"ceiling_kind":"hidden_test","attainable_ceiling_primary":0.8645,"convergence_rule":{"epsilon":0.002,"n":3},"compute_budget":{"max_iterations":20,"wall_clock_ceiling_hours":6},"agent_roles":[{"role":"Researcher","model":"google/gemini-3.1-pro-preview"},{"role":"Engineer","model":"google/gemini-3.1-pro-preview"},{"role":"Debugger","model":"deepseek/deepseek-v4-flash"},{"role":"Scribe","model":"mistralai/codestral-2508"}],"totals":{"iterations_used":3,"converged":true,"stop_reason":"converged","manual_interventions":0,"resumes":0,"total_tokens_input":124406,"total_tokens_output":59612,"llm_calls":16,"wall_clock_seconds":960,"gpu_hours":0,"provider_spend_usd":0.89995184},"hero_blurb":"Deterministic harness runs the MLE loop; a Researcher/Engineer/Debugger/Scribe LLM ensemble makes every research decision on the KuaiRand-Pure within-user ranking benchmark (label <code>long_view</code>, primary = mean(GAUC, nDCG@5)) \u2014 this is the primary competition submission.","autonomy_note":"Zero manual interventions across the full run. The harness restarted after resumes and the sandbox\u2019s own Debugger retry are the only human-adjacent touch points, and both are counted honestly \u2014 a resume auto-logs as an intervention even when no human edited anything. This run needed neither.","extra_assumptions":["No iteration in this run cleared the +0.002 promotion margin, so the seeded phase-0 champion (it00, carried over from a separate prior run) remained champion the entire time. it01's small +0.0001 gain was still used for the final submission (the run's own \u201cbest leak-clean measurement\u201d policy), even though it never triggered a formal promotion."]},"iterations":[{"iteration":3,"timestamp":"2026-08-30T15:00:03Z","role_invoked":"Researcher \u2192 Engineer","hypothesis":"Treating click and long_view as ordinal feedback levels and training BPR on all valid pairs (long_view > no_click, long_view > click_only, click_only > no_click) will provide granular gradients for items and give all-negative users a ranking signal, raising primary.","category":"training","code_diff":"--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -71,7 +71,8 @@\n         with open(os.path.join(data_dir, f)) as fh:\n             for r in csv.DictReader(fh):\n                 rows_orig.append((int(r[\"date\"]), r[\"user_id\"], r[\"video_id\"], vid2author.get(r[\"video_id\"], \"UNK\"), r[\"tab\"],\n-                                 float(r[\"duration_ms\"]), 1 if r[LABEL] != \"0\" else 0, int(r[\"time_ms\"]), int(r[\"hourmin\"]) // 100))\n+                                 float(r[\"duration_ms\"]), 1 if r[LABEL] != \"0\" else 0, int(r[\"time_ms\"]), int(r[\"hourmin\"]) // 100,\n+                                 1 if r[\"is_click\"] != \"0\" else 0))\n     N = len(rows_orig)\n     \n     # indices sorted by time for historical stats\n@@ -83,7 +84,7 @@\n     \n     for i in time_order:\n         x = rows_orig[i]\n-        date, _, vid, aid, _, _, label, _, _ = x\n+        date, _, vid, aid, _, _, label, _, _, _ = x\n         v_imp, v_pos = v_stats[vid]\n         a_imp, a_pos = a_stats[aid]\n         \n@@ -125,7 +126,7 @@\n     # Build new rows in original order\n     new_rows = []\n     for i, x in enumerate(rows_orig):\n-        new_rows.append(x[:7] + (str(x[8]), depth_map[i], num_features[i]))\n+        new_rows.append(x[:7] + (str(x[8]), depth_map[i], num_features[i], x[9]))\n     rows = new_rows\n     return {name: [x for x in rows if lo <= x[0] <= hi] for name, (lo, hi) in SPLITS.items()}\n \n@@ -157,14 +158,16 @@\n         X = np.empty((len(rws), len(FIELDS)), dtype=np.int32)\n         X_num = np.empty((len(rws), 5), dtype=np.float32)\n         y = np.empty(len(rws), dtype=np.float32)\n+        c = np.empty(len(rws), dtype=np.float32)\n         users = []\n         for n, x in enumerate(rws):\n             for i, v in enumerate(raw(x)):\n                 X[n, i] = vocabs[i].get(v, unk[i]) + offsets[i]\n             X_num[n] = x[9]\n             y[n] = x[6]\n+            c[n] = x[10]\n             users.append(x[1])\n-        enc[name] = (X, X_num, y, users)\n+        enc[name] = (X, X_num, y, c, users)\n     return enc, int(sum(field_dims))\n \n \n@@ -252,30 +255,58 @@\n # ----------------------------------------------------------------------------- [5] training\n def train(enc, dim, mode=\"pure_bpr\", max_epochs=EPOCHS, seed=SEED, log=print):\n     \"\"\"Train on train, early-stop on validation primary. Returns the best model and its metrics.\"\"\"\n-    Xtr, Xnum_tr, ytr, utr = enc[\"train\"]\n-    Xva, Xnum_va, yva, uva = enc[\"valid\"]\n+    Xtr, Xnum_tr, ytr, ctr, utr = enc[\"train\"]\n+    Xva, Xnum_va, yva, cva, uva = enc[\"valid\"]\n     \n     if mode == \"champion_equiv\":\n         Xnum_tr = np.zeros_like(Xnum_tr)\n         Xnum_va = np.zeros_like(Xnum_va)\n     \n     if mode in (\"pure_bpr\", \"champion_equiv\"):\n-        user2pos = collections.defaultdict(list)\n-        user2neg = collections.defaultdict(list)\n-        for i, (u, y) in enumerate(zip(utr, ytr)):\n-            if y == 1.0:\n-                user2pos[u].append(i)\n-            else:\n-                user2neg[u].append(i)\n-                \n         pos_indices = []\n         neg_indices = []\n-        for u, pos_list in user2pos.items():\n-            neg_list = user2neg.get(u, [])\n-            if len(neg_list) > 0:\n-                for p in pos_list:\n-                    pos_indices.append(p)\n-                    neg_indices.append(neg_list)\n+        if mode == \"champion_equiv\":\n+            user2pos = collections.defaultdict(list)\n+            user2neg = collections.defaultdict(list)\n+            for i, (u, y) in enumerate(zip(utr, ytr)):\n+                if y == 1.0:\n+                    user2pos[u].append(i)\n+                else:\n+                    user2neg[u].append(i)\n+            \n+            for u, pos_list in user2pos.items():\n+                neg_list = user2neg.get(u, [])\n+                if len(neg_list) > 0:\n+                    for p in pos_list:\n+                        pos_indices.append(p)\n+                        neg_indices.append(neg_list)\n+        else:\n+            user2l2 = collections.defaultdict(list)\n+            user2l1 = collections.defaultdict(list)\n+            user2l0 = collections.defaultdict(list)\n+            for i, (u, y, c) in enumerate(zip(utr, ytr, ctr)):\n+                if y == 1.0:\n+                    user2l2[u].append(i)\n+                elif c == 1.0:\n+                    user2l1[u].append(i)\n+                else:\n+                    user2l0[u].append(i)\n+            \n+            for u, l2_list in user2l2.items():\n+                l1_list = user2l1.get(u, [])\n+                l0_list = user2l0.get(u, [])\n+                l1_l0 = l1_list + l0_list\n+                if len(l1_l0) > 0:\n+                    for p in l2_list:\n+                        pos_indices.append(p)\n+                        neg_indices.append(l1_l0)\n+            \n+            for u, l1_list in user2l1.items():\n+                l0_list = user2l0.get(u, [])\n+                if len(l0_list) > 0:\n+                    for p in l1_list:\n+                        pos_indices.append(p)\n+                        neg_indices.append(l0_list)\n                     \n         pos_indices = np.array(pos_indices, dtype=np.int32)\n         lens = np.array([len(n) for n in neg_indices], dtype=np.int32)\n@@ -360,8 +391,8 @@\n     enc, dim = encode(splits)\n     \n     # 1. Full fit on champion (pure_bpr) and write predictions\n-    X, X_num, _, _ = enc[split]\n-    Xva, Xnum_va, yva, uva = enc[\"valid\"]\n+    X, X_num, _, _, _ = enc[split]\n+    Xva, Xnum_va, yva, cva, uva = enc[\"valid\"]\n     \n     all_scores = []\n     all_scores_va = []","metrics":{"gauc":0.6609,"ndcg5":0.5332,"primary":0.597},"delta_vs_baseline":{"gauc":-0.0065,"ndcg5":-0.0025,"primary":-0.0046},"delta_vs_previous":{"gauc":-0.0109,"ndcg5":-0.0051,"primary":-0.008},"errors":[],"manual_intervention":false,"decision":"kept_champion","expected_gain":0.0035,"leak_test_verdict":null,"tokens_this_iteration":80714,"is_champion":false},{"iteration":2,"timestamp":"2026-08-30T14:56:05Z","role_invoked":"Researcher \u2192 Engineer","hypothesis":"Generalizing the Factorization Machine to a Field-weighted FM (FwFM) will allow the model to learn the importance of different field-pair interactions, upweighting critical crosses like user-video while discounting noisy ones, raising primary.","category":"model","code_diff":"--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -176,7 +176,7 @@\n class FM:\n     \"\"\"Second-order factorization machine, pointwise logloss or BPR, Adam.\"\"\"\n \n-    def __init__(self, dim, k=K, lr=LR, l2=L2, seed=SEED):\n+    def __init__(self, dim, k=K, lr=LR, l2=L2, seed=SEED, freeze_r=False):\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n@@ -186,13 +186,24 @@\n         self.mV = np.zeros_like(self.V); self.vV = np.zeros_like(self.V)\n         self.mW = np.zeros_like(self.W); self.vW = np.zeros_like(self.W)\n         self.mW_num = np.zeros_like(self.W_num); self.vW_num = np.zeros_like(self.W_num)\n+        self.freeze_r = freeze_r\n+        self.num_fields = len(FIELDS)\n+        self.R = np.ones((self.num_fields, self.num_fields), dtype=np.float32)\n+        self.mR = np.zeros_like(self.R)\n+        self.vR = np.zeros_like(self.R)\n         self.t = 0\n \n     def logits(self, X, X_num):\n         E = self.V[X]                                   # (B,F,k)\n-        S = E.sum(1)                                    # (B,k)\n-        inter = 0.5 * ((S ** 2).sum(1) - (E ** 2).sum((1, 2)))\n-        return self.b + self.W[X].sum(1) + X_num.dot(self.W_num) + inter, E, S\n+        inter = np.zeros(len(X), dtype=np.float32)\n+        S_weighted = np.zeros_like(E)\n+        for i in range(self.num_fields):\n+            for j in range(i + 1, self.num_fields):\n+                dot = (E[:, i, :] * E[:, j, :]).sum(axis=1)\n+                inter += self.R[i, j] * dot\n+                S_weighted[:, i, :] += self.R[i, j] * E[:, j, :]\n+                S_weighted[:, j, :] += self.R[i, j] * E[:, i, :]\n+        return self.b + self.W[X].sum(1) + X_num.dot(self.W_num) + inter, E, S_weighted\n \n     def step(self, X, X_num, y):\n         B = len(y)\n@@ -200,14 +211,25 @@\n         g = ((sigmoid(z) - y) / B).astype(np.float32)\n         gV = np.zeros_like(self.V); gW = np.zeros_like(self.W)\n         np.add.at(gW, X, g[:, None])\n-        np.add.at(gV, X, g[:, None, None] * (S[:, None, :] - E))\n+        np.add.at(gV, X, g[:, None, None] * S)\n         gW_num = (g[:, None] * X_num).sum(0)\n+        \n+        gR = np.zeros_like(self.R)\n+        for i in range(self.num_fields):\n+            for j in range(i + 1, self.num_fields):\n+                dot = (E[:, i, :] * E[:, j, :]).sum(axis=1)\n+                gR[i, j] = (g * dot).sum()\n         \n         gV += self.l2 * self.V; gW += self.l2 * self.W\n         gW_num += self.l2 * self.W_num\n+        gR += self.l2 * self.R\n+        \n         self.t += 1\n         b1, b2, eps = 0.9, 0.999, 1e-8\n-        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)):\n+        params = [(self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)]\n+        if not self.freeze_r:\n+            params.append((self.R, gR, self.mR, self.vR))\n+        for P, G, M, Vv in params:\n             M *= b1; M += (1 - b1) * G\n             Vv *= b2; Vv += (1 - b2) * (G * G)\n             P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)\n@@ -227,18 +249,29 @@\n         np.add.at(gW, X_pos, g[:, None])\n         np.add.at(gW, X_neg, -g[:, None])\n         \n-        np.add.at(gV, X_pos, g[:, None, None] * (S_pos[:, None, :] - E_pos))\n-        np.add.at(gV, X_neg, -g[:, None, None] * (S_neg[:, None, :] - E_neg))\n+        np.add.at(gV, X_pos, g[:, None, None] * S_pos)\n+        np.add.at(gV, X_neg, -g[:, None, None] * S_neg)\n         \n         gW_num = (g[:, None] * (X_num_pos - X_num_neg)).sum(0)\n+        \n+        gR = np.zeros_like(self.R)\n+        for i in range(self.num_fields):\n+            for j in range(i + 1, self.num_fields):\n+                dot_pos = (E_pos[:, i, :] * E_pos[:, j, :]).sum(axis=1)\n+                dot_neg = (E_neg[:, i, :] * E_neg[:, j, :]).sum(axis=1)\n+                gR[i, j] = (g * (dot_pos - dot_neg)).sum()\n         \n         gV += self.l2 * self.V\n         gW += self.l2 * self.W\n         gW_num += self.l2 * self.W_num\n+        gR += self.l2 * self.R\n         \n         self.t += 1\n         b1, b2, eps = 0.9, 0.999, 1e-8\n-        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)):\n+        params = [(self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)]\n+        if not self.freeze_r:\n+            params.append((self.R, gR, self.mR, self.vR))\n+        for P, G, M, Vv in params:\n             M *= b1; M += (1 - b1) * G\n             Vv *= b2; Vv += (1 - b2) * (G * G)\n             P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)\n@@ -255,11 +288,7 @@\n     Xtr, Xnum_tr, ytr, utr = enc[\"train\"]\n     Xva, Xnum_va, yva, uva = enc[\"valid\"]\n     \n-    if mode == \"champion_equiv\":\n-        Xnum_tr = np.zeros_like(Xnum_tr)\n-        Xnum_va = np.zeros_like(Xnum_va)\n-    \n-    if mode in (\"pure_bpr\", \"champion_equiv\"):\n+    if mode in (\"pure_bpr\", \"no_fwfm\"):\n         user2pos = collections.defaultdict(list)\n         user2neg = collections.defaultdict(list)\n         for i, (u, y) in enumerate(zip(utr, ytr)):\n@@ -290,7 +319,7 @@\n         num_pairs = len(pos_indices)\n         log(f\"[{mode}] Total within-user pairs: {num_pairs}\")\n \n-    m = FM(dim, seed=seed)\n+    m = FM(dim, seed=seed, freeze_r=(mode == 'no_fwfm'))\n     rng = np.random.default_rng(seed)\n     best, best_state, best_metrics, bad = -1.0, None, None, 0\n     \n@@ -298,7 +327,7 @@\n         t0 = time.time()\n         losses = []\n         \n-        if mode in (\"pure_bpr\", \"champion_equiv\"):\n+        if mode in (\"pure_bpr\", \"no_fwfm\"):\n             if num_pairs == 0:\n                 break\n             sampled_neg = flat_negs[offsets + (rng.random(num_pairs) * lens).astype(np.int32)]\n@@ -321,7 +350,7 @@\n             \n         if va[\"primary\"] > best + 1e-5:\n             best, bad = va[\"primary\"], 0\n-            best_state = (m.V.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b))\n+            best_state = (m.V.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b), m.R.copy())\n             best_metrics = va.copy()\n         else:\n             bad += 1\n@@ -330,7 +359,7 @@\n                 break\n                 \n     if best_state is not None:\n-        m.V, m.W, m.W_num, m.b = best_state\n+        m.V, m.W, m.W_num, m.b, m.R = best_state\n     return m, best_metrics\n \n \n@@ -391,14 +420,14 @@\n     if fast:\n         return\n         \n-    # 2. Ablations (champion_equiv)\n+    # 2. Ablations (no_fwfm)\n     rem_budget = budget - (time.time() - t_start)\n     if rem_budget >= 0.25 * budget:\n-        model_ce, metrics_ce = train(enc, dim, mode=\"champion_equiv\", seed=42, max_epochs=EPOCHS)\n+        model_ce, metrics_ce = train(enc, dim, mode=\"no_fwfm\", seed=42, max_epochs=EPOCHS)\n         if metrics_ce is not None:\n-            print(f\"ABLATION champion_equiv primary={metrics_ce['primary']:.4f} gauc={metrics_ce['GAUC']:.4f} ndcg5={metrics_ce['nDCG@5']:.4f}\")\n+            print(f\"ABLATION no_fwfm primary={metrics_ce['primary']:.4f} gauc={metrics_ce['GAUC']:.4f} ndcg5={metrics_ce['nDCG@5']:.4f}\")\n     else:\n-        print(\"ABLATION champion_equiv skipped: out of time budget\")\n+        print(\"ABLATION no_fwfm skipped: out of time budget\")\n \n if __name__ == \"__main__\":\n     main()","metrics":{"gauc":0.6717,"ndcg5":0.538,"primary":0.6049},"delta_vs_baseline":{"gauc":0.0043,"ndcg5":0.0023,"primary":0.0033},"delta_vs_previous":{"gauc":-0.0001,"ndcg5":-0.0002,"primary":-0.0002},"errors":[],"manual_intervention":false,"decision":"kept_champion","expected_gain":0.003,"leak_test_verdict":null,"tokens_this_iteration":55287,"is_champion":false},{"iteration":1,"timestamp":"2026-08-30T14:51:07Z","role_invoked":"Researcher \u2192 Engineer","hypothesis":"Providing the model with strictly past-only video and author historical click (valid play) and like rates as numerical features will inject granular item-engagement priors that differentiate between clickbait and high-preference items, raising primary.","category":"feature","code_diff":"--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -71,26 +71,32 @@\n         with open(os.path.join(data_dir, f)) as fh:\n             for r in csv.DictReader(fh):\n                 rows_orig.append((int(r[\"date\"]), r[\"user_id\"], r[\"video_id\"], vid2author.get(r[\"video_id\"], \"UNK\"), r[\"tab\"],\n-                                 float(r[\"duration_ms\"]), 1 if r[LABEL] != \"0\" else 0, int(r[\"time_ms\"]), int(r[\"hourmin\"]) // 100))\n+                                 float(r[\"duration_ms\"]), 1 if r[LABEL] != \"0\" else 0, int(r[\"time_ms\"]), int(r[\"hourmin\"]) // 100,\n+                                 1 if r[\"is_click\"] != \"0\" else 0, 1 if r[\"is_like\"] != \"0\" else 0))\n     N = len(rows_orig)\n     \n     # indices sorted by time for historical stats\n     time_order = sorted(range(N), key=lambda i: rows_orig[i][7])\n     \n-    v_stats = collections.defaultdict(lambda: [0, 0])\n-    a_stats = collections.defaultdict(lambda: [0, 0])\n+    v_stats = collections.defaultdict(lambda: [0, 0, 0, 0])\n+    a_stats = collections.defaultdict(lambda: [0, 0, 0, 0])\n     num_features = {}\n     \n     for i in time_order:\n         x = rows_orig[i]\n-        date, _, vid, aid, _, _, label, _, _ = x\n-        v_imp, v_pos = v_stats[vid]\n-        a_imp, a_pos = a_stats[aid]\n+        date, _, vid, aid, _, _, label, _, _, click, like = x\n+        v_imp, v_pos, v_click, v_like = v_stats[vid]\n+        a_imp, a_pos, a_click, a_like = a_stats[aid]\n         \n         v_rate = v_pos / v_imp if v_imp > 0 else 0.0\n+        v_click_rate = v_click / v_imp if v_imp > 0 else 0.0\n+        v_like_rate = v_like / v_imp if v_imp > 0 else 0.0\n+        \n         a_rate = a_pos / a_imp if a_imp > 0 else 0.0\n-        \n-        num_features[i] = [np.log1p(v_imp), v_rate, np.log1p(a_imp), a_rate]\n+        a_click_rate = a_click / a_imp if a_imp > 0 else 0.0\n+        a_like_rate = a_like / a_imp if a_imp > 0 else 0.0\n+        \n+        num_features[i] = [np.log1p(v_imp), v_rate, v_click_rate, v_like_rate, np.log1p(a_imp), a_rate, a_click_rate, a_like_rate]\n         \n         if 20220408 <= date <= 20220421:\n             v_stats[vid][0] += 1\n@@ -98,6 +104,12 @@\n             if label == 1:\n                 v_stats[vid][1] += 1\n                 a_stats[aid][1] += 1\n+            if click == 1:\n+                v_stats[vid][2] += 1\n+                a_stats[aid][2] += 1\n+            if like == 1:\n+                v_stats[vid][3] += 1\n+                a_stats[aid][3] += 1\n \n     # Compute session depth and time-gap from time-ordered sequence per (user, date)\n     # Use a separate sort: order by user, date, time\n@@ -137,7 +149,7 @@\n \n def encode(splits):\n     \"\"\"Categorical ids -> contiguous ints; unseen values fall into a per-field UNK slot.\n-    Returns ({split: (X int32 (N,F), X_num float32 (N,5), y float32, users)}, total_dim).\"\"\"\n+    Returns ({split: (X int32 (N,F), X_num float32 (N,9), y float32, users)}, total_dim).\"\"\"\n     tr = splits[\"train\"]\n     edges = _bucket_edges([x[5] for x in tr])\n \n@@ -155,7 +167,7 @@\n     enc = {}\n     for name, rws in splits.items():\n         X = np.empty((len(rws), len(FIELDS)), dtype=np.int32)\n-        X_num = np.empty((len(rws), 5), dtype=np.float32)\n+        X_num = np.empty((len(rws), 9), dtype=np.float32)\n         y = np.empty(len(rws), dtype=np.float32)\n         users = []\n         for n, x in enumerate(rws):\n@@ -180,7 +192,7 @@\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n-        self.W_num = np.zeros(5, dtype=np.float32)\n+        self.W_num = np.zeros(9, dtype=np.float32)\n         self.b = np.float32(0.0)\n         self.lr, self.l2 = lr, l2\n         self.mV = np.zeros_like(self.V); self.vV = np.zeros_like(self.V)\n@@ -256,8 +268,10 @@\n     Xva, Xnum_va, yva, uva = enc[\"valid\"]\n     \n     if mode == \"champion_equiv\":\n-        Xnum_tr = np.zeros_like(Xnum_tr)\n-        Xnum_va = np.zeros_like(Xnum_va)\n+        Xnum_tr = Xnum_tr.copy()\n+        Xnum_tr[:, [2, 3, 6, 7]] = 0.0\n+        Xnum_va = Xnum_va.copy()\n+        Xnum_va[:, [2, 3, 6, 7]] = 0.0\n     \n     if mode in (\"pure_bpr\", \"champion_equiv\"):\n         user2pos = collections.defaultdict(list)","metrics":{"gauc":0.6719,"ndcg5":0.5383,"primary":0.6051},"delta_vs_baseline":{"gauc":0.0045,"ndcg5":0.0026,"primary":0.0035},"delta_vs_previous":{"gauc":0.0001,"ndcg5":0.0,"primary":0.0001},"errors":[],"manual_intervention":false,"decision":"kept_champion","expected_gain":0.0025,"leak_test_verdict":"clean","tokens_this_iteration":48017,"is_champion":false},{"iteration":0,"timestamp":"2026-08-30T14:46:14Z","role_invoked":"Phase 0 (seed champion)","hypothesis":"Seed champion carried over unchanged from a prior run (runs/20260830_165325_seeded_0605); phase 0 re-verifies it end-to-end through the real sandbox and sealed evaluator before the research loop starts. It is deliberately not gated against the published-baseline tolerance the way a fresh baseline_repro champion is, since it's a seeded champion, not an unmodified reproduction of the organizers' own FM.","category":"seed","code_diff":"(seed champion \u2014 code carried over from a prior run's best/code; no Engineer diff produced this run)","metrics":{"gauc":0.6718,"ndcg5":0.5383,"primary":0.605},"delta_vs_baseline":{"gauc":0.0044,"ndcg5":0.0026,"primary":0.0034},"delta_vs_previous":null,"errors":[],"manual_intervention":false,"decision":"seed_champion","expected_gain":null,"leak_test_verdict":null,"tokens_this_iteration":0,"is_champion":true}]},"onek":{"run_metadata":{"team_name":"KuaiRand Research Agent","team_members":["Benjamin","Chengke","Chermaine","Aaron","Ryan"],"track":"Track 2 \u2014 Autonomous ML Research Agent","benchmark":"KuaiRand-1K","run_id":"20260831_145457_1k_bonus_test","baseline_is_published":false,"official_baseline":{"gauc":0.6752,"ndcg5":0.6105,"primary":0.6428},"champion_iteration":5,"ceiling_kind":"valid_self_measured","attainable_ceiling_primary":0.9974,"convergence_rule":{"epsilon":0.002,"n":3},"compute_budget":{"max_iterations":5,"wall_clock_ceiling_hours":6},"agent_roles":[{"role":"Researcher","model":"google/gemini-3.1-pro-preview"},{"role":"Engineer","model":"google/gemini-3.1-pro-preview"},{"role":"Debugger","model":"deepseek/deepseek-v4-flash"},{"role":"Scribe","model":"mistralai/codestral-2508"}],"totals":{"iterations_used":5,"converged":false,"stop_reason":"iter_cap","manual_interventions":3,"resumes":3,"total_tokens_input":361783,"total_tokens_output":132694,"llm_calls":31,"wall_clock_seconds":26760,"gpu_hours":0,"provider_spend_usd":2.00788988},"hero_blurb":"Same harness, same Researcher/Engineer/Debugger/Scribe loop, pointed at KuaiRand-1K as a bonus generalization check (label <code>long_view</code>, primary = mean(GAUC, nDCG@5)) \u2014 a much larger per-user log (~2.5M validation rows vs. Pure's ~125k) that needed one-time manual kit scaffolding before the loop itself could run unmodified against it.","autonomy_note":"3 interventions, all auto-logged as resumes \u2014 but only one was a real hiccup. One was the routine phase0 \u2192 loop-proper transition (expected two-step launch), one was a deliberate human-requested pause after iteration 2 (resumed cleanly on request, nothing lost), and one was recovery from an unhandled upstream <code>openai.APIError: Upstream idle timeout exceeded</code> mid-iteration-5 \u2014 a genuine harness robustness gap the retry logic doesn't yet cover for that exception type, not evidence of general unreliability.","extra_assumptions":["Baseline is self-measured, not organizer-published: KuaiRand-1K ships no <code>baseline_scores.json</code>, so the reference FM number (0.6428 valid primary) is this session's own reproduction of the organizers' unchanged FM code on 1K data, not an organizer-published figure \u2014 see the Compute panel for the exact provenance.","KuaiRand-1K required one-time manual scaffolding before this run could start: a parallel starter kit port (filename-swapped copies of the organizers' own Pure code), a memory-safety fix for 1K's larger log files applied to a pre-existing champion, and two additive filename extensions in the harness's data-masking tools. None of it touched the Researcher/Engineer/Debugger loop itself, which ran unmodified against the new kit \u2014 this is disclosed because it's materially different from the Pure runs, which use the harness's already-wired kit with no comparable setup step.","it04's scribe synthesis was rejected once (contained a number not present in its digest) and regenerated \u2014 the auto-recorded run history does not surface this, so it's noted here for completeness."]},"iterations":[{"iteration":5,"timestamp":"2026-08-31T13:49:39Z","role_invoked":"Researcher \u2192 Engineer","hypothesis":"Adding past-only user-tab specific historical impression and positive rates as numerical features will give the DeepFM MLP a highly personalized, context-aware baseline for each user's generosity across different UI tabs, improving within-user ranking.","category":"feature","code_diff":"--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -143,11 +143,14 @@\n \n     n_users = len(user_vc)\n     n_videos, n_authors = len(video_vc), len(author_vc)\n+    n_tabs = len(tab_vc)\n     train_mask = (date_arr >= SPLITS[\"train\"][0]) & (date_arr <= SPLITS[\"train\"][1])\n \n     # --- video/author historical-rate features, in chronological (time_ms) order; only train rows update\n     #     the running counters -- identical semantics to champion_1k.py's load(), just array-backed. ---\n-    num_features = np.empty((N, 13), dtype=np.float32)\n+    num_features = np.empty((N, 15), dtype=np.float32)\n+    u_tab_imp = [0] * (n_users * n_tabs)\n+    u_tab_pos = [0] * (n_users * n_tabs)\n     v_imp = [0] * n_videos; v_pos = [0] * n_videos\n     a_imp = [0] * n_authors; a_pos = [0] * n_authors\n     u_imp = [0] * n_users; u_pos = [0] * n_users\n@@ -155,10 +158,13 @@\n     a_click = [0] * n_authors; a_like = [0] * n_authors\n     u_click = [0] * n_users; u_like = [0] * n_users\n     time_order = np.argsort(time_arr, kind=\"stable\").tolist()\n-    video_l, author_l, user_l, label_l, click_l, like_l, train_l = video_arr.tolist(), author_arr.tolist(), user_arr.tolist(), label_arr.tolist(), click_arr.tolist(), like_arr.tolist(), train_mask.tolist()\n+    video_l, author_l, user_l, tab_l, label_l, click_l, like_l, train_l = video_arr.tolist(), author_arr.tolist(), user_arr.tolist(), tab_arr.tolist(), label_arr.tolist(), click_arr.tolist(), like_arr.tolist(), train_mask.tolist()\n     log1p = np.log1p\n     for i in time_order:\n-        vid, aid, uid = video_l[i], author_l[i], user_l[i]\n+        vid, aid, uid, tid = video_l[i], author_l[i], user_l[i], tab_l[i]\n+        ut_idx = uid * n_tabs + tid\n+        uti, utp = u_tab_imp[ut_idx], u_tab_pos[ut_idx]\n+        \n         vi, vp, ai, ap = v_imp[vid], v_pos[vid], a_imp[aid], a_pos[aid]\n         ui, up = u_imp[uid], u_pos[uid]\n         vc, vl = v_click[vid], v_like[vid]\n@@ -177,15 +183,19 @@\n         num_features[i, 10] = al / ai if ai > 0 else 0.0\n         num_features[i, 11] = uc / ui if ui > 0 else 0.0\n         num_features[i, 12] = ul / ui if ui > 0 else 0.0\n+        num_features[i, 13] = log1p(uti)\n+        num_features[i, 14] = utp / uti if uti > 0 else 0.0\n         \n         if train_l[i]:\n             v_imp[vid] = vi + 1\n             a_imp[aid] = ai + 1\n             u_imp[uid] = ui + 1\n+            u_tab_imp[ut_idx] = uti + 1\n             if label_l[i] == 1:\n                 v_pos[vid] = vp + 1\n                 a_pos[aid] = ap + 1\n                 u_pos[uid] = up + 1\n+                u_tab_pos[ut_idx] = utp + 1\n             if click_l[i] == 1:\n                 v_click[vid] = vc + 1\n                 a_click[aid] = ac + 1\n@@ -194,7 +204,7 @@\n                 v_like[vid] = vl + 1\n                 a_like[aid] = al + 1\n                 u_like[uid] = ul + 1\n-    del v_imp, v_pos, a_imp, a_pos, u_imp, u_pos, v_click, v_like, a_click, a_like, u_click, u_like, time_order, video_l, author_l, user_l, label_l, click_l, like_l, train_l\n+    del v_imp, v_pos, a_imp, a_pos, u_imp, u_pos, v_click, v_like, a_click, a_like, u_click, u_like, u_tab_imp, u_tab_pos, time_order, video_l, author_l, user_l, tab_l, label_l, click_l, like_l, train_l\n     print(f\"  historical-rate features done, {time.time() - t0:.1f}s\")\n \n     # --- session depth + time-gap-since-last-event, per (user, date) group ordered by time_ms ---\n@@ -262,7 +272,7 @@\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n-        self.W_num = np.zeros(13, dtype=np.float32)\n+        self.W_num = np.zeros(15, dtype=np.float32)\n         self.b = np.float32(0.0)\n         self.lr, self.l2 = lr, l2\n         self.mV = np.zeros_like(self.V); self.vV = np.zeros_like(self.V)\n@@ -273,7 +283,7 @@\n         self.use_mlp = use_mlp\n         self.k = k\n         if self.use_mlp:\n-            self.mlp_in_dim = 7 * k + 13\n+            self.mlp_in_dim = 7 * k + 15\n             self.mlp_h = 64\n             self.mlp_w1 = rng.normal(0, 0.05, (self.mlp_in_dim, self.mlp_h)).astype(np.float32)\n             self.mlp_b1 = np.zeros(self.mlp_h, dtype=np.float32)","metrics":{"gauc":0.6788,"ndcg5":0.6339,"primary":0.6563},"delta_vs_baseline":{"gauc":0.0036,"ndcg5":0.0234,"primary":0.0135},"delta_vs_previous":{"gauc":0.0005,"ndcg5":0.0065,"primary":0.0035},"errors":[],"manual_intervention":false,"decision":"promoted","expected_gain":0.0025,"leak_test_verdict":"clean","tokens_this_iteration":67870,"is_champion":true},{"iteration":4,"timestamp":"2026-08-31T12:39:17Z","role_invoked":"Researcher \u2192 Engineer","hypothesis":"Standardizing past-only numerical features will stabilize DeepFM's gradients against scale imbalances, adding missing user click/like rates will complete the behavioral priors, and within-user rank ensembling will optimally align the predictions with the GAUC evaluation metric, jointly exceeding the threshold.","category":"feature","code_diff":"--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -20,6 +20,7 @@\n import time\n \n import numpy as np\n+import pandas as pd\n \n # ----------------------------------------------------------------------------- [1] config (= champion_1k.py)\n LABEL = \"long_view\"\n@@ -146,12 +147,13 @@\n \n     # --- video/author historical-rate features, in chronological (time_ms) order; only train rows update\n     #     the running counters -- identical semantics to champion_1k.py's load(), just array-backed. ---\n-    num_features = np.empty((N, 11), dtype=np.float32)\n+    num_features = np.empty((N, 13), dtype=np.float32)\n     v_imp = [0] * n_videos; v_pos = [0] * n_videos\n     a_imp = [0] * n_authors; a_pos = [0] * n_authors\n     u_imp = [0] * n_users; u_pos = [0] * n_users\n     v_click = [0] * n_videos; v_like = [0] * n_videos\n     a_click = [0] * n_authors; a_like = [0] * n_authors\n+    u_click = [0] * n_users; u_like = [0] * n_users\n     time_order = np.argsort(time_arr, kind=\"stable\").tolist()\n     video_l, author_l, user_l, label_l, click_l, like_l, train_l = video_arr.tolist(), author_arr.tolist(), user_arr.tolist(), label_arr.tolist(), click_arr.tolist(), like_arr.tolist(), train_mask.tolist()\n     log1p = np.log1p\n@@ -161,6 +163,7 @@\n         ui, up = u_imp[uid], u_pos[uid]\n         vc, vl = v_click[vid], v_like[vid]\n         ac, al = a_click[aid], a_like[aid]\n+        uc, ul = u_click[uid], u_like[uid]\n         \n         num_features[i, 0] = log1p(vi)\n         num_features[i, 1] = vp / vi if vi > 0 else 0.0\n@@ -172,6 +175,8 @@\n         num_features[i, 8] = ac / ai if ai > 0 else 0.0\n         num_features[i, 9] = vl / vi if vi > 0 else 0.0\n         num_features[i, 10] = al / ai if ai > 0 else 0.0\n+        num_features[i, 11] = uc / ui if ui > 0 else 0.0\n+        num_features[i, 12] = ul / ui if ui > 0 else 0.0\n         \n         if train_l[i]:\n             v_imp[vid] = vi + 1\n@@ -184,10 +189,12 @@\n             if click_l[i] == 1:\n                 v_click[vid] = vc + 1\n                 a_click[aid] = ac + 1\n+                u_click[uid] = uc + 1\n             if like_l[i] == 1:\n                 v_like[vid] = vl + 1\n                 a_like[aid] = al + 1\n-    del v_imp, v_pos, a_imp, a_pos, u_imp, u_pos, v_click, v_like, a_click, a_like, time_order, video_l, author_l, user_l, label_l, click_l, like_l, train_l\n+                u_like[uid] = ul + 1\n+    del v_imp, v_pos, a_imp, a_pos, u_imp, u_pos, v_click, v_like, a_click, a_like, u_click, u_like, time_order, video_l, author_l, user_l, label_l, click_l, like_l, train_l\n     print(f\"  historical-rate features done, {time.time() - t0:.1f}s\")\n \n     # --- session depth + time-gap-since-last-event, per (user, date) group ordered by time_ms ---\n@@ -222,6 +229,11 @@\n     X_full = np.stack([m + o for m, o in zip(mapped_fields, offsets)], axis=1).astype(np.int32)\n     print(f\"  categorical encoding done (dim={sum(field_dims)}), {time.time() - t0:.1f}s\")\n \n+    nf_mean = num_features[train_mask].mean(axis=0)\n+    nf_std = num_features[train_mask].std(axis=0) + 1e-8\n+    num_features = (num_features - nf_mean) / nf_std\n+    print(f'TRAIN nf mean: {num_features[train_mask].mean():.4f}, std: {num_features[train_mask].std():.4f}')\n+\n     # reverse maps for OUTPUT only (real ids the pipeline contract requires in the predictions CSV)\n     uid_by_code = [None] * len(user_vc)\n     for s, c in user_vc.d.items():\n@@ -250,7 +262,7 @@\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n-        self.W_num = np.zeros(11, dtype=np.float32)\n+        self.W_num = np.zeros(13, dtype=np.float32)\n         self.b = np.float32(0.0)\n         self.lr, self.l2 = lr, l2\n         self.mV = np.zeros_like(self.V); self.vV = np.zeros_like(self.V)\n@@ -261,7 +273,7 @@\n         self.use_mlp = use_mlp\n         self.k = k\n         if self.use_mlp:\n-            self.mlp_in_dim = 7 * k + 11\n+            self.mlp_in_dim = 7 * k + 13\n             self.mlp_h = 64\n             self.mlp_w1 = rng.normal(0, 0.05, (self.mlp_in_dim, self.mlp_h)).astype(np.float32)\n             self.mlp_b1 = np.zeros(self.mlp_h, dtype=np.float32)\n@@ -464,6 +476,10 @@\n             w.writerow([i, u, v, f\"{float(s):.6g}\"])\n \n \n+def within_user_rank(users, scores):\n+    return pd.Series(scores).groupby(users, sort=False).rank(pct=True).values\n+\n+\n def main():\n     ap = argparse.ArgumentParser()\n     ap.add_argument(\"--data\", required=True)\n@@ -486,9 +502,9 @@\n     seeds = [42] if fast else [42, 43, 44, 45, 46]\n     for s in seeds:\n         model_bpr, metrics_bpr = train(enc, dim, mode=\"pure_bpr\", seed=s)\n-        all_scores.append(model_bpr.predict(X, X_num))\n+        all_scores.append(within_user_rank(enc[split][3], model_bpr.predict(X, X_num)))\n         if not fast:\n-            all_scores_va.append(model_bpr.predict(Xva, Xnum_va))\n+            all_scores_va.append(within_user_rank(uva, model_bpr.predict(Xva, Xnum_va)))\n         if last_single_metrics is None:\n             last_single_metrics = metrics_bpr\n ","metrics":{"gauc":0.6783,"ndcg5":0.6274,"primary":0.6528},"delta_vs_baseline":{"gauc":0.0031,"ndcg5":0.0169,"primary":0.01},"delta_vs_previous":{"gauc":0.0017,"ndcg5":0.0057,"primary":0.0037},"errors":[],"manual_intervention":false,"decision":"promoted","expected_gain":0.0025,"leak_test_verdict":"clean","tokens_this_iteration":140138,"is_champion":false},{"iteration":3,"timestamp":"2026-08-31T11:32:50Z","role_invoked":"Researcher \u2192 Engineer","hypothesis":"Adding user historical long_view rates and item/author auxiliary feedback rates (click, like) as past-only numerical features will provide DeepFM's MLP with rich interaction surfaces, allowing it to learn non-linear personalized generosity-vs-quality crosses and raising the ranking metric.","category":"feature","code_diff":"--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -100,6 +100,8 @@\n     date_a, user_a, video_a, author_a, tab_a = (array.array(\"i\") for _ in range(5))\n     dur_a = array.array(\"f\")\n     label_a = array.array(\"b\")\n+    click_a = array.array(\"b\")\n+    like_a = array.array(\"b\")\n     time_a = array.array(\"q\")\n     hour_a = array.array(\"i\")\n \n@@ -117,6 +119,8 @@\n                 tab_a.append(tab_vc.code(r[\"tab\"]))\n                 dur_a.append(float(r[\"duration_ms\"]))\n                 label_a.append(1 if r[LABEL] != \"0\" else 0)\n+                click_a.append(1 if r[\"is_click\"] != \"0\" else 0)\n+                like_a.append(1 if r[\"is_like\"] != \"0\" else 0)\n                 time_a.append(int(r[\"time_ms\"]))\n                 hour_a.append(int(r[\"hourmin\"]) // 100)\n         print(f\"  {fname} parsed, running total {len(date_a)} rows, {time.time() - t0:.1f}s\")\n@@ -129,36 +133,61 @@\n     tab_arr = np.frombuffer(tab_a, dtype=np.int32)\n     dur_arr = np.frombuffer(dur_a, dtype=np.float32)\n     label_arr = np.frombuffer(label_a, dtype=np.int8)\n+    click_arr = np.frombuffer(click_a, dtype=np.int8)\n+    like_arr = np.frombuffer(like_a, dtype=np.int8)\n     time_arr = np.frombuffer(time_a, dtype=np.int64)\n     hour_arr = np.frombuffer(hour_a, dtype=np.int32)\n-    del date_a, user_a, video_a, author_a, tab_a, dur_a, label_a, time_a, hour_a\n+    del date_a, user_a, video_a, author_a, tab_a, dur_a, label_a, click_a, like_a, time_a, hour_a\n     print(f\"  {N} rows -> typed arrays, {time.time() - t0:.1f}s\")\n \n+    n_users = len(user_vc)\n     n_videos, n_authors = len(video_vc), len(author_vc)\n     train_mask = (date_arr >= SPLITS[\"train\"][0]) & (date_arr <= SPLITS[\"train\"][1])\n \n     # --- video/author historical-rate features, in chronological (time_ms) order; only train rows update\n     #     the running counters -- identical semantics to champion_1k.py's load(), just array-backed. ---\n-    num_features = np.empty((N, 5), dtype=np.float32)\n+    num_features = np.empty((N, 11), dtype=np.float32)\n     v_imp = [0] * n_videos; v_pos = [0] * n_videos\n     a_imp = [0] * n_authors; a_pos = [0] * n_authors\n+    u_imp = [0] * n_users; u_pos = [0] * n_users\n+    v_click = [0] * n_videos; v_like = [0] * n_videos\n+    a_click = [0] * n_authors; a_like = [0] * n_authors\n     time_order = np.argsort(time_arr, kind=\"stable\").tolist()\n-    video_l, author_l, label_l, train_l = video_arr.tolist(), author_arr.tolist(), label_arr.tolist(), train_mask.tolist()\n+    video_l, author_l, user_l, label_l, click_l, like_l, train_l = video_arr.tolist(), author_arr.tolist(), user_arr.tolist(), label_arr.tolist(), click_arr.tolist(), like_arr.tolist(), train_mask.tolist()\n     log1p = np.log1p\n     for i in time_order:\n-        vid, aid = video_l[i], author_l[i]\n+        vid, aid, uid = video_l[i], author_l[i], user_l[i]\n         vi, vp, ai, ap = v_imp[vid], v_pos[vid], a_imp[aid], a_pos[aid]\n+        ui, up = u_imp[uid], u_pos[uid]\n+        vc, vl = v_click[vid], v_like[vid]\n+        ac, al = a_click[aid], a_like[aid]\n+        \n         num_features[i, 0] = log1p(vi)\n         num_features[i, 1] = vp / vi if vi > 0 else 0.0\n         num_features[i, 2] = log1p(ai)\n         num_features[i, 3] = ap / ai if ai > 0 else 0.0\n+        num_features[i, 5] = log1p(ui)\n+        num_features[i, 6] = up / ui if ui > 0 else 0.0\n+        num_features[i, 7] = vc / vi if vi > 0 else 0.0\n+        num_features[i, 8] = ac / ai if ai > 0 else 0.0\n+        num_features[i, 9] = vl / vi if vi > 0 else 0.0\n+        num_features[i, 10] = al / ai if ai > 0 else 0.0\n+        \n         if train_l[i]:\n             v_imp[vid] = vi + 1\n             a_imp[aid] = ai + 1\n+            u_imp[uid] = ui + 1\n             if label_l[i] == 1:\n                 v_pos[vid] = vp + 1\n                 a_pos[aid] = ap + 1\n-    del v_imp, v_pos, a_imp, a_pos, time_order, video_l, author_l, label_l, train_l\n+                u_pos[uid] = up + 1\n+            if click_l[i] == 1:\n+                v_click[vid] = vc + 1\n+                a_click[aid] = ac + 1\n+            if like_l[i] == 1:\n+                v_like[vid] = vl + 1\n+                a_like[aid] = al + 1\n+    del v_imp, v_pos, a_imp, a_pos, u_imp, u_pos, v_click, v_like, a_click, a_like, time_order, video_l, author_l, user_l, label_l, click_l, like_l, train_l\n     print(f\"  historical-rate features done, {time.time() - t0:.1f}s\")\n \n     # --- session depth + time-gap-since-last-event, per (user, date) group ordered by time_ms ---\n@@ -221,7 +250,7 @@\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n-        self.W_num = np.zeros(5, dtype=np.float32)\n+        self.W_num = np.zeros(11, dtype=np.float32)\n         self.b = np.float32(0.0)\n         self.lr, self.l2 = lr, l2\n         self.mV = np.zeros_like(self.V); self.vV = np.zeros_like(self.V)\n@@ -232,7 +261,7 @@\n         self.use_mlp = use_mlp\n         self.k = k\n         if self.use_mlp:\n-            self.mlp_in_dim = 7 * k + 5\n+            self.mlp_in_dim = 7 * k + 11\n             self.mlp_h = 64\n             self.mlp_w1 = rng.normal(0, 0.05, (self.mlp_in_dim, self.mlp_h)).astype(np.float32)\n             self.mlp_b1 = np.zeros(self.mlp_h, dtype=np.float32)","metrics":{"gauc":0.6766,"ndcg5":0.6217,"primary":0.6492},"delta_vs_baseline":{"gauc":0.0014,"ndcg5":0.0112,"primary":0.0064},"delta_vs_previous":{"gauc":0.0004,"ndcg5":0.0002,"primary":0.0003},"errors":[],"manual_intervention":false,"decision":"promoted","expected_gain":0.003,"leak_test_verdict":"clean","tokens_this_iteration":159602,"is_champion":false},{"iteration":2,"timestamp":"2026-08-31T09:24:53Z","role_invoked":"Researcher \u2192 Engineer","hypothesis":"Extending the FM to a DeepFM by adding a 1-layer MLP over the concatenated embeddings and numerical features will allow the model to learn arbitrary high-order feature interactions, providing a stronger personalization signal on this large 5M-row dataset.","category":"model","code_diff":"--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -217,7 +217,7 @@\n \n \n class FM:\n-    def __init__(self, dim, k=K, lr=LR, l2=L2, seed=SEED):\n+    def __init__(self, dim, k=K, lr=LR, l2=L2, seed=SEED, use_mlp=True):\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n@@ -228,17 +228,45 @@\n         self.mW = np.zeros_like(self.W); self.vW = np.zeros_like(self.W)\n         self.mW_num = np.zeros_like(self.W_num); self.vW_num = np.zeros_like(self.W_num)\n         self.t = 0\n+        \n+        self.use_mlp = use_mlp\n+        self.k = k\n+        if self.use_mlp:\n+            self.mlp_in_dim = 7 * k + 5\n+            self.mlp_h = 64\n+            self.mlp_w1 = rng.normal(0, 0.05, (self.mlp_in_dim, self.mlp_h)).astype(np.float32)\n+            self.mlp_b1 = np.zeros(self.mlp_h, dtype=np.float32)\n+            self.mlp_w2 = rng.normal(0, 0.05, (self.mlp_h, 1)).astype(np.float32)\n+            self.mlp_b2 = np.zeros(1, dtype=np.float32)\n+            \n+            self.mM_w1 = np.zeros_like(self.mlp_w1)\n+            self.vM_w1 = np.zeros_like(self.mlp_w1)\n+            self.mM_b1 = np.zeros_like(self.mlp_b1)\n+            self.vM_b1 = np.zeros_like(self.mlp_b1)\n+            self.mM_w2 = np.zeros_like(self.mlp_w2)\n+            self.vM_w2 = np.zeros_like(self.mlp_w2)\n+            self.mM_b2 = np.zeros_like(self.mlp_b2)\n+            self.vM_b2 = np.zeros_like(self.mlp_b2)\n \n     def logits(self, X, X_num):\n         E = self.V[X]\n         S = E.sum(1)\n         inter = 0.5 * ((S ** 2).sum(1) - (E ** 2).sum((1, 2)))\n-        return self.b + self.W[X].sum(1) + X_num.dot(self.W_num) + inter, E, S\n+        fm_out = self.b + self.W[X].sum(1) + X_num.dot(self.W_num) + inter\n+        \n+        if self.use_mlp:\n+            E_flat = E.reshape(len(X), -1)\n+            mlp_in = np.concatenate([E_flat, X_num], axis=1)\n+            h1 = np.maximum(0, mlp_in.dot(self.mlp_w1) + self.mlp_b1)\n+            mlp_out = (h1.dot(self.mlp_w2) + self.mlp_b2).squeeze()\n+            return fm_out + mlp_out, E, S, h1, mlp_in\n+        else:\n+            return fm_out, E, S, None, None\n \n     def step_bpr(self, X_pos, X_num_pos, X_neg, X_num_neg):\n         B = len(X_pos)\n-        z_pos, E_pos, S_pos = self.logits(X_pos, X_num_pos)\n-        z_neg, E_neg, S_neg = self.logits(X_neg, X_num_neg)\n+        z_pos, E_pos, S_pos, h1_pos, mlp_in_pos = self.logits(X_pos, X_num_pos)\n+        z_neg, E_neg, S_neg, h1_neg, mlp_in_neg = self.logits(X_neg, X_num_neg)\n         z_diff = z_pos - z_neg\n         g = ((sigmoid(z_diff) - 1.0) / B).astype(np.float32)\n \n@@ -246,9 +274,41 @@\n         gW = np.zeros_like(self.W)\n         np.add.at(gW, X_pos, g[:, None])\n         np.add.at(gW, X_neg, -g[:, None])\n-        np.add.at(gV, X_pos, g[:, None, None] * (S_pos[:, None, :] - E_pos))\n-        np.add.at(gV, X_neg, -g[:, None, None] * (S_neg[:, None, :] - E_neg))\n-        gW_num = (g[:, None] * (X_num_pos - X_num_neg)).sum(0)\n+        \n+        gE_pos_fm = g[:, None, None] * (S_pos[:, None, :] - E_pos)\n+        gE_neg_fm = -g[:, None, None] * (S_neg[:, None, :] - E_neg)\n+\n+        if self.use_mlp:\n+            g_out_pos = g[:, None]\n+            g_out_neg = -g[:, None]\n+            \n+            gh1_pos = g_out_pos.dot(self.mlp_w2.T) * (h1_pos > 0)\n+            g_mlp_w2 = h1_pos.T.dot(g_out_pos)\n+            g_mlp_b2 = g_out_pos.sum(0)\n+            g_mlp_w1 = mlp_in_pos.T.dot(gh1_pos)\n+            g_mlp_b1 = gh1_pos.sum(0)\n+            g_mlp_in_pos = gh1_pos.dot(self.mlp_w1.T)\n+            \n+            gh1_neg = g_out_neg.dot(self.mlp_w2.T) * (h1_neg > 0)\n+            g_mlp_w2 += h1_neg.T.dot(g_out_neg)\n+            g_mlp_b2 += g_out_neg.sum(0)\n+            g_mlp_w1 += mlp_in_neg.T.dot(gh1_neg)\n+            g_mlp_b1 += gh1_neg.sum(0)\n+            g_mlp_in_neg = gh1_neg.dot(self.mlp_w1.T)\n+            \n+            gE_pos_fm += g_mlp_in_pos[:, :7*self.k].reshape(-1, 7, self.k)\n+            gE_neg_fm += g_mlp_in_neg[:, :7*self.k].reshape(-1, 7, self.k)\n+            \n+            gW_num = (g[:, None] * (X_num_pos - X_num_neg)).sum(0)\n+            gW_num += g_mlp_in_pos[:, 7*self.k:].sum(0) + g_mlp_in_neg[:, 7*self.k:].sum(0)\n+            \n+            g_mlp_w2 += self.l2 * self.mlp_w2\n+            g_mlp_w1 += self.l2 * self.mlp_w1\n+        else:\n+            gW_num = (g[:, None] * (X_num_pos - X_num_neg)).sum(0)\n+            \n+        np.add.at(gV, X_pos, gE_pos_fm)\n+        np.add.at(gV, X_neg, gE_neg_fm)\n \n         gV += self.l2 * self.V\n         gW += self.l2 * self.W\n@@ -256,7 +316,22 @@\n \n         self.t += 1\n         b1, b2, eps = 0.9, 0.999, 1e-8\n-        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)):\n+        \n+        params = [\n+            (self.V, gV, self.mV, self.vV), \n+            (self.W, gW, self.mW, self.vW), \n+            (self.W_num, gW_num, self.mW_num, self.vW_num)\n+        ]\n+        \n+        if self.use_mlp:\n+            params.extend([\n+                (self.mlp_w1, g_mlp_w1, self.mM_w1, self.vM_w1),\n+                (self.mlp_b1, g_mlp_b1, self.mM_b1, self.vM_b1),\n+                (self.mlp_w2, g_mlp_w2, self.mM_w2, self.vM_w2),\n+                (self.mlp_b2, g_mlp_b2, self.mM_b2, self.vM_b2)\n+            ])\n+            \n+        for P, G, M, Vv in params:\n             M *= b1; M += (1 - b1) * G\n             Vv *= b2; Vv += (1 - b2) * (G * G)\n             P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)\n@@ -307,7 +382,8 @@\n     num_pairs = len(pos_indices)\n     log(f\"[{mode}] Total within-user pairs: {num_pairs}\")\n \n-    m = FM(dim, seed=seed)\n+    use_mlp = (mode != \"champion_equiv\")\n+    m = FM(dim, seed=seed, use_mlp=use_mlp)\n     rng = np.random.default_rng(seed)\n     best, best_state, best_metrics, bad = -1.0, None, None, 0\n \n@@ -331,7 +407,10 @@\n \n         if va[\"primary\"] > best + 1e-5:\n             best, bad = va[\"primary\"], 0\n-            best_state = (m.V.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b))\n+            if m.use_mlp:\n+                best_state = (m.V.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b), m.mlp_w1.copy(), m.mlp_b1.copy(), m.mlp_w2.copy(), m.mlp_b2.copy())\n+            else:\n+                best_state = (m.V.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b))\n             best_metrics = va.copy()\n         else:\n             bad += 1\n@@ -340,7 +419,10 @@\n                 break\n \n     if best_state is not None:\n-        m.V, m.W, m.W_num, m.b = best_state\n+        if m.use_mlp:\n+            m.V, m.W, m.W_num, m.b, m.mlp_w1, m.mlp_b1, m.mlp_w2, m.mlp_b2 = best_state\n+        else:\n+            m.V, m.W, m.W_num, m.b = best_state\n     return m, best_metrics\n \n \n@@ -362,6 +444,7 @@\n \n     split = \"valid\" if a.split in (\"val\", \"valid\") else \"test\"\n     t_start = time.time()\n+    budget = float(os.environ.get(\"KUAIRAND_TIME_BUDGET_S\", 3000))\n     fast = os.environ.get(\"KUAIRAND_FAST\", \"0\") == \"1\"\n \n     enc, dim = load_and_encode(a.data)\n@@ -377,7 +460,8 @@\n         all_scores.append(model_bpr.predict(X, X_num))\n         if not fast:\n             all_scores_va.append(model_bpr.predict(Xva, Xnum_va))\n-        last_single_metrics = metrics_bpr\n+        if last_single_metrics is None:\n+            last_single_metrics = metrics_bpr\n \n     mean_scores = np.mean(all_scores, axis=0)\n     assert np.all(np.isfinite(mean_scores)), \"non-finite scores\"\n@@ -392,6 +476,13 @@\n         ens_metrics = evaluate(uva.tolist(), yva.tolist(), mean_scores_va)\n         print(f\"ABLATION pure_bpr_ensemble primary={ens_metrics['primary']:.4f} gauc={ens_metrics['GAUC']:.4f} ndcg5={ens_metrics['nDCG@5']:.4f}\")\n \n+    if not fast:\n+        if (time.time() - t_start) < 0.75 * budget:\n+            _, eq_metrics = train(enc, dim, mode=\"champion_equiv\", seed=42)\n+            print(f\"ABLATION champion_equiv primary={eq_metrics['primary']:.4f} gauc={eq_metrics['GAUC']:.4f} ndcg5={eq_metrics['nDCG@5']:.4f}\")\n+        else:\n+            print(\"ABLATION champion_equiv skipped: out of time budget\")\n+\n \n if __name__ == \"__main__\":\n     main()","metrics":{"gauc":0.6762,"ndcg5":0.6215,"primary":0.6489},"delta_vs_baseline":{"gauc":0.001,"ndcg5":0.011,"primary":0.0061},"delta_vs_previous":{"gauc":0.0033,"ndcg5":0.0122,"primary":0.0078},"errors":[],"manual_intervention":false,"decision":"promoted","expected_gain":0.0025,"leak_test_verdict":"clean","tokens_this_iteration":55656,"is_champion":false},{"iteration":1,"timestamp":"2026-08-31T08:18:48Z","role_invoked":"Researcher \u2192 Engineer","hypothesis":"Projecting the 5 numerical features (past-only historical rates and session time gaps) into the FM's embedding space to compute pairwise interactions with the categorical IDs will allow the model to learn personalized affinities for items with high historical rates, raising the primary ranking metric.","category":"model","code_diff":"--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -211,7 +211,7 @@\n     return enc, int(sum(field_dims))\n \n \n-# ----------------------------------------------------------------------------- [4] model (= champion_1k.py, unchanged)\n+# ----------------------------------------------------------------------------- [4] model\n def sigmoid(x):\n     return 1.0 / (1.0 + np.exp(-np.clip(x, -30, 30)))\n \n@@ -220,17 +220,21 @@\n     def __init__(self, dim, k=K, lr=LR, l2=L2, seed=SEED):\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n+        self.V_num = rng.normal(0, 0.01, (5, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n         self.W_num = np.zeros(5, dtype=np.float32)\n         self.b = np.float32(0.0)\n         self.lr, self.l2 = lr, l2\n         self.mV = np.zeros_like(self.V); self.vV = np.zeros_like(self.V)\n+        self.mV_num = np.zeros_like(self.V_num); self.vV_num = np.zeros_like(self.V_num)\n         self.mW = np.zeros_like(self.W); self.vW = np.zeros_like(self.W)\n         self.mW_num = np.zeros_like(self.W_num); self.vW_num = np.zeros_like(self.W_num)\n         self.t = 0\n \n     def logits(self, X, X_num):\n-        E = self.V[X]\n+        E_cat = self.V[X]\n+        E_num = X_num[:, :, None] * self.V_num[None, :, :]\n+        E = np.concatenate([E_cat, E_num], axis=1)\n         S = E.sum(1)\n         inter = 0.5 * ((S ** 2).sum(1) - (E ** 2).sum((1, 2)))\n         return self.b + self.W[X].sum(1) + X_num.dot(self.W_num) + inter, E, S\n@@ -246,17 +250,25 @@\n         gW = np.zeros_like(self.W)\n         np.add.at(gW, X_pos, g[:, None])\n         np.add.at(gW, X_neg, -g[:, None])\n-        np.add.at(gV, X_pos, g[:, None, None] * (S_pos[:, None, :] - E_pos))\n-        np.add.at(gV, X_neg, -g[:, None, None] * (S_neg[:, None, :] - E_neg))\n+        \n+        gE_pos = g[:, None, None] * (S_pos[:, None, :] - E_pos)\n+        gE_neg = -g[:, None, None] * (S_neg[:, None, :] - E_neg)\n+        \n+        np.add.at(gV, X_pos, gE_pos[:, :7, :])\n+        np.add.at(gV, X_neg, gE_neg[:, :7, :])\n+        \n+        gV_num = (gE_pos[:, 7:, :] * X_num_pos[:, :, None]).sum(0) + (gE_neg[:, 7:, :] * X_num_neg[:, :, None]).sum(0)\n         gW_num = (g[:, None] * (X_num_pos - X_num_neg)).sum(0)\n \n         gV += self.l2 * self.V\n+        gV_num += self.l2 * self.V_num\n         gW += self.l2 * self.W\n         gW_num += self.l2 * self.W_num\n \n         self.t += 1\n         b1, b2, eps = 0.9, 0.999, 1e-8\n-        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)):\n+        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.V_num, gV_num, self.mV_num, self.vV_num), \n+                            (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)):\n             M *= b1; M += (1 - b1) * G\n             Vv *= b2; Vv += (1 - b2) * (G * G)\n             P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)\n@@ -267,7 +279,7 @@\n         return np.concatenate([self.logits(X[i:i + bs], X_num[i:i + bs])[0] for i in range(0, len(X), bs)])\n \n \n-# ----------------------------------------------------------------------------- [5] training (= champion_1k.py, unchanged)\n+# ----------------------------------------------------------------------------- [5] training\n def train(enc, dim, mode=\"pure_bpr\", max_epochs=EPOCHS, seed=SEED, log=print):\n     Xtr, Xnum_tr, ytr, utr = enc[\"train\"][0], enc[\"train\"][1], enc[\"train\"][2], enc[\"train\"][3]\n     Xva, Xnum_va, yva, uva = enc[\"valid\"][0], enc[\"valid\"][1], enc[\"valid\"][2], enc[\"valid\"][3]\n@@ -331,7 +343,7 @@\n \n         if va[\"primary\"] > best + 1e-5:\n             best, bad = va[\"primary\"], 0\n-            best_state = (m.V.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b))\n+            best_state = (m.V.copy(), m.V_num.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b))\n             best_metrics = va.copy()\n         else:\n             bad += 1\n@@ -340,11 +352,11 @@\n                 break\n \n     if best_state is not None:\n-        m.V, m.W, m.W_num, m.b = best_state\n+        m.V, m.V_num, m.W, m.W_num, m.b = best_state\n     return m, best_metrics\n \n \n-# ----------------------------------------------------------------------------- [6] CLI (= champion_1k.py contract)\n+# ----------------------------------------------------------------------------- [6] CLI\n def write_preds(path, uid_list, vid_list, scores):\n     with open(path, \"w\", newline=\"\") as fh:\n         w = csv.writer(fh)\n@@ -362,6 +374,7 @@\n \n     split = \"valid\" if a.split in (\"val\", \"valid\") else \"test\"\n     t_start = time.time()\n+    budget = float(os.environ.get(\"KUAIRAND_TIME_BUDGET_S\", 3000.0))\n     fast = os.environ.get(\"KUAIRAND_FAST\", \"0\") == \"1\"\n \n     enc, dim = load_and_encode(a.data)\n@@ -392,6 +405,12 @@\n         ens_metrics = evaluate(uva.tolist(), yva.tolist(), mean_scores_va)\n         print(f\"ABLATION pure_bpr_ensemble primary={ens_metrics['primary']:.4f} gauc={ens_metrics['GAUC']:.4f} ndcg5={ens_metrics['nDCG@5']:.4f}\")\n \n+        if budget - (time.time() - t_start) > 0.25 * budget:\n+            model_ce, metrics_ce = train(enc, dim, mode=\"champion_equiv\", max_epochs=10, seed=42)\n+            print(f\"ABLATION champion_equiv primary={metrics_ce['primary']:.4f} gauc={metrics_ce['GAUC']:.4f} ndcg5={metrics_ce['nDCG@5']:.4f}\")\n+        else:\n+            print(\"ABLATION champion_equiv skipped: out of time budget\")\n+\n \n if __name__ == \"__main__\":\n     main()","metrics":{"gauc":0.6722,"ndcg5":0.609,"primary":0.6406},"delta_vs_baseline":{"gauc":-0.003,"ndcg5":-0.0015,"primary":-0.0022},"delta_vs_previous":{"gauc":-0.0007,"ndcg5":-0.0003,"primary":-0.0005},"errors":[],"manual_intervention":false,"decision":"kept_champion","expected_gain":0.003,"leak_test_verdict":null,"tokens_this_iteration":71211,"is_champion":false}]}};
 
-  var ROLE_COLOR = {Researcher:'var(--accent)', Engineer:'var(--accent)', Debugger:'var(--amber)', Scribe:'var(--good)'};
+(function(){
+  var ROLE_COLOR = {Researcher:'#0e7c7e', Engineer:'#0e7c7e', Debugger:'#b3123f', Scribe:'#6b6a66'};
+  var currentChart = null;
+  var currentKey = 'pure';
 
   function fmt4(x){ return (Math.round(x*10000)/10000).toFixed(4); }
-  function fmtDelta(x){
-    var s = x>=0 ? '+' : '';
-    return s + fmt4(x);
-  }
-  function deltaSpan(x){
-    var cls = x >= 0 ? 'pos' : 'neg';
-    return '<span class="delta '+cls+'">'+fmtDelta(x)+'</span>';
-  }
+  function fmtDelta(x){ return (x>=0?'+':'') + fmt4(x); }
+  function deltaSpan(x){ return '<span class="delta '+(x>=0?'pos':'neg')+'">'+fmtDelta(x)+'</span>'; }
   function secToClock(s){
     var m = Math.floor(s/60), sec = Math.round(s%60);
     var h = Math.floor(m/60); m = m%60;
     if(h>0) return h+':'+String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
     return m+':'+String(sec).padStart(2,'0');
   }
-  function esc(s){
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
+  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function colorDiff(diff){
     return esc(diff).split('\n').map(function(line){
       if(line.startsWith('+') && !line.startsWith('+++')) return '<span class="add">'+line+'</span>';
@@ -376,220 +343,250 @@
     }).join('\n');
   }
 
-  // ---------- header ----------
-  (function(){
+  // Signature mark: the six-stage loop (read -> inspect -> engineer -> train -> evaluate -> reflect)
+  // drawn three times with a cyan/magenta chromatic offset. Used only in the chrome strip and on the
+  // champion iteration — never as page-wide decoration.
+  function signatureMark(size, id, ringColor){
+    var pts = "20,6 32.1,13 32.1,27 20,34 7.9,27 7.9,13";
+    function ring(stroke, dx, dy, opacity){
+      return '<g transform="translate('+dx+','+dy+')" opacity="'+opacity+'"><polygon points="'+pts+'" fill="none" stroke="'+stroke+'" stroke-width="2.4" stroke-linejoin="round"/></g>';
+    }
+    return '<svg class="mark" width="'+size+'" height="'+size+'" viewBox="0 0 40 40" role="img" aria-labelledby="'+id+'">'
+      + '<title id="'+id+'">The read-inspect-engineer-train-evaluate-reflect loop</title>'
+      + ring('#fe2c55', -1.4, 1.4, 0.85)
+      + ring('#25f4ee', 1.4, -1.4, 0.85)
+      + ring(ringColor || '#17171a', 0, 0, 1)
+      + '</svg>';
+  }
+
+  function render(key){
+    currentKey = key;
+    var D = RUNS[key];
+    var RM = D.run_metadata;
+    var ITERS = D.iterations; // newest first
+    var chronological = ITERS.slice().reverse();
     var champion = ITERS.find(function(it){ return it.is_champion; }) || ITERS[0];
     var t = RM.totals;
-    var html = ''
-      + '<div class="header-top">'
-      + '  <div class="title-block">'
-      + '    <span class="eyebrow"><span class="dot"></span>'+esc(t.stop_reason)+' · '+esc(RM.benchmark)+'</span>'
-      + '    <h1>'+esc(RM.team_name)+'</h1>'
-      + '    <p>Deterministic harness runs the MLE loop; a Researcher/Engineer/Debugger/Scribe LLM ensemble makes every research decision on the KuaiRand-Pure within-user ranking benchmark (label <code>long_view</code>, primary = mean(GAUC, nDCG@5)).</p>'
-      + '  </div>'
-      + '  <div class="run-tag">'+esc(RM.track)+'<br><strong>run</strong> '+esc(RM.run_id)+'</div>'
-      + '</div>'
-      + '<div class="badge-row">'
-      + '  <div class="badge"><div class="k">Primary vs. baseline</div><div class="v good">'+fmtDelta(champion.delta_vs_baseline.primary)+'</div></div>'
-      + '  <div class="badge"><div class="k">Iterations used</div><div class="v">'+t.iterations_used+' <span style="color:var(--ink-soft);font-size:13px">/ '+RM.compute_budget.max_iterations+' cap</span></div></div>'
-      + '  <div class="badge"><div class="k">Manual interventions</div><div class="v good">'+t.manual_interventions+'</div></div>'
-      + '  <div class="badge"><div class="k">Wall clock</div><div class="v">'+secToClock(t.wall_clock_seconds)+'</div></div>'
-      + '</div>';
-    document.getElementById('header-panel').innerHTML = html;
-  })();
 
-  // ---------- architecture role list ----------
-  (function(){
-    var html = RM.agent_roles.map(function(r){
+    // ---------- chrome top strip ----------
+    document.getElementById('chrome-top').innerHTML =
+      '<span><span class="dot"></span>'+esc(t.stop_reason)+' · '+esc(RM.benchmark)+'</span>'
+      + '<span class="track">'+esc(RM.track)+' — run '+esc(RM.run_id)+'</span>';
+
+    // ---------- hero header ----------
+    document.getElementById('hero').innerHTML =
+      '<div class="hero-main">'
+      + '  <div class="title-row">'+signatureMark(30,'mark-hero','#17171a')+'<h1>'+esc(RM.team_name)+'</h1></div>'
+      + '  <div class="run-tabs" id="run-tabs"></div>'
+      + '  <p>'+RM.hero_blurb+'</p>'
+      + (RM.team_members ? '  <p class="hero-team">Team: <b>'+RM.team_members.map(esc).join('</b>, <b>')+'</b></p>' : '')
+      + '</div>'
+      + '<div class="hero-stats">'
+      + '  <div class="hero-number"><div class="v">'+fmtDelta(champion.delta_vs_baseline.primary)+'</div><div class="k">primary vs. baseline</div></div>'
+      + '  <div class="mini-stats">'
+      + '    <div class="mini-stat"><div class="v">'+t.iterations_used+'<span style="color:var(--ink-muted);font-weight:400">/'+RM.compute_budget.max_iterations+'</span></div><div class="k">iterations</div></div>'
+      + '    <div class="mini-stat"><div class="v" style="color:var(--cyan-ink)">'+t.manual_interventions+'</div><div class="k">interventions</div></div>'
+      + '    <div class="mini-stat"><div class="v">'+secToClock(t.wall_clock_seconds)+'</div><div class="k">wall clock</div></div>'
+      + '  </div>'
+      + '</div>';
+
+    var tabDefs = [['pure','KuaiRand-Pure'],['onek','KuaiRand-1K bonus']];
+    document.getElementById('run-tabs').innerHTML = tabDefs.map(function(td){
+      return '<button class="run-tab'+(td[0]===key?' active':'')+'" data-run="'+td[0]+'">'+td[1]+'</button>';
+    }).join('');
+    document.querySelectorAll('.run-tab').forEach(function(btn){
+      btn.addEventListener('click', function(){ if(btn.getAttribute('data-run') !== currentKey) render(btn.getAttribute('data-run')); });
+    });
+
+    // ---------- architecture role list ----------
+    document.getElementById('role-list').innerHTML = RM.agent_roles.map(function(r){
       return '<div class="role-row"><span class="role-swatch" style="background:'+ROLE_COLOR[r.role]+'"></span>'
         + '<span class="rname">'+esc(r.role)+'</span><span class="rmodel">'+esc(r.model)+'</span></div>';
     }).join('');
-    document.getElementById('role-list').innerHTML = html;
     document.getElementById('arch-cap').textContent =
-      'Innovation: hypotheses cite the run’s own ledger, so each iteration builds on measured evidence rather than restating a prior guess. Robustness: a crashed or timed-out sandbox run routes to the Debugger for one bounded retry before the iteration is scored as failed — no silent stalls.';
-  })();
+      'Innovation: hypotheses cite the run’s own ledger, so each iteration builds on measured evidence rather than restating a prior guess. Robustness: a crashed or timed-out sandbox run routes to the Debugger (magenta) for one bounded retry before the iteration is scored as failed — no silent stalls.';
 
-  // ---------- results table ----------
-  (function(){
-    var champion = ITERS.find(function(it){ return it.is_champion; }) || ITERS[0];
-    var b = RM.official_baseline;
-    var rows = [
-      {name:'GAUC', base:b.validation_gauc, cur:champion.metrics.gauc, delta:champion.delta_vs_baseline.gauc},
-      {name:'nDCG@5', base:b.validation_ndcg5, cur:champion.metrics.ndcg5, delta:champion.delta_vs_baseline.ndcg5},
-      {name:'Primary', base:b.validation_primary, cur:champion.metrics.primary, delta:champion.delta_vs_baseline.primary}
-    ];
-    var html = '<thead><tr><th>Metric (validation)</th><th>Official baseline</th><th>Champion (it'+String(champion.iteration).padStart(2,'0')+')</th><th>Delta</th></tr></thead><tbody>'
-      + rows.map(function(r){
-          return '<tr><td class="metric-name">'+r.name+'</td><td class="mono">'+fmt4(r.base)+'</td><td class="mono">'+fmt4(r.cur)+'</td><td>'+deltaSpan(r.delta)+'</td></tr>';
-        }).join('')
-      + '</tbody>';
-    document.getElementById('results-table').innerHTML = html;
-    var ceilPct = (champion.metrics.primary - 0.5) / (RM.attainable_ceiling_hidden_test_primary - 0.5) * 100;
-    document.getElementById('ceiling-note').textContent =
-      'Hidden-test oracle ceiling (labels-as-predictions) sits at '+fmt4(RM.attainable_ceiling_hidden_test_primary)+' primary — 27% of test users are all-negative and cap nDCG regardless of model quality, so progress is measured against this ceiling, not 1.0.';
-  })();
+    // ---------- results table ----------
+    (function(){
+      var b = RM.official_baseline;
+      var baselineLabel = RM.baseline_is_published ? 'Published baseline' : 'Self-measured baseline*';
+      var rows = [
+        {name:'GAUC', base:b.gauc, cur:champion.metrics.gauc, delta:champion.delta_vs_baseline.gauc},
+        {name:'nDCG@5', base:b.ndcg5, cur:champion.metrics.ndcg5, delta:champion.delta_vs_baseline.ndcg5},
+        {name:'Primary', base:b.primary, cur:champion.metrics.primary, delta:champion.delta_vs_baseline.primary}
+      ];
+      document.getElementById('results-table').innerHTML =
+        '<thead><tr><th>Metric (validation)</th><th>'+baselineLabel+'</th><th>Champion (it'+String(champion.iteration).padStart(2,'0')+')</th><th>Delta</th></tr></thead><tbody>'
+        + rows.map(function(r){ return '<tr><td class="metric-name">'+r.name+'</td><td class="mono">'+fmt4(r.base)+'</td><td class="mono">'+fmt4(r.cur)+'</td><td>'+deltaSpan(r.delta)+'</td></tr>'; }).join('')
+        + '</tbody>';
+      var ceilingText = RM.ceiling_kind === 'hidden_test'
+        ? 'Hidden-test oracle ceiling (labels-as-predictions) sits at '+fmt4(RM.attainable_ceiling_primary)+' primary — 27% of test users are all-negative and cap nDCG regardless of model quality, so progress is measured against this ceiling, not 1.0.'
+        : 'Self-measured validation oracle ceiling (labels-as-predictions; no organizer test-set figure exists for this bonus benchmark) sits at '+fmt4(RM.attainable_ceiling_primary)+' primary, so progress is measured against this ceiling, not 1.0.';
+      document.getElementById('ceiling-note').textContent = ceilingText;
+      document.getElementById('baseline-note').innerHTML = RM.baseline_is_published ? '' :
+        '* self-measured reference — this bonus benchmark ships no organizer <code>baseline_scores.json</code>; see Assumptions below for exact provenance.';
+    })();
 
-  // ---------- resource block ----------
-  (function(){
-    var t = RM.totals;
-    var totalTok = t.total_tokens_input + t.total_tokens_output;
-    var tier = totalTok < 150000 ? 'low' : totalTok < 500000 ? 'medium' : 'high';
-    var tierLabel = tier==='low' ? 'Low consumption' : tier==='medium' ? 'Medium consumption' : 'High consumption';
-    var rows = [
-      ['Tokens (in + out)', totalTok.toLocaleString()+' <span style="color:var(--ink-soft);font-weight:400">('+t.total_tokens_input.toLocaleString()+' in / '+t.total_tokens_output.toLocaleString()+' out)</span>'],
-      ['LLM calls', t.llm_calls],
-      ['Wall clock', secToClock(t.wall_clock_seconds)],
-      ['Iterations', t.iterations_used+' of '+RM.compute_budget.max_iterations+' cap'],
-      ['GPU-hours', t.gpu_hours > 0 ? t.gpu_hours : 'none — CPU-only pipeline'],
-      ['Provider spend', '$'+t.provider_spend_usd.toFixed(2)]
-    ];
-    var html = rows.map(function(r){ return '<div class="res-row"><span>'+r[0]+'</span><span class="rv">'+r[1]+'</span></div>'; }).join('')
-      + '<div class="tier-chip '+tier+'">'+tierLabel.toUpperCase()+' · Feasibility</div>';
-    document.getElementById('resource-block').innerHTML = html;
-  })();
+    // ---------- resource block ----------
+    (function(){
+      var totalTok = t.total_tokens_input + t.total_tokens_output;
+      var tier = totalTok < 150000 ? 'low' : totalTok < 500000 ? 'medium' : 'high';
+      var tierLabel = tier==='low' ? 'Low consumption' : tier==='medium' ? 'Medium consumption' : 'High consumption';
+      var rows = [
+        ['Tokens (in + out)', totalTok.toLocaleString()+' <span style="color:var(--ink-muted);font-weight:400">('+t.total_tokens_input.toLocaleString()+' in / '+t.total_tokens_output.toLocaleString()+' out)</span>'],
+        ['LLM calls', t.llm_calls],
+        ['Wall clock', secToClock(t.wall_clock_seconds)],
+        ['Iterations', t.iterations_used+' of '+RM.compute_budget.max_iterations+' cap'],
+        ['GPU-hours', t.gpu_hours > 0 ? t.gpu_hours : 'none — CPU-only pipeline'],
+        ['Provider spend', '$'+t.provider_spend_usd.toFixed(2)]
+      ];
+      document.getElementById('resource-block').innerHTML =
+        rows.map(function(r){ return '<div class="res-row"><span>'+r[0]+'</span><span class="rv">'+r[1]+'</span></div>'; }).join('')
+        + '<div class="tier-chip '+tier+'">'+tierLabel.toUpperCase()+' · Feasibility</div>';
+    })();
 
-  // ---------- chart ----------
-  // Plotted as delta-vs-baseline (metric points), not absolute scores: GAUC/nDCG@5/Primary sit on such
-  // different absolute levels (~0.67 / ~0.54 / ~0.60) that a shared absolute axis flattens the real,
-  // sub-percent iteration-to-iteration movement judges actually care about into an invisible line.
-  (function(){
-    var labels = chronological.map(function(it){ return 'it'+String(it.iteration).padStart(2,'0'); });
-    var gauc = chronological.map(function(it){ return it.delta_vs_baseline.gauc; });
-    var ndcg = chronological.map(function(it){ return it.delta_vs_baseline.ndcg5; });
-    var primary = chronological.map(function(it){ return it.delta_vs_baseline.primary; });
-    var championIdx = chronological.findIndex(function(it){ return it.is_champion; });
+    // ---------- chart ----------
+    // Delta-vs-baseline, not absolute scores: GAUC/nDCG@5/Primary sit on different absolute levels
+    // that a shared axis would flatten the real movement a reader cares about.
+    (function(){
+      var labels = chronological.map(function(it){ return 'it'+String(it.iteration).padStart(2,'0'); });
+      var gauc = chronological.map(function(it){ return it.delta_vs_baseline.gauc; });
+      var ndcg = chronological.map(function(it){ return it.delta_vs_baseline.ndcg5; });
+      var primary = chronological.map(function(it){ return it.delta_vs_baseline.primary; });
+      var championIdx = chronological.findIndex(function(it){ return it.is_champion; });
 
-    var css = getComputedStyle(document.documentElement);
-    var accent = css.getPropertyValue('--accent').trim();
-    var amber = css.getPropertyValue('--amber').trim();
-    var good = css.getPropertyValue('--good').trim();
-    var inkSoft = css.getPropertyValue('--ink-soft').trim();
-    var border = css.getPropertyValue('--border-soft').trim();
+      var cyan = '#25f4ee', magenta = '#fe2c55', neutral1 = '#a8a6a0', neutral2 = '#6b6a66', gridColor = '#dedcd4', soft = '#6b6a66';
 
-    function pointSizes(n){ return labels.map(function(_,i){ return i===championIdx ? n+3 : n; }); }
-    function championColor(base){ return labels.map(function(_,i){ return i===championIdx ? amber : base; }); }
-
-    new Chart(document.getElementById('trend-chart'), {
-      type: 'line',
-      data: {
-        labels: labels,
-        datasets: [
-          { label:'GAUC', data:gauc, borderColor:accent, backgroundColor:accent, tension:.25, pointRadius:pointSizes(3), pointBackgroundColor:championColor(accent), borderWidth:2 },
-          { label:'nDCG@5', data:ndcg, borderColor:good, backgroundColor:good, tension:.25, pointRadius:pointSizes(3), pointBackgroundColor:championColor(good), borderWidth:2 },
-          { label:'Primary', data:primary, borderColor:amber, backgroundColor:amber, tension:.25, pointRadius:pointSizes(4), pointBackgroundColor:labels.map(function(){return amber;}), borderWidth:3 },
-          { label:'Baseline', data:labels.map(function(){return 0;}), borderColor:inkSoft, borderDash:[5,4], pointRadius:0, borderWidth:1.5 }
-        ]
-      },
-      options: {
-        responsive:true, maintainAspectRatio:false,
-        interaction:{ mode:'index', intersect:false },
-        plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label:function(ctx){ return ctx.dataset.label+': '+fmtDelta(ctx.parsed.y); } } } },
-        scales:{
-          x:{ grid:{ color:border }, ticks:{ color:inkSoft, font:{family:"'IBM Plex Mono'", size:11} } },
-          y:{ grid:{ color:border }, ticks:{ color:inkSoft, font:{family:"'IBM Plex Mono'", size:11}, callback:function(v){ return fmtDelta(v); } }, title:{ display:true, text:'Δ vs. published baseline', color:inkSoft, font:{family:"'IBM Plex Sans'", size:11.5} } }
+      if(currentChart){ currentChart.destroy(); currentChart = null; }
+      currentChart = new Chart(document.getElementById('trend-chart'), {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            { label:'GAUC', data:gauc, borderColor:neutral1, backgroundColor:neutral1, tension:.25, pointRadius:3, pointBackgroundColor:neutral1, borderWidth:1.5 },
+            { label:'nDCG@5', data:ndcg, borderColor:neutral2, backgroundColor:neutral2, tension:.25, pointRadius:3, pointBackgroundColor:neutral2, borderWidth:1.5, borderDash:[3,3] },
+            { label:'Primary', data:primary, borderColor:cyan, backgroundColor:cyan, tension:.25,
+              pointRadius:labels.map(function(_,i){ return i===championIdx ? 7 : 3; }),
+              pointBackgroundColor:labels.map(function(){ return cyan; }),
+              pointBorderColor:labels.map(function(_,i){ return i===championIdx ? magenta : cyan; }),
+              pointBorderWidth:labels.map(function(_,i){ return i===championIdx ? 2.5 : 0; }),
+              borderWidth:3 },
+            { label:'Baseline', data:labels.map(function(){return 0;}), borderColor:soft, borderDash:[5,4], pointRadius:0, borderWidth:1.5 }
+          ]
+        },
+        options: {
+          responsive:true, maintainAspectRatio:false,
+          interaction:{ mode:'index', intersect:false },
+          plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label:function(ctx){ return ctx.dataset.label+': '+fmtDelta(ctx.parsed.y); } } } },
+          scales:{
+            x:{ grid:{ color:gridColor }, ticks:{ color:soft, font:{family:"'IBM Plex Mono'", size:11} } },
+            y:{ grid:{ color:gridColor }, ticks:{ color:soft, font:{family:"'IBM Plex Mono'", size:11}, callback:function(v){ return fmtDelta(v); } }, title:{ display:true, text:'Δ vs. baseline', color:soft, font:{family:"'IBM Plex Sans'", size:11.5} } }
+          }
         }
-      }
-    });
-
-    var legendHtml = [
-      ['GAUC',accent],['nDCG@5',good],['Primary',amber],['Baseline (zero line)',inkSoft]
-    ].map(function(l){ return '<span><i style="background:'+l[1]+'"></i>'+l[0]+'</span>'; }).join('');
-    document.getElementById('chart-legend').innerHTML = legendHtml;
-  })();
-
-  // ---------- timeline ----------
-  (function(){
-    var html = ITERS.map(function(it, idx){
-      var hasErr = it.errors && it.errors.length > 0;
-      var deltaBadge = deltaSpan(it.delta_vs_baseline.primary);
-      var errorsHtml = hasErr ? it.errors.map(function(e){
-        return '<div class="error-box"><div class="lbl">Attempt '+e.attempt+' failed</div>'+esc(e.error)+'<div style="margin-top:6px"><b>Recovery:</b> '+esc(e.fix_summary)+'</div></div>';
-      }).join('') : '<p style="font-size:12.5px;color:var(--ink-soft)">No errors — scored on the first sandbox run.</p>';
-
-      return ''
-        + '<div class="iter'+(it.is_champion?' champion':'')+'" data-open="false" data-idx="'+idx+'">'
-        + '  <button class="iter-head" aria-expanded="false">'
-        + '    <span class="iter-num">it'+String(it.iteration).padStart(2,'0')+'</span>'
-        + '    <span class="iter-hyp">'+esc(it.hypothesis)+'</span>'
-        + '    <span class="iter-flags">'
-        + '      <span class="champion-star">★ champion</span>'
-        + (hasErr ? '<span class="error-flag" title="recovered from an error">!</span>' : '')
-        + '      '+deltaBadge
-        + '      <svg class="chev" width="16" height="16" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-        + '    </span>'
-        + '  </button>'
-        + '  <div class="iter-body"><div class="iter-body-inner"><div class="iter-content">'
-        + '    <div class="iter-meta">'
-        + '      <span><b>'+esc(it.role_invoked)+'</b></span>'
-        + '      <span>category <b>'+esc(it.category)+'</b></span>'
-        + '      <span>decision <span class="decision-tag '+it.decision+'">'+esc(it.decision.replace('_',' '))+'</span></span>'
-        + '      <span>tokens <b>'+it.tokens_this_iteration.toLocaleString()+'</b></span>'
-        + (it.leak_test_verdict ? '<span>leak check <b style="color:var(--good)">'+esc(it.leak_test_verdict)+'</b></span>' : '')
-        + '    </div>'
-        + '    <div class="iter-section"><h4>Hypothesis</h4><p style="font-size:13.5px">'+esc(it.hypothesis)+'</p></div>'
-        + '    <div class="iter-section"><h4>Metrics (validation)</h4><div class="metric-chip-row">'
-        + '      <span class="metric-chip">GAUC <b>'+fmt4(it.metrics.gauc)+'</b></span>'
-        + '      <span class="metric-chip">nDCG@5 <b>'+fmt4(it.metrics.ndcg5)+'</b></span>'
-        + '      <span class="metric-chip">Primary <b>'+fmt4(it.metrics.primary)+'</b></span>'
-        + '      <span class="metric-chip">vs. baseline '+deltaSpan(it.delta_vs_baseline.primary)+'</span>'
-        + '      <span class="metric-chip">vs. previous '+deltaSpan(it.delta_vs_previous.primary)+'</span>'
-        + '    </div></div>'
-        + '    <div class="iter-section"><h4>Diff</h4><div class="diff">'+colorDiff(it.code_diff)+'</div></div>'
-        + '    <div class="iter-section"><h4>Errors &amp; recovery</h4>'+errorsHtml+'</div>'
-        + '  </div></div></div>'
-        + '</div>';
-    }).join('');
-    document.getElementById('timeline').innerHTML = html;
-
-    document.querySelectorAll('.iter-head').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        var iter = btn.closest('.iter');
-        var open = iter.getAttribute('data-open') === 'true';
-        iter.setAttribute('data-open', String(!open));
-        btn.setAttribute('aria-expanded', String(!open));
       });
-    });
-    // open the champion by default
-    var championEl = document.querySelector('.iter.champion');
-    if(championEl){
-      championEl.setAttribute('data-open','true');
-      championEl.querySelector('.iter-head').setAttribute('aria-expanded','true');
-    }
-  })();
 
-  // ---------- autonomy strip ----------
-  (function(){
-    var t = RM.totals;
-    var html = '<div><div class="big">'+t.manual_interventions+'</div><div class="big-label">interventions / '+t.iterations_used+' iters</div></div>'
-      + '<div class="autonomy-desc"><strong>Zero manual interventions across the full run.</strong> The harness restarted after resumes and the sandbox’s own Debugger retry are the only human-adjacent touch points, and both are counted honestly — a resume auto-logs as an intervention even when no human edited anything. This run needed neither.</div>';
-    document.getElementById('autonomy-body').innerHTML = html;
-  })();
+      document.getElementById('chart-legend').innerHTML = [
+        ['GAUC',neutral1],['nDCG@5',neutral2],['Primary',cyan],['Baseline (zero line)',soft]
+      ].map(function(l){ return '<span><i style="background:'+l[1]+'"></i>'+l[0]+'</span>'; }).join('');
+    })();
 
-  // ---------- assumptions ----------
-  (function(){
-    var items = [
-      'Metric definition conflict: an earlier section of the brief specifies NDCG@10/Recall@50 with click as positive, while the benchmark data spec and judging criteria consistently specify GAUC/nDCG@5 with <code>long_view</code> as positive. This harness is built around the latter, pending organizer confirmation.',
-      'Convergence is implemented exactly as published (ε=0.002, 3 consecutive flat-or-worse iterations) — failed and timed-out iterations tick the streak, matching the kit’s own constants rather than a stricter or looser reading.'
-    ];
-    document.getElementById('assumptions-list').innerHTML = items.map(function(i){ return '<li>'+i+'</li>'; }).join('');
-  })();
+    // ---------- timeline ----------
+    (function(){
+      document.getElementById('timeline').innerHTML = ITERS.map(function(it, idx){
+        var hasErr = it.errors && it.errors.length > 0;
+        var errorsHtml = hasErr ? it.errors.map(function(e){
+          return '<div class="error-box"><div class="lbl">Attempt '+e.attempt+' failed</div>'+esc(e.error)+'<div style="margin-top:6px"><b>Recovery:</b> '+esc(e.fix_summary)+'</div></div>';
+        }).join('') : '<p style="font-size:12.5px;color:var(--ink-muted)">No errors — scored on the first sandbox run.</p>';
 
-  // ---------- deliverables ----------
-  (function(){
-    var items = [
-      ['01','Written Description','approach + design rationale'],
-      ['02','GitHub Repo','harness, prompts, sealed eval'],
-      ['03','Run &amp; Iteration Logs','this page, sourced from runs/'],
-      ['04','Final Submission','submission.csv + results summary']
-    ];
-    document.getElementById('deliverables-grid').innerHTML = items.map(function(i){
-      return '<div class="deliv"><span class="n">'+i[0]+'</span><div><div class="t">'+i[1]+'</div><div class="s">'+i[2]+'</div></div></div>';
-    }).join('');
-  })();
+        var leakHtml = '';
+        if(it.leak_test_verdict){
+          var leakCls = it.leak_test_verdict === 'clean' ? 'leak-clean' : it.leak_test_verdict === 'leak' ? 'leak-leak' : 'leak-skipped';
+          leakHtml = '<span>leak check <b class="'+leakCls+'">'+esc(it.leak_test_verdict)+'</b></span>';
+        }
 
-  document.getElementById('footer-note').textContent =
-    'Rendered from ' + RM.run_id + ' · data-driven from data.js — regenerate by having the Scribe role emit this shape as its last step each run.';
+        var prevChip = it.delta_vs_previous ? '<span class="metric-chip">vs. previous '+deltaSpan(it.delta_vs_previous.primary)+'</span>' : '';
+
+        return ''
+          + '<div class="iter'+(it.is_champion?' champion':'')+'" data-open="false" data-idx="'+idx+'">'
+          + '  <button class="iter-head" aria-expanded="false">'
+          + '    <span class="iter-num">it'+String(it.iteration).padStart(2,'0')+'</span>'
+          + '    <span class="iter-hyp">'+esc(it.hypothesis)+'</span>'
+          + '    <span class="iter-flags">'
+          + '      <span class="champion-mark">'+signatureMark(14,'mark-'+key+'-'+it.iteration,'#0e7c7e')+' champion</span>'
+          + (hasErr ? '<span class="error-flag" title="recovered from an error">!</span>' : '')
+          + '      '+deltaSpan(it.delta_vs_baseline.primary)
+          + '      <svg class="chev" width="16" height="16" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+          + '    </span>'
+          + '  </button>'
+          + '  <div class="iter-body"><div class="iter-body-inner"><div class="iter-content">'
+          + '    <div class="iter-meta">'
+          + '      <span><b>'+esc(it.role_invoked)+'</b></span>'
+          + '      <span>category <b>'+esc(it.category)+'</b></span>'
+          + '      <span>decision <span class="decision-tag '+it.decision+'">'+esc(it.decision.replace(/_/g,' '))+'</span></span>'
+          + '      <span>tokens <b>'+it.tokens_this_iteration.toLocaleString()+'</b></span>'
+          + '      '+leakHtml
+          + '    </div>'
+          + '    <div class="iter-section"><h4>Hypothesis</h4><p style="font-size:13.5px">'+esc(it.hypothesis)+'</p></div>'
+          + '    <div class="iter-section"><h4>Metrics (validation)</h4><div class="metric-chip-row">'
+          + '      <span class="metric-chip">GAUC <b>'+fmt4(it.metrics.gauc)+'</b></span>'
+          + '      <span class="metric-chip">nDCG@5 <b>'+fmt4(it.metrics.ndcg5)+'</b></span>'
+          + '      <span class="metric-chip">Primary <b>'+fmt4(it.metrics.primary)+'</b></span>'
+          + '      <span class="metric-chip">vs. baseline '+deltaSpan(it.delta_vs_baseline.primary)+'</span>'
+          + '      '+prevChip
+          + '    </div></div>'
+          + '    <div class="iter-section"><h4>Diff</h4><div class="diff">'+colorDiff(it.code_diff)+'</div></div>'
+          + '    <div class="iter-section"><h4>Errors &amp; recovery</h4>'+errorsHtml+'</div>'
+          + '  </div></div></div>'
+          + '</div>';
+      }).join('');
+
+      document.querySelectorAll('.iter-head').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          var iter = btn.closest('.iter');
+          var open = iter.getAttribute('data-open') === 'true';
+          iter.setAttribute('data-open', String(!open));
+          btn.setAttribute('aria-expanded', String(!open));
+        });
+      });
+      var championEl = document.querySelector('.iter.champion');
+      if(championEl){
+        championEl.setAttribute('data-open','true');
+        championEl.querySelector('.iter-head').setAttribute('aria-expanded','true');
+      }
+    })();
+
+    // ---------- autonomy band ----------
+    document.getElementById('autonomy-body').innerHTML =
+      '<div><div class="big">'+t.manual_interventions+'</div><div class="big-label">interventions / '+t.iterations_used+' iters</div></div>'
+      + '<div class="autonomy-desc"><strong>'+t.manual_interventions+' manual intervention'+(t.manual_interventions===1?'':'s')+' across the full run.</strong> '+RM.autonomy_note+'</div>';
+
+    // ---------- assumptions ----------
+    document.getElementById('flag-icon').innerHTML =
+      '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 1v14M3 2h9l-2 3 2 3H3" stroke-linejoin="round"/></svg>';
+    (function(){
+      var items = [
+        'Metric definition conflict: an earlier section of the brief specifies NDCG@10/Recall@50 with click as positive, while the benchmark data spec and judging criteria consistently specify GAUC/nDCG@5 with <code>long_view</code> as positive. This harness is built around the latter, pending organizer confirmation.',
+        'Convergence is implemented exactly as published (ε='+RM.convergence_rule.epsilon+', '+RM.convergence_rule.n+' consecutive flat-or-worse iterations) — failed and timed-out iterations tick the streak, matching the kit’s own constants rather than a stricter or looser reading.'
+      ].concat(RM.extra_assumptions || []);
+      document.getElementById('assumptions-list').innerHTML = items.map(function(i){ return '<li>'+i+'</li>'; }).join('');
+    })();
+
+    // ---------- deliverables + footer (chrome) ----------
+    (function(){
+      var items = [
+        ['01','Written Description','approach + design rationale'],
+        ['02','GitHub Repo','harness, prompts, sealed eval'],
+        ['03','Run &amp; Iteration Logs','this page, sourced from runs/'],
+        ['04','Final Submission','submission.csv + results summary']
+      ];
+      document.getElementById('deliverables-grid').innerHTML = items.map(function(i){
+        return '<div class="deliv"><span class="n">'+i[0]+'</span><div><div class="t">'+i[1]+'</div><div class="s">'+i[2]+'</div></div></div>';
+      }).join('');
+      document.getElementById('footer-note').textContent =
+        'Rendered from ' + RM.run_id + ' · viewing ' + (currentKey==='pure' ? 'KuaiRand-Pure' : 'KuaiRand-1K bonus') + ' · switch runs above · regenerate by re-running the build script against each run\'s run_state.json.';
+    })();
+  }
+
+  render('pure');
 })();
 </script>
-</body>
-</html>
