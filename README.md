@@ -302,12 +302,10 @@ note under Limitations for its current staleness relative to this README.
   Warnings section for the extra kit-scaffolding this dataset needed and the disclosed manual interventions,
   since only Pure ships a starter kit natively). To verify connectivity before a new run:
   `.venv/bin/python -m agent.harness --llm-check`, then check `llm_calls.jsonl` for real per-call cost.
-* **TODO — these run directories are not yet committed to git.** All three are gitignored by the blanket
-  `runs/*` rule in `.gitignore`; only two *earlier* runs (now themselves removed from the working tree) had a
-  `!runs/<dir>/` carve-out added. As things stand, a judge cloning this repo cannot open the files this README
-  cites by path. Fix: add the same carve-out pattern (`!runs/<dir>/`, `!runs/<dir>/**`, then re-exclude
-  `**/*.csv`) for these three directories and commit them — see the existing entries in `.gitignore` for the
-  exact pattern, and this repo's own history (`git log -- .gitignore`) for the precedent.
+All three run directories cited above (and this README's own claims about them) are committed to git —
+`.gitignore` carves out `runs/20260831_145457_1k_bonus_test/`, `runs/20260901_005427_gemini_pro_baseline/`, and
+`runs/20260901_011854_sonnet5_pure_v2/` (prediction CSVs excluded, same pattern used throughout), so a judge
+cloning the repo can open every file this README cites by path.
 * **Prompt quality with real models**: now measured for two models (Gemini 3.1 Pro, Claude Sonnet 5) on
   KuaiRand-Pure and one (Gemini 3.1 Pro) on KuaiRand-1K — see the bake-off above and Results Summary. Untested
   beyond those: whether a cheaper/faster model than either would hold up on a longer, slower-converging run (all
