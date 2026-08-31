@@ -53,3 +53,5 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+IMPLEMENTATION_SPEC.md/
