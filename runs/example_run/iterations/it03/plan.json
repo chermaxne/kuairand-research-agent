@@ -1,8 +1,0 @@
-{
-  "hypothesis": "Raise the learning rate (0.001 -> 0.002) so Adam converges before early stopping triggers",
-  "category": "training",
-  "change_spec": "In pipeline.py apply exactly these line substitutions (leave everything else untouched): [[EDIT]] LR = 0.001 ==> LR = 0.002. Keep the CLI, the train-only rule and the output format. [mock it03]",
-  "expected_risk": "low",
-  "builds_on": "champion",
-  "rationale": "Mock plan step 3: cheaper convergence check. (mock, it03)"
-}
