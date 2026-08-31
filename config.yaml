@@ -132,6 +132,7 @@ llm:
     anthropic:                     # native Anthropic API (prompt caching + adaptive thinking + effort)
       provider: anthropic
       api_key_env: ANTHROPIC_API_KEY
+      workspace_id: default        # required by identity-linked personal API keys; set to the real wrkspc_... id if "default" 404s
       researcher_model: claude-opus-5
       engineer_model: claude-opus-5
       debugger_model: claude-opus-5

@@ -100,9 +100,12 @@ class AnthropicClient:
 
     def __init__(self, api_key: Optional[str], *, request_timeout_s: float = 300, max_retries: int = 3, prompt_caching: bool = True,
                  refusal_fallbacks: bool = True, role_params: Optional[Dict[str, Dict[str, Any]]] = None,
-                 base_url: Optional[str] = None, compat: bool = False, provider: str = "anthropic"):
+                 base_url: Optional[str] = None, compat: bool = False, provider: str = "anthropic",
+                 workspace_id: Optional[str] = None):
         """`base_url` + `compat=True` target an Anthropic-*compatible* gateway (e.g. Poe): plain-string system prompt,
-        no cache_control, no thinking/effort/beta parameters — only the core Messages API surface."""
+        no cache_control, no thinking/effort/beta parameters — only the core Messages API surface.
+        `workspace_id` is required by identity-linked personal API keys (Console error: "anthropic-workspace-id is
+        required..."); workspace-scoped keys don't need it. Sent as the `anthropic-workspace-id` header."""
         try:
             import anthropic  # imported lazily so tests never need the package configured
         except ImportError as e:
@@ -117,6 +120,8 @@ class AnthropicClient:
             kwargs["api_key"] = api_key
         if base_url:
             kwargs["base_url"] = base_url
+        if workspace_id:
+            kwargs["default_headers"] = {"anthropic-workspace-id": workspace_id}
         self._client = anthropic.Anthropic(**kwargs)
         self.provider = provider
         self.base_url = base_url
@@ -500,7 +505,7 @@ def make_client(cfg: Dict[str, Any], mock_handlers: Optional[Dict[str, Handler]]
         return AnthropicClient(api_key=key or None, request_timeout_s=float(llm.get("request_timeout_s", 300)),
                                max_retries=int(llm.get("max_retries", 3)), prompt_caching=bool(llm.get("prompt_caching", True)),
                                refusal_fallbacks=bool(llm.get("refusal_fallbacks", True)), role_params=role_params,
-                               base_url=base_url, compat=compat, provider=provider)
+                               base_url=base_url, compat=compat, provider=provider, workspace_id=llm.get("workspace_id"))
     if provider in OPENAI_COMPAT_PROVIDERS or provider == "openai-compatible":
         base_url = llm.get("base_url") or OPENAI_COMPAT_PROVIDERS.get(provider)
         if not base_url:
