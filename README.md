@@ -7,7 +7,7 @@ nDCG@5)) and tries to beat the organizers' factorization-machine baseline (valid
 Four LLM roles (Researcher, Engineer, Debugger, Scribe) make the research decisions; the harness owns
 every guarantee: sealed scoring, promotion, convergence, budgets, logging, resume, interventions.
 
-Read `IMPLEMENTATION_SPEC.md` for the design contract and `NOTES.md` for every discrepancy/decision.
+Read `NOTES.md` for every discrepancy/decision.
 
 ## What is guaranteed (competition rules encoded as code)
 | Rule | Where it lives |
