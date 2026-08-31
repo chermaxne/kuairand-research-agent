@@ -1,0 +1,13 @@
+{
+  "hypothesis": "Training the numpy FM with a within-user pairwise BPR loss directly aligns the optimization objective with the evaluation metrics (GAUC, nDCG@5), providing a stronger ranking signal than pointwise logloss.",
+  "category": "training",
+  "change_spec": "1. In `FM` class, rename `step` to `step_pointwise`. Add `step_pairwise(self, X_pos, X_neg)`: Compute logits `z_pos, E_p, S_p` and `z_neg, E_n, S_n`. `diff = z_pos - z_neg`. `sig = sigmoid(diff)`. `g = -(1.0 - sig) / len(X_pos)`. Apply gradients `g` to `X_pos` and `-g` to `X_neg` using `np.add.at` for both V and W (similar to pointwise but updating pos and neg indices respectively). Apply Adam updates to V and W (skip `b`). Return `float(-np.mean(np.log(sig + 1e-9)))`.\n2. In `train()`, before the epoch loop, implement fully vectorized sampling: separate train indices into positives (y>0) and negatives (y==0). Sort negatives by user, and use `np.unique(..., return_counts=True)` to build `neg_starts` and `neg_counts` arrays mapping each unique user to their negative pool block. Filter positive indices to only those users who have >= 1 negative. Create arrays `pos_neg_starts` and `pos_neg_counts` aligning with the valid positive indices.\n3. In the epoch loop, vectorize sampling: `rand_offsets = (rng.random(len(pos_neg_counts)) * pos_neg_counts).astype(np.int32)`. `sampled_neg_idx = neg_idx_sorted[pos_neg_starts + rand_offsets]`. Shuffle `pos_idx` and `sampled_neg_idx` together.\n4. Call `m.step_pairwise(Xtr[p_batch], Xtr[n_batch])` instead of pointwise step. Log pair count in the epoch print.\n5. Assert `va['GAUC'] > 0.5` after epoch 1.",
+  "expected_risk": "low",
+  "builds_on": "champion",
+  "rationale": "The previous attempt (it01) failed due to a missing PyTorch dependency, invalidating the model upgrade path for now. Switching the training objective to BPR leverages pure numpy, bypasses environment limits, and directly optimizes the ranking metric. Vectorized sampling ensures the pair creation fits easily within the 900s runtime budget.",
+  "expected_gain": 0.0029,
+  "gain_evidence": "Ledger prior runs demonstrate +0.0029 from replacing pointwise BCE with within-user pairwise BPR loss, explicitly optimizing the relative ordering required by GAUC.",
+  "ablation_plan": "champion_equiv: original pointwise BCE loss (train using step_pointwise and original row-wise shuffling)",
+  "new_knowledge": "",
+  "search_check": "pairwise BPR loss for factorization machines; confident because this is a foundational ranking loss (Rendle 2009) whose properties on within-user tasks are fully documented in the knowledge library and proven via previous measurements on this very dataset."
+}

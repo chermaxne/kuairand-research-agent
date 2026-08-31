@@ -14,13 +14,16 @@ runs/example_run/**/preds_*.csv
 runs/example_run/**/*.npz
 runs/example_run/**/__pycache__/
 
-# --- real-API runs kept, minus prediction CSVs (referenced by README's Limitations section) ---
-!runs/20260830_224430_seeded_0605_v2/
-!runs/20260830_224430_seeded_0605_v2/**
-runs/20260830_224430_seeded_0605_v2/**/*.csv
+# --- real-API runs kept, minus prediction CSVs (referenced by README's Results Summary / bake-off) ---
 !runs/20260831_145457_1k_bonus_test/
 !runs/20260831_145457_1k_bonus_test/**
 runs/20260831_145457_1k_bonus_test/**/*.csv
+!runs/20260901_005427_gemini_pro_baseline/
+!runs/20260901_005427_gemini_pro_baseline/**
+runs/20260901_005427_gemini_pro_baseline/**/*.csv
+!runs/20260901_011854_sonnet5_pure_v2/
+!runs/20260901_011854_sonnet5_pure_v2/**
+runs/20260901_011854_sonnet5_pure_v2/**/*.csv
 
 # --- data (downloaded per starter_kit/README.md; never committed) ---
 starter_kit/KuaiRand-Pure/

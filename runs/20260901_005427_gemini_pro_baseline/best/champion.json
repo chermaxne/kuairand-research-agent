@@ -1,0 +1,12 @@
+{
+  "iteration": 3,
+  "score": {
+    "gauc": 0.6715727200746566,
+    "ndcg5": 0.5382475559021226,
+    "primary": 0.6049101379883897,
+    "users": 22377,
+    "rows": 124909
+  },
+  "installed_at": "2026-08-31T17:04:32Z",
+  "source": "/home/q3user/kuairand-research-agent/runs/20260901_005427_gemini_pro_baseline/iterations/it03"
+}

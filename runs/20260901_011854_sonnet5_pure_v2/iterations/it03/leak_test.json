@@ -1,0 +1,21 @@
+{
+  "fraction": 0.1,
+  "ran": true,
+  "runtime_s": 138.5,
+  "n_flipped_users": 2469,
+  "subset_primary": 0.6021529103027543,
+  "subset_gauc": 0.6706830444948326,
+  "full_primary": 0.6046447650421811,
+  "attempts": [
+    {
+      "fraction": 0.1,
+      "ran": true,
+      "runtime_s": 138.5,
+      "n_flipped_users": 2469,
+      "subset_primary": 0.6021529103027543,
+      "subset_gauc": 0.6706830444948326,
+      "full_primary": 0.6046447650421811
+    }
+  ],
+  "verdict": "clean"
+}

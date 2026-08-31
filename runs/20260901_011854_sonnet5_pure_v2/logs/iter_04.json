@@ -1,0 +1,97 @@
+{
+  "iteration": 4,
+  "timestamp": "2026-08-31T17:55:11Z",
+  "hypothesis": "Stack 5-seed score averaging (a validated, repeatedly-positive rider not yet in the single-seed champion) onto the exact it02 champion, and add one genuinely new past-only time-drift signal (days-since-start trend + weekday bucket) that the model has never been given, to squeeze the last available real signal before the run ends.",
+  "rationale": "Per the last-shot directive: keep every component of the promoted champion (its loss, its fields, its numeric priors) untouched, stack the one validated-but-unused rider (5-seed score averaging, §8.7, measured positive 3x across lineages and never negative), and add exactly one genuinely new past-only signal rather than more capacity or a repeated lever (BPR/FwFM/DIN/sequences/multitask are all measured flat-or-negative in this ledger, so re-trying them would burn the last life on a known-noise result). The organizers' own direction #6 (time features and drift, §4/§8.6) is the one item on their list this run has not yet tried as a standalone feature -- the daily rate falls 0.336->0.290 (§3), a real, measured non-stationarity the current model can only infer indirectly through id embeddings; giving the MLP the trend and weekly-cycle directly is the smallest faithful version of that direction and is architecturally identical to the hour_bucket/session_depth_bucket addition that already promoted twice in this project.",
+  "category": "feature",
+  "code_diff": "--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -5,6 +5,14 @@\n features for user/video/author/user_tab. Implements DeepFM (Guo et al. 2017) sum of FM 2nd-order\n term and an MLP branch, trained pointwise BCE with the same Adam-style optimizer as the FM\n baseline.\n+\n+ON TOP OF THAT CHAMPION (it02) THIS FILE ADDS EXACTLY TWO RIDERS:\n+  (1) 5-seed score averaging: the full bundle trains 5 DeepFM models (seed 0..4, all current\n+      fields/priors) and averages sigmoid(logits) row-wise for the written predictions\n+      (rank-safe score averaging).\n+  (2) Two new past-only time-drift features derived from `date` only (never label/feedback):\n+      - days_since_start (numeric, standardized like the other numeric priors; M_NUM 11 -> 12)\n+      - weekday_bucket = str(date % 7) (categorical; FIELDS 7 -> 8, vocab built from train only)\n \n     python pipeline.py --data <data_dir> --split val|test --out preds.csv\n \n@@ -25,8 +33,10 @@\n # ----------------------------------------------------------------------------- [1] config\n LABEL = \"long_view\"\n SPLITS = {\"train\": (20220408, 20220421), \"valid\": (20220422, 20220428), \"test\": (20220429, 20220508)}\n-# 7 categorical fields: 5 baseline + hour-of-day bucket + within-day session-depth bucket (past-only, no label)\n-FIELDS = [\"user_id\", \"video_id\", \"author_id\", \"tab\", \"dur_bucket\", \"hour_bucket\", \"session_depth_bucket\"]\n+# 8 categorical fields: 5 baseline + hour-of-day bucket + within-day session-depth bucket\n+# + weekday_bucket (new, past-only, derived from date only, no label)\n+FIELDS = [\"user_id\", \"video_id\", \"author_id\", \"tab\", \"dur_bucket\", \"hour_bucket\", \"session_depth_bucket\",\n+          \"weekday_bucket\"]\n K = 16            # embedding dim\n LR = 0.001\n L2 = 1e-6\n@@ -35,8 +45,9 @@\n PATIENCE = 4\n SEED = 0\n N_DUR_BUCKETS = 10\n-M_NUM = 11        # numerical prior features: 7 rate features + 4 log1p exposure-count features\n+M_NUM = 12        # numerical prior features: 7 rate + 4 log1p exposure-count + 1 days_since_start (new)\n HIDDEN = 128      # MLP hidden width\n+FULL_SEEDS = [0, 1, 2, 3, 4]\n \n ABLATION_EPOCHS = 8\n ABLATION_PATIENCE = 3\n@@ -98,6 +109,7 @@\n     # ---- past-only session/time-context fields, computed independently per split (never uses label/is_click) ----\n     extra_hour = {}\n     extra_sess = {}\n+    extra_wday = {}\n     for name, rws in splits.items():\n         users = np.array([x[1] for x in rws])\n         dates = np.array([x[0] for x in rws])\n@@ -107,30 +119,33 @@\n         depth = np.minimum(rank, 7).astype(int)\n         sess = np.where(depth >= 7, \"7+\", depth.astype(str))\n         hour = np.array([str(int(x[8] // 400)) for x in rws])\n+        wday = (dates % 7).astype(str)\n         extra_hour[name] = hour\n         extra_sess[name] = sess\n-\n-    def raw(x, hb, sb):\n-        return [x[1], x[2], x[3], x[4], str(int(np.searchsorted(edges, x[5]))), hb, sb]\n+        extra_wday[name] = wday\n+\n+    def raw(x, hb, sb, wb):\n+        return [x[1], x[2], x[3], x[4], str(int(np.searchsorted(edges, x[5]))), hb, sb, wb]\n \n     vocabs = [dict() for _ in FIELDS]\n-    hb_tr, sb_tr = extra_hour[\"train\"], extra_sess[\"train\"]\n+    hb_tr, sb_tr, wb_tr = extra_hour[\"train\"], extra_sess[\"train\"], extra_wday[\"train\"]\n     for idx, x in enumerate(tr):\n-        for i, v in enumerate(raw(x, hb_tr[idx], sb_tr[idx])):\n+        for i, v in enumerate(raw(x, hb_tr[idx], sb_tr[idx], wb_tr[idx])):\n             if v not in vocabs[i]:\n                 vocabs[i][v] = len(vocabs[i])\n     unk = [len(v) for v in vocabs]\n     field_dims = [len(v) + 1 for v in vocabs]\n     offsets = np.cumsum([0] + field_dims[:-1]).astype(np.int32)\n-    print(f\"vocab sizes: hour_bucket={len(vocabs[5])} session_depth_bucket={len(vocabs[6])}\")\n+    print(f\"vocab sizes: hour_bucket={len(vocabs[5])} session_depth_bucket={len(vocabs[6])} \"\n+          f\"weekday_bucket={len(vocabs[7])}\")\n     enc = {}\n     for name, rws in splits.items():\n-        hb, sb = extra_hour[name], extra_sess[name]\n+        hb, sb, wb = extra_hour[name], extra_sess[name], extra_wday[name]\n         X = np.empty((len(rws), len(FIELDS)), dtype=np.int32)\n         y = np.empty(len(rws), dtype=np.float32)\n         users = []\n         for n, x in enumerate(rws):\n-            for i, v in enumerate(raw(x, hb[n], sb[n])):\n+            for i, v in enumerate(raw(x, hb[n], sb[n], wb[n])):\n                 X[n, i] = vocabs[i].get(v, unk[i]) + offsets[i]\n             y[n] = x[6]\n             users.append(x[1])\n@@ -146,7 +161,8 @@\n \n \n def build_numeric(splits, log=print):\n-    \"\"\"Returns (Zstd dict of {split: (N,11) float32 standardized array}, stats dict).\"\"\"\n+    \"\"\"Returns (Zstd dict of {split: (N,12) float32 standardized array}, stats dict).\n+    Column 11 (last) is the new days_since_start feature, derived purely from `date`.\"\"\"\n     df_tr = pd.DataFrame([r[:8] for r in splits[\"train\"]], columns=_COLS)\n     global_lv = float(df_tr[\"label\"].mean())\n     global_ck = float(df_tr[\"click\"].mean())\n@@ -209,9 +225,16 @@\n         return np.concatenate([base, counts], axis=1)\n \n     Zraw = {\"train\": stack(train_rates(df_tr))}\n+    df_cache = {\"train\": df_tr}\n     for name in (\"valid\", \"test\"):\n         df = pd.DataFrame([r[:8] for r in splits[name]], columns=_COLS)\n         Zraw[name] = stack(eval_rates(df))\n+        df_cache[name] = df\n+\n+    # ---- new past-only time-drift feature: days_since_start, derived from `date` only ----\n+    for name in (\"train\", \"valid\", \"test\"):\n+        dss = (df_cache[name][\"date\"].values.astype(np.float64) - 20220408.0).astype(np.float32).reshape(-1, 1)\n+        Zraw[name] = np.concatenate([Zraw[name], dss], axis=1)\n \n     log(f\"sample log1p counts (pre-std, cols=user/video/author/user_tab): \"\n         f\"{np.round(Zraw['train'][:5, 7:11], 4).tolist()}\")\n@@ -225,6 +248,7 @@\n         f\"n_authors={df_tr['author'].nunique()} global_lv={global_lv:.4f} global_ck={global_ck:.4f}\")\n     log(f\"numeric priors train mean={np.round(mean, 4).tolist()}\")\n     log(f\"numeric priors train std ={np.round(std, 4).tolist()}\")\n+    log(f\"days_since_start standardized train mean/std: {np.round(mean[11], 4)}/{np.round(std[11], 4)}\")\n     return Zstd, {\"mean\": mean, \"std\": std, \"global_lv\": global_lv, \"global_ck\": global_ck}\n \n \n@@ -375,6 +399,26 @@\n     return m_model, best_metrics\n \n \n+def train_and_average(Xtr, ytr, uva, Xva, yva, dim, Ztr, Zva, Xtarget, Ztarget, seeds,\n+                       epochs, patience, m, n_fields, tag_prefix):\n+    \"\"\"Trains one DeepFM(use_mlp=True) per seed (reusing the passed-in encoded arrays) and\n+    averages sigmoid(logits) row-wise across seeds (rank-safe score averaging). Returns\n+    (avg_target_probs, avg_valid_metrics_via_evaluate_on_avg_probs).\"\"\"\n+    prob_valid_sum = np.zeros(len(yva), dtype=np.float64)\n+    prob_target_sum = np.zeros(len(Xtarget), dtype=np.float64)\n+    for s in seeds:\n+        model, _ = train_deepfm(\n+            Xtr, ytr, uva, Xva, yva, dim, use_mlp=True, Ztr=Ztr, Zva=Zva,\n+            epochs=epochs, patience=patience, seed=s, tag=f\"{tag_prefix}_seed{s}\", m=m, n_fields=n_fields,\n+        )\n+        prob_valid_sum += sigmoid(model.predict(Xva, Zva))\n+        prob_target_sum += sigmoid(model.predict(Xtarget, Ztarget))\n+    prob_valid_avg = (prob_valid_sum / len(seeds)).astype(np.float64)\n+    prob_target_avg = (prob_target_sum / len(seeds)).astype(np.float64)\n+    va_avg = evaluate(uva, yva, prob_valid_avg)\n+    return prob_target_avg, va_avg\n+\n+\n # ----------------------------------------------------------------------------- [6] CLI (pipeline contract)\n def write_preds(path, rows, scores):\n     with open(path, \"w\", newline=\"\") as fh:\n@@ -402,19 +446,20 @@\n \n     Xtr, ytr, _ = enc[\"train\"]\n     Xva, yva, uva = enc[\"valid\"]\n-\n-    # ---- FULL bundle first: DeepFM (MLP) + 7 fields + 11 numeric priors. This is the proposed champion. ----\n-    model_full, va_full = train_deepfm(\n-        Xtr, ytr, uva, Xva, yva, dim, use_mlp=True,\n-        Ztr=Zdict[\"train\"], Zva=Zdict[\"valid\"],\n-        epochs=EPOCHS, patience=PATIENCE, seed=SEED, tag=\"full\",\n-        m=M_NUM, n_fields=len(FIELDS),\n-    )\n-    print(f\"full fit done at {time.time() - t0:.0f}s (budget {budget:.0f}s)\")\n-\n     Xtarget, _, _ = enc[split]\n     Ztarget = Zdict[split]\n-    scores = model_full.predict(Xtarget, Ztarget)\n+\n+    # ---- FULL bundle: 5-seed averaged DeepFM (MLP) + 8 fields (incl. new weekday_bucket)\n+    # + 12 numeric priors (incl. new days_since_start). Rule 10: under KUAIRAND_FAST=1 we use a\n+    # single seed only (still the same full feature/label path) to respect the fast-path budget.\n+    seeds_full = [SEED] if fast else FULL_SEEDS\n+    prob_target_avg, va_full = train_and_average(\n+        Xtr, ytr, uva, Xva, yva, dim, Zdict[\"train\"], Zdict[\"valid\"], Xtarget, Ztarget,\n+        seeds=seeds_full, epochs=EPOCHS, patience=PATIENCE, m=M_NUM, n_fields=len(FIELDS), tag_prefix=\"full\",\n+    )\n+    print(f\"full fit done at {time.time() - t0:.0f}s (budget {budget:.0f}s, seeds={seeds_full})\")\n+\n+    scores = prob_target_avg\n     assert np.all(np.isfinite(scores)), \"non-finite scores\"\n     write_preds(a.out, splits[split], scores)\n     print(f\"wrote {a.out}: {len(splits[split])} rows for split={split} in {time.time() - t0:.0f}s\")\n@@ -434,10 +479,10 @@\n     Xtr_sub, ytr_sub = Xtr[sub_idx], ytr[sub_idx]\n     Ztr_sub = Zdict[\"train\"][sub_idx]\n \n-    # (a) champion_equiv: original 5 fields, no MLP, no numeric priors at all.\n+    # (a) champion_equiv: it02 exactly as promoted -- 5 baseline fields, no MLP, no numeric priors, single seed.\n     elapsed = time.time() - t0\n     if elapsed < 0.75 * budget:\n-        model_ce, va_ce = train_deepfm(\n+        _, va_ce = train_deepfm(\n             Xtr_sub[:, :5], ytr_sub, uva, Xva[:, :5], yva, dim, use_mlp=False,\n             Ztr=None, Zva=None,\n             epochs=ABLATION_EPOCHS, patience=ABLATION_PATIENCE, seed=SEED, tag=\"champion_equiv\",\n@@ -447,31 +492,32 @@\n     else:\n         print(\"ABLATION champion_equiv skipped: out of time budget\")\n \n-    # (b) no_confidence_counts: 7 fields (with hour/session) + only the original 7 numeric rate features.\n+    # (b) no_seedavg: single seed (seed 0) with the two new time features (8 fields, 12 numeric).\n     elapsed = time.time() - t0\n     if elapsed < 0.75 * budget:\n-        model_ncc, va_ncc = train_deepfm(\n+        _, va_nsa = train_deepfm(\n             Xtr_sub, ytr_sub, uva, Xva, yva, dim, use_mlp=True,\n-            Ztr=Ztr_sub[:, :7], Zva=Zdict[\"valid\"][:, :7],\n-            epochs=ABLATION_EPOCHS, patience=ABLATION_PATIENCE, seed=SEED, tag=\"no_confidence_counts\",\n-            m=7, n_fields=len(FIELDS),\n+            Ztr=Ztr_sub, Zva=Zdict[\"valid\"],\n+            epochs=ABLATION_EPOCHS, patience=ABLATION_PATIENCE, seed=SEED, tag=\"no_seedavg\",\n+            m=M_NUM, n_fields=len(FIELDS),\n         )\n-        print(f\"ABLATION no_confidence_counts primary={va_ncc['primary']:.4f} gauc={va_ncc['GAUC']:.4f} ndcg5={va_ncc['nDCG@5']:.4f}\")\n+        print(f\"ABLATION no_seedavg primary={va_nsa['primary']:.4f} gauc={va_nsa['GAUC']:.4f} ndcg5={va_nsa['nDCG@5']:.4f}\")\n     else:\n-        print(\"ABLATION no_confidence_counts skipped: out of time budget\")\n-\n-    # (c) no_session_fields: 5 fields (no hour/session) + all 11 numeric (with counts).\n+        print(\"ABLATION no_seedavg skipped: out of time budget\")\n+\n+    # (c) no_timefeat: 5-seed average of the it02 feature set only (7 fields, 11 numeric priors; no\n+    # weekday_bucket, no days_since_start) -- isolates the ensembling effect alone.\n     elapsed = time.time() - t0\n     if elapsed < 0.75 * budget:\n-        model_nsf, va_nsf = train_deepfm(\n-            Xtr_sub[:, :5], ytr_sub, uva, Xva[:, :5], yva, dim, use_mlp=True,\n-            Ztr=Ztr_sub, Zva=Zdict[\"valid\"],\n-            epochs=ABLATION_EPOCHS, patience=ABLATION_PATIENCE, seed=SEED, tag=\"no_session_fields\",\n-            m=M_NUM, n_fields=5,\n+        _, va_ntf = train_and_average(\n+            Xtr_sub[:, :7], ytr_sub, uva, Xva[:, :7], yva, dim,\n+            Ztr_sub[:, :11], Zdict[\"valid\"][:, :11], Xva[:, :7], Zdict[\"valid\"][:, :11],\n+            seeds=FULL_SEEDS, epochs=ABLATION_EPOCHS, patience=ABLATION_PATIENCE, m=11, n_fields=7,\n+            tag_prefix=\"no_timefeat\",\n         )\n-        print(f\"ABLATION no_session_fields primary={va_nsf['primary']:.4f} gauc={va_nsf['GAUC']:.4f} ndcg5={va_nsf['nDCG@5']:.4f}\")\n+        print(f\"ABLATION no_timefeat primary={va_ntf['primary']:.4f} gauc={va_ntf['GAUC']:.4f} ndcg5={va_ntf['nDCG@5']:.4f}\")\n     else:\n-        print(\"ABLATION no_session_fields skipped: out of time budget\")\n+        print(\"ABLATION no_timefeat skipped: out of time budget\")\n \n \n if __name__ == \"__main__\":",
+  "result": {
+    "status": "scored",
+    "gauc": 0.6719709167186646,
+    "ndcg5": 0.5378685466880522,
+    "primary": 0.6049197317033583,
+    "runtime_s": 223.3,
+    "error_excerpt": "",
+    "vs_best": "+0.0001"
+  },
+  "errors_and_recovery": [],
+  "decision": "kept_champion",
+  "streak_after": 3,
+  "tokens_this_iteration": 79671,
+  "runtime_s": 223.3,
+  "lesson": "Stacked 5-seed averaging with new time-drift features scored 0.6049, kept; early-stopped at epoch 7.",
+  "harness_extra": {
+    "run_id": "20260901_011854_sonnet5_pure_v2",
+    "best_primary_after": 0.604826307500874,
+    "best_iter_after": 2,
+    "best_at_iteration_start": 0.604826307500874,
+    "promoted": false,
+    "expected_risk": "low",
+    "change_summary": "pipeline.py (+87/-41)",
+    "tokens": {
+      "input_tokens": 54426,
+      "output_tokens": 24349,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 896,
+      "cost_usd": 0.34395008,
+      "total": 79671
+    },
+    "llm_calls": 5,
+    "iteration_wall_s": 675.3,
+    "blocked_added": null,
+    "consecutive_failures": 0,
+    "leak_test": {
+      "fraction": 0.1,
+      "ran": true,
+      "runtime_s": 230.6,
+      "n_flipped_users": 2469,
+      "subset_primary": 0.6036903583646603,
+      "subset_gauc": 0.6723063385091994,
+      "full_primary": 0.6051410952129835,
+      "attempts": [
+        {
+          "fraction": 0.1,
+          "ran": true,
+          "runtime_s": 230.6,
+          "n_flipped_users": 2469,
+          "subset_primary": 0.6036903583646603,
+          "subset_gauc": 0.6723063385091994,
+          "full_primary": 0.6051410952129835
+        }
+      ],
+      "verdict": "clean"
+    },
+    "expected_gain": 0.0021,
+    "gain_evidence": "5-seed averaging on this same session/hour-feature champion family measured +0.0017 and +0.0003 promoted in two separate prior lineages (never negative) -- take a conservative +0.0007 given calibration shows my predictions overshoot measured gains by +0.0036 on average. The new days_since_start/weekday feature is unmeasured but is the same class of cheap past-only context addition as hour_bucket/session_depth_bucket, whose FIRST addition in this exact run scored +0.0011 to +0.0021 across two lineages; conservatively estimate +0.0012 for this new-but-analogous signal. Stacked (0.0007+0.0012=0.0019, rounded to 0.0021 allowing for reduced noise from 5-seed averaging) is the largest defensible bundle available given every other lever (BPR, sequences, multitask, FwFM, DIN, LightGBM ensemble) has already measured flat-to-negative in this run's ledger.",
+    "ablation_plan": "champion_equiv: it02 exactly (single seed, no new time features) -- must reproduce ~0.6048; no_seedavg: single seed (seed 0) with days_since_start + weekday_bucket added, isolating the new-signal effect alone; no_timefeat: 5-seed average of the it02 feature set only, isolating the ensembling effect alone. All three run at reduced epochs/rows per existing ABLATION_EPOCHS/ABLATION_MAX_ROWS convention.",
+    "ablations": [
+      {
+        "name": "full",
+        "primary": 0.6049,
+        "gauc": 0.672,
+        "ndcg5": 0.5379
+      },
+      {
+        "name": "champion_equiv",
+        "primary": 0.5893,
+        "gauc": 0.6498,
+        "ndcg5": 0.5289
+      },
+      {
+        "name": "no_seedavg",
+        "primary": 0.595,
+        "gauc": 0.658,
+        "ndcg5": 0.532
+      },
+      {
+        "name": "no_timefeat",
+        "primary": 0.5948,
+        "gauc": 0.6577,
+        "ndcg5": 0.532
+      }
+    ],
+    "research_tool_calls": [],
+    "new_knowledge_added": false,
+    "workspace": "iterations/it04"
+  }
+}

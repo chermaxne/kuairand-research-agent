@@ -1,0 +1,79 @@
+{
+  "iteration": 2,
+  "timestamp": "2026-08-31T16:59:36Z",
+  "hypothesis": "Training the numpy FM with a within-user pairwise BPR loss directly aligns the optimization objective with the evaluation metrics (GAUC, nDCG@5), providing a stronger ranking signal than pointwise logloss.",
+  "rationale": "The previous attempt (it01) failed due to a missing PyTorch dependency, invalidating the model upgrade path for now. Switching the training objective to BPR leverages pure numpy, bypasses environment limits, and directly optimizes the ranking metric. Vectorized sampling ensures the pair creation fits easily within the 900s runtime budget.",
+  "category": "training",
+  "code_diff": "--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -133,7 +133,7 @@\n         inter = 0.5 * ((S ** 2).sum(1) - (E ** 2).sum((1, 2)))\n         return self.b + self.W[X].sum(1) + inter, E, S\n \n-    def step(self, X, y):\n+    def step_pointwise(self, X, y):\n         B = len(y)\n         z, E, S = self.logits(X)\n         g = ((sigmoid(z) - y) / B).astype(np.float32)\n@@ -150,25 +150,105 @@\n         self.b -= self.lr * g.sum()\n         return float(-np.mean(y * np.log(sigmoid(z) + 1e-9) + (1 - y) * np.log(1 - sigmoid(z) + 1e-9)))\n \n+    def step_pairwise(self, X_pos, X_neg):\n+        B = len(X_pos)\n+        z_pos, E_p, S_p = self.logits(X_pos)\n+        z_neg, E_n, S_n = self.logits(X_neg)\n+        diff = z_pos - z_neg\n+        sig = sigmoid(diff)\n+        g = (-(1.0 - sig) / B).astype(np.float32)\n+        gV = np.zeros_like(self.V); gW = np.zeros_like(self.W)\n+        \n+        np.add.at(gW, X_pos, g[:, None])\n+        np.add.at(gW, X_neg, -g[:, None])\n+        \n+        np.add.at(gV, X_pos, g[:, None, None] * (S_p[:, None, :] - E_p))\n+        np.add.at(gV, X_neg, -g[:, None, None] * (S_n[:, None, :] - E_n))\n+        \n+        gV += self.l2 * self.V; gW += self.l2 * self.W\n+        self.t += 1\n+        b1, b2, eps = 0.9, 0.999, 1e-8\n+        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW)):\n+            M *= b1; M += (1 - b1) * G\n+            Vv *= b2; Vv += (1 - b2) * (G * G)\n+            P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)\n+        return float(-np.mean(np.log(sig + 1e-9)))\n+\n     def predict(self, X, bs=200_000):\n         return np.concatenate([self.logits(X[i:i + bs])[0] for i in range(0, len(X), bs)])\n \n \n # ----------------------------------------------------------------------------- [5] training\n-def train(enc, dim, log=print):\n+def train(enc, dim, log=print, loss_type=\"pairwise\"):\n     \"\"\"Train on train, early-stop on validation primary (official recipe). Returns the best model.\"\"\"\n-    Xtr, ytr, _ = enc[\"train\"]\n+    Xtr, ytr, utr_list = enc[\"train\"]\n     Xva, yva, uva = enc[\"valid\"]\n     m = FM(dim)\n     rng = np.random.default_rng(SEED)\n     best, best_state, bad = -1.0, None, 0\n+    \n+    utr = np.array(utr_list)\n+    \n+    if loss_type == \"pairwise\":\n+        pos_mask = (ytr > 0)\n+        neg_mask = (ytr == 0)\n+        neg_idx = np.where(neg_mask)[0]\n+        \n+        neg_users = utr[neg_idx]\n+        neg_sort_order = np.argsort(neg_users)\n+        neg_idx_sorted = neg_idx[neg_sort_order]\n+        sorted_neg_users = neg_users[neg_sort_order]\n+        \n+        unique_neg_u, neg_starts, neg_counts = np.unique(sorted_neg_users, return_index=True, return_counts=True)\n+        neg_user_map = {u: (s, c) for u, s, c in zip(unique_neg_u, neg_starts, neg_counts)}\n+        \n+        all_pos_idx = np.where(pos_mask)[0]\n+        pos_idx_list = []\n+        pos_neg_starts_list = []\n+        pos_neg_counts_list = []\n+        \n+        for p_idx in all_pos_idx:\n+            u = utr[p_idx]\n+            if u in neg_user_map:\n+                s, c = neg_user_map[u]\n+                pos_idx_list.append(p_idx)\n+                pos_neg_starts_list.append(s)\n+                pos_neg_counts_list.append(c)\n+                \n+        pos_idx = np.array(pos_idx_list, dtype=np.int32)\n+        pos_neg_starts = np.array(pos_neg_starts_list, dtype=np.int32)\n+        pos_neg_counts = np.array(pos_neg_counts_list, dtype=np.int32)\n+\n     for ep in range(1, EPOCHS + 1):\n         t0 = time.time()\n-        idx = rng.permutation(len(ytr))\n-        losses = [m.step(Xtr[idx[i:i + BATCH]], ytr[idx[i:i + BATCH]]) for i in range(0, len(idx), BATCH)]\n+        \n+        if loss_type == \"pairwise\":\n+            rand_offsets = (rng.random(len(pos_neg_counts)) * pos_neg_counts).astype(np.int32)\n+            sampled_neg_idx = neg_idx_sorted[pos_neg_starts + rand_offsets]\n+            \n+            shuffle_idx = rng.permutation(len(pos_idx))\n+            p_idx_shuf = pos_idx[shuffle_idx]\n+            n_idx_shuf = sampled_neg_idx[shuffle_idx]\n+            \n+            losses = []\n+            for i in range(0, len(p_idx_shuf), BATCH):\n+                p_batch = p_idx_shuf[i:i + BATCH]\n+                n_batch = n_idx_shuf[i:i + BATCH]\n+                losses.append(m.step_pairwise(Xtr[p_batch], Xtr[n_batch]))\n+            n_pairs = len(pos_idx)\n+            pair_info = f\"pairs {n_pairs} | \"\n+        else:\n+            idx = rng.permutation(len(ytr))\n+            losses = [m.step_pointwise(Xtr[idx[i:i + BATCH]], ytr[idx[i:i + BATCH]]) for i in range(0, len(idx), BATCH)]\n+            pair_info = \"\"\n+\n         va = evaluate(uva, yva, m.predict(Xva))\n-        log(f\"epoch {ep:2d} | loss {np.mean(losses):.4f} | valid GAUC {va['GAUC']:.4f} nDCG@5 {va['nDCG@5']:.4f} \"\n+        if ep == 1 and loss_type == \"pairwise\":\n+            assert va['GAUC'] > 0.5, \"GAUC <= 0.5 after epoch 1\"\n+            \n+        log(f\"epoch {ep:2d} | {pair_info}loss {np.mean(losses):.4f} | valid GAUC {va['GAUC']:.4f} nDCG@5 {va['nDCG@5']:.4f} \"\n             f\"primary {va['primary']:.4f} | {time.time() - t0:.1f}s\")\n+            \n         if va[\"primary\"] > best + 1e-5:\n             best, bad = va[\"primary\"], 0\n             best_state = (m.V.copy(), m.W.copy(), np.float32(m.b))\n@@ -197,16 +277,33 @@\n     ap.add_argument(\"--out\", default=\"preds_val.csv\")\n     a = ap.parse_args()\n     split = \"valid\" if a.split in (\"val\", \"valid\") else \"test\"\n+    \n+    t_start = time.time()\n+    time_budget = float(os.environ.get(\"KUAIRAND_TIME_BUDGET_S\", 1500))\n+    fast_mode = os.environ.get(\"KUAIRAND_FAST\", \"0\") == \"1\"\n+\n     t0 = time.time()\n     splits = load(a.data)\n     print({k: len(v) for k, v in splits.items()}, f\"fields={FIELDS}\", f\"load {time.time() - t0:.1f}s\")\n     enc, dim = encode(splits)\n-    model = train(enc, dim)\n+    model = train(enc, dim, loss_type=\"pairwise\")\n     X, _, _ = enc[split]\n     scores = model.predict(X)\n     assert np.all(np.isfinite(scores)), \"non-finite scores\"\n     write_preds(a.out, splits[split], scores)\n-    print(f\"wrote {a.out}: {len(splits[split])} rows for split={split} in {time.time() - t0:.0f}s\")\n+    print(f\"wrote {a.out}: {len(splits[split])} rows for split={split} in {time.time() - t_start:.0f}s\")\n+\n+    if fast_mode:\n+        return\n+        \n+    remains = time_budget - (time.time() - t_start)\n+    if remains < time_budget * 0.25:\n+        print(\"ABLATION champion_equiv skipped: out of time budget\")\n+    else:\n+        m_pt = train(enc, dim, log=lambda x: None, loss_type=\"pointwise\")\n+        Xva, yva, uva = enc[\"valid\"]\n+        va = evaluate(uva, yva, m_pt.predict(Xva))\n+        print(f\"ABLATION champion_equiv primary={va['primary']:.6f} gauc={va['GAUC']:.6f} ndcg5={va['nDCG@5']:.6f}\")\n \n \n if __name__ == \"__main__\":",
+  "result": {
+    "status": "scored",
+    "gauc": 0.6700340230229958,
+    "ndcg5": 0.5364214122620459,
+    "primary": 0.6032277176425208,
+    "runtime_s": 28.5,
+    "error_excerpt": "",
+    "vs_best": "+0.0018"
+  },
+  "errors_and_recovery": [],
+  "decision": "promoted",
+  "streak_after": 2,
+  "tokens_this_iteration": 43568,
+  "runtime_s": 28.5,
+  "lesson": "Pairwise BPR: 0.601470 vs 0.6032277176425208, promoted; early-stopped at epoch 9.",
+  "harness_extra": {
+    "run_id": "20260901_005427_gemini_pro_baseline",
+    "best_primary_after": 0.6032277176425208,
+    "best_iter_after": 2,
+    "best_at_iteration_start": 0.601468756352959,
+    "promoted": true,
+    "expected_risk": "low",
+    "change_summary": "pipeline.py (+105/-8)",
+    "tokens": {
+      "input_tokens": 25457,
+      "output_tokens": 17215,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 896,
+      "cost_usd": 0.24943148,
+      "total": 43568
+    },
+    "llm_calls": 5,
+    "iteration_wall_s": 169.2,
+    "blocked_added": null,
+    "consecutive_failures": 0,
+    "leak_test": {
+      "fraction": 0.1,
+      "ran": true,
+      "runtime_s": 29.1,
+      "n_flipped_users": 2469,
+      "subset_primary": 0.6038379256963071,
+      "subset_gauc": 0.6706878580578841,
+      "full_primary": 0.6032277176425208,
+      "attempts": [
+        {
+          "fraction": 0.1,
+          "ran": true,
+          "runtime_s": 29.1,
+          "n_flipped_users": 2469,
+          "subset_primary": 0.6038379256963071,
+          "subset_gauc": 0.6706878580578841,
+          "full_primary": 0.6032277176425208
+        }
+      ],
+      "verdict": "clean"
+    },
+    "expected_gain": 0.0029,
+    "gain_evidence": "Ledger prior runs demonstrate +0.0029 from replacing pointwise BCE with within-user pairwise BPR loss, explicitly optimizing the relative ordering required by GAUC.",
+    "ablation_plan": "champion_equiv: original pointwise BCE loss (train using step_pointwise and original row-wise shuffling)",
+    "ablations": [
+      {
+        "name": "champion_equiv",
+        "primary": 0.60147,
+        "gauc": 0.667133,
+        "ndcg5": 0.535806
+      }
+    ],
+    "research_tool_calls": [],
+    "new_knowledge_added": false,
+    "workspace": "iterations/it02"
+  }
+}

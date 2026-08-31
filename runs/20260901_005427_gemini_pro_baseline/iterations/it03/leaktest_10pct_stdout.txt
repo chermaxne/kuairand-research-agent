@@ -1,0 +1,64 @@
+{'train': 1141112, 'valid': 124909, 'test': 0} fields=['user_id', 'video_id', 'author_id', 'tab', 'dur_bucket', 'hour', 'sess_depth'] load 5.6s
+epoch  1 | pairs 382579 | loss 0.6687 | valid GAUC 0.6029 nDCG@5 0.5478 primary 0.5754 | 1.4s
+epoch  2 | pairs 382579 | loss 0.5924 | valid GAUC 0.6068 nDCG@5 0.5500 primary 0.5784 | 1.9s
+epoch  3 | pairs 382579 | loss 0.5606 | valid GAUC 0.6080 nDCG@5 0.5511 primary 0.5796 | 1.8s
+epoch  4 | pairs 382579 | loss 0.5522 | valid GAUC 0.6095 nDCG@5 0.5512 primary 0.5804 | 1.7s
+epoch  5 | pairs 382579 | loss 0.5489 | valid GAUC 0.6102 nDCG@5 0.5517 primary 0.5809 | 1.6s
+epoch  6 | pairs 382579 | loss 0.5449 | valid GAUC 0.6092 nDCG@5 0.5517 primary 0.5805 | 1.7s
+epoch  7 | pairs 382579 | loss 0.5419 | valid GAUC 0.6092 nDCG@5 0.5514 primary 0.5803 | 1.9s
+epoch  8 | pairs 382579 | loss 0.5388 | valid GAUC 0.6092 nDCG@5 0.5514 primary 0.5803 | 1.5s
+epoch  9 | pairs 382579 | loss 0.5349 | valid GAUC 0.6103 nDCG@5 0.5520 primary 0.5812 | 1.5s
+epoch 10 | pairs 382579 | loss 0.5284 | valid GAUC 0.6098 nDCG@5 0.5517 primary 0.5807 | 1.7s
+epoch 11 | pairs 382579 | loss 0.5240 | valid GAUC 0.6094 nDCG@5 0.5516 primary 0.5805 | 1.4s
+epoch 12 | pairs 382579 | loss 0.5156 | valid GAUC 0.6076 nDCG@5 0.5509 primary 0.5792 | 1.7s
+epoch 13 | pairs 382579 | loss 0.5074 | valid GAUC 0.6077 nDCG@5 0.5502 primary 0.5790 | 1.7s
+early stop at epoch 13
+epoch  1 | pairs 382579 | loss 0.6680 | valid GAUC 0.6034 nDCG@5 0.5473 primary 0.5754 | 1.4s
+epoch  2 | pairs 382579 | loss 0.5908 | valid GAUC 0.6076 nDCG@5 0.5501 primary 0.5788 | 1.5s
+epoch  3 | pairs 382579 | loss 0.5605 | valid GAUC 0.6088 nDCG@5 0.5514 primary 0.5801 | 1.9s
+epoch  4 | pairs 382579 | loss 0.5534 | valid GAUC 0.6097 nDCG@5 0.5519 primary 0.5808 | 1.7s
+epoch  5 | pairs 382579 | loss 0.5486 | valid GAUC 0.6092 nDCG@5 0.5519 primary 0.5806 | 1.4s
+epoch  6 | pairs 382579 | loss 0.5456 | valid GAUC 0.6095 nDCG@5 0.5518 primary 0.5806 | 1.6s
+epoch  7 | pairs 382579 | loss 0.5433 | valid GAUC 0.6092 nDCG@5 0.5520 primary 0.5806 | 1.9s
+epoch  8 | pairs 382579 | loss 0.5389 | valid GAUC 0.6097 nDCG@5 0.5523 primary 0.5810 | 1.6s
+epoch  9 | pairs 382579 | loss 0.5352 | valid GAUC 0.6091 nDCG@5 0.5516 primary 0.5804 | 1.8s
+epoch 10 | pairs 382579 | loss 0.5309 | valid GAUC 0.6080 nDCG@5 0.5509 primary 0.5795 | 2.1s
+epoch 11 | pairs 382579 | loss 0.5245 | valid GAUC 0.6088 nDCG@5 0.5510 primary 0.5799 | 1.4s
+epoch 12 | pairs 382579 | loss 0.5173 | valid GAUC 0.6077 nDCG@5 0.5506 primary 0.5792 | 1.2s
+early stop at epoch 12
+epoch  1 | pairs 382579 | loss 0.6702 | valid GAUC 0.6032 nDCG@5 0.5475 primary 0.5754 | 1.2s
+epoch  2 | pairs 382579 | loss 0.5940 | valid GAUC 0.6067 nDCG@5 0.5503 primary 0.5785 | 1.3s
+epoch  3 | pairs 382579 | loss 0.5597 | valid GAUC 0.6075 nDCG@5 0.5507 primary 0.5791 | 1.2s
+epoch  4 | pairs 382579 | loss 0.5513 | valid GAUC 0.6091 nDCG@5 0.5514 primary 0.5803 | 1.3s
+epoch  5 | pairs 382579 | loss 0.5481 | valid GAUC 0.6093 nDCG@5 0.5515 primary 0.5804 | 1.3s
+epoch  6 | pairs 382579 | loss 0.5446 | valid GAUC 0.6100 nDCG@5 0.5514 primary 0.5807 | 1.2s
+epoch  7 | pairs 382579 | loss 0.5407 | valid GAUC 0.6093 nDCG@5 0.5513 primary 0.5803 | 1.3s
+epoch  8 | pairs 382579 | loss 0.5377 | valid GAUC 0.6082 nDCG@5 0.5512 primary 0.5797 | 1.2s
+epoch  9 | pairs 382579 | loss 0.5330 | valid GAUC 0.6100 nDCG@5 0.5514 primary 0.5807 | 1.3s
+epoch 10 | pairs 382579 | loss 0.5267 | valid GAUC 0.6080 nDCG@5 0.5508 primary 0.5794 | 1.2s
+early stop at epoch 10
+epoch  1 | pairs 382579 | loss 0.6677 | valid GAUC 0.6038 nDCG@5 0.5478 primary 0.5758 | 1.3s
+epoch  2 | pairs 382579 | loss 0.5908 | valid GAUC 0.6071 nDCG@5 0.5508 primary 0.5789 | 1.3s
+epoch  3 | pairs 382579 | loss 0.5591 | valid GAUC 0.6081 nDCG@5 0.5510 primary 0.5796 | 1.2s
+epoch  4 | pairs 382579 | loss 0.5519 | valid GAUC 0.6092 nDCG@5 0.5520 primary 0.5806 | 1.3s
+epoch  5 | pairs 382579 | loss 0.5491 | valid GAUC 0.6109 nDCG@5 0.5521 primary 0.5815 | 1.2s
+epoch  6 | pairs 382579 | loss 0.5456 | valid GAUC 0.6099 nDCG@5 0.5526 primary 0.5812 | 1.3s
+epoch  7 | pairs 382579 | loss 0.5421 | valid GAUC 0.6090 nDCG@5 0.5524 primary 0.5807 | 1.2s
+epoch  8 | pairs 382579 | loss 0.5395 | valid GAUC 0.6099 nDCG@5 0.5524 primary 0.5811 | 1.3s
+epoch  9 | pairs 382579 | loss 0.5360 | valid GAUC 0.6088 nDCG@5 0.5522 primary 0.5805 | 1.3s
+early stop at epoch 9
+epoch  1 | pairs 382579 | loss 0.6674 | valid GAUC 0.6046 nDCG@5 0.5477 primary 0.5762 | 1.2s
+epoch  2 | pairs 382579 | loss 0.5897 | valid GAUC 0.6064 nDCG@5 0.5499 primary 0.5782 | 1.2s
+epoch  3 | pairs 382579 | loss 0.5596 | valid GAUC 0.6085 nDCG@5 0.5518 primary 0.5801 | 1.2s
+epoch  4 | pairs 382579 | loss 0.5521 | valid GAUC 0.6085 nDCG@5 0.5517 primary 0.5801 | 1.3s
+epoch  5 | pairs 382579 | loss 0.5492 | valid GAUC 0.6089 nDCG@5 0.5519 primary 0.5804 | 1.3s
+epoch  6 | pairs 382579 | loss 0.5458 | valid GAUC 0.6078 nDCG@5 0.5508 primary 0.5793 | 1.2s
+epoch  7 | pairs 382579 | loss 0.5432 | valid GAUC 0.6100 nDCG@5 0.5524 primary 0.5812 | 1.7s
+epoch  8 | pairs 382579 | loss 0.5405 | valid GAUC 0.6099 nDCG@5 0.5526 primary 0.5813 | 1.3s
+epoch  9 | pairs 382579 | loss 0.5379 | valid GAUC 0.6093 nDCG@5 0.5519 primary 0.5806 | 1.6s
+epoch 10 | pairs 382579 | loss 0.5326 | valid GAUC 0.6097 nDCG@5 0.5518 primary 0.5807 | 1.3s
+epoch 11 | pairs 382579 | loss 0.5266 | valid GAUC 0.6084 nDCG@5 0.5513 primary 0.5798 | 1.4s
+epoch 12 | pairs 382579 | loss 0.5214 | valid GAUC 0.6089 nDCG@5 0.5520 primary 0.5804 | 1.9s
+early stop at epoch 12
+wrote preds_val_leaktest.csv: 124909 rows for split=valid in 93s
+ABLATION 1_seed primary=0.581154 gauc=0.610288 ndcg5=0.552020

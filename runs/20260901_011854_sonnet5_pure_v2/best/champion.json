@@ -1,0 +1,12 @@
+{
+  "iteration": 2,
+  "score": {
+    "gauc": 0.6717370056333709,
+    "ndcg5": 0.5379156093683771,
+    "primary": 0.604826307500874,
+    "users": 22377,
+    "rows": 124909
+  },
+  "installed_at": "2026-08-31T17:34:11Z",
+  "source": "/home/q3user/kuairand-research-agent/runs/20260901_011854_sonnet5_pure_v2/iterations/it02"
+}

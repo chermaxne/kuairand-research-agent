@@ -1,0 +1,9 @@
+{
+  "status": "failed",
+  "gauc": 0.0,
+  "ndcg5": 0.0,
+  "primary": 0.0,
+  "runtime_s": 0.1,
+  "error_excerpt": "exit code 1\nTraceback (most recent call last):\n  File \"/home/q3user/kuairand-research-agent/runs/20260901_005427_gemini_pro_baseline/iterations/it01/pipeline.py\", line 24, in <module>\n    import torch\nModuleNotFoundError: No module named 'torch'\n[debugger abandoned: PyTorch (torch) is not installed in the environment; cannot implement the required DeepFM model. The experiment's hypothesis requires torch, which is unavailable, so it cannot be fixed within the con…]",
+  "vs_best": "n/a"
+}

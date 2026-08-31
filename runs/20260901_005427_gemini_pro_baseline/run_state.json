@@ -1,0 +1,631 @@
+{
+  "run_id": "20260901_005427_gemini_pro_baseline",
+  "start_ts": "2026-08-31T16:54:29Z",
+  "start_time": 1788195269.7014227,
+  "iteration": 3,
+  "streak": 3,
+  "best_primary": 0.6049101379883897,
+  "best_gauc": 0.6715727200746566,
+  "best_ndcg5": 0.5382475559021226,
+  "best_iter": 3,
+  "baseline_primary": 0.6016,
+  "tokens_total": 134858,
+  "tokens_input": 87304,
+  "tokens_output": 47554,
+  "tokens_by_role": {
+    "researcher": 72823,
+    "engineer": 46541,
+    "debugger": 6479,
+    "scribe_lesson": 3288,
+    "scribe_logentry": 3486,
+    "scribe_digest": 2241
+  },
+  "llm_calls": 16,
+  "spend_start": {
+    "usage_usd": 308.322147171,
+    "limit_usd": 350,
+    "remaining_usd": 41.67785282900002,
+    "is_free_tier": false
+  },
+  "spend_end": {
+    "usage_usd": 309.844350195,
+    "limit_usd": 350,
+    "remaining_usd": 40.155649804999996,
+    "is_free_tier": false
+  },
+  "real_spend_usd": 0.701113844,
+  "interventions": 0,
+  "resumes": 0,
+  "blocked": [
+    "it01: Replacing the numpy FM with a PyTorch DeepFM and concatenating strict… [abandoned by debugger]"
+  ],
+  "consecutive_failures": 0,
+  "stop_reason": "converged",
+  "phase0": {
+    "started": "2026-08-31T16:54:30Z",
+    "checks": [
+      {
+        "name": "convergence_rule_matches_kit",
+        "value": "EPSILON=0.002 N_FLAT=3",
+        "expected": "epsilon=0.002 N=3",
+        "ok": true
+      },
+      {
+        "name": "random_valid_primary",
+        "value": 0.482659838170463,
+        "expected": 0.4834,
+        "tolerance": 0.01,
+        "ok": true
+      },
+      {
+        "name": "pop_valid_primary",
+        "value": 0.5807219293342882,
+        "expected": 0.5807,
+        "tolerance": 0.01,
+        "ok": true
+      },
+      {
+        "name": "official_fm_valid_primary",
+        "value": 0.601468756352959,
+        "expected": 0.6016,
+        "tolerance": 0.005,
+        "ok": true
+      },
+      {
+        "name": "champion_valid_primary",
+        "value": 0.601468756352959,
+        "expected": 0.6016,
+        "tolerance": 0.005,
+        "ok": true
+      }
+    ],
+    "expected": {
+      "random": 0.4834,
+      "pop": 0.5807,
+      "fm": 0.6016,
+      "fm_gauc": 0.6674,
+      "fm_ndcg5": 0.5357,
+      "oracle": 0.8484,
+      "epsilon": 0.002,
+      "N": 3
+    },
+    "random": {
+      "gauc": 0.499030806084518,
+      "ndcg5": 0.46628887025640803,
+      "primary": 0.482659838170463,
+      "users": 22377,
+      "rows": 124909
+    },
+    "pop": {
+      "gauc": 0.6387257648986705,
+      "ndcg5": 0.522718093769906,
+      "primary": 0.5807219293342882,
+      "users": 22377,
+      "rows": 124909
+    },
+    "official_fm": {
+      "gauc": 0.6671326321610643,
+      "ndcg5": 0.5358048805448538,
+      "primary": 0.601468756352959,
+      "users": 22377,
+      "rows": 124909,
+      "runtime_s": 20.0
+    },
+    "champion_run": {
+      "status": "ok",
+      "runtime_s": 20.3,
+      "isolation": "none"
+    },
+    "champion": {
+      "gauc": 0.6671326321610643,
+      "ndcg5": 0.5358048805448538,
+      "primary": 0.601468756352959,
+      "users": 22377,
+      "rows": 124909
+    },
+    "champion_vs_official": 0.0,
+    "passed": true,
+    "finished": "2026-08-31T16:55:11Z"
+  },
+  "finalize": {
+    "stop_reason": "converged",
+    "attempts": [
+      {
+        "iteration": 3,
+        "run_status": "ok",
+        "runtime_s": 79.3,
+        "checker_ok": true,
+        "checker_output": "✓ 格式与对齐校验通过：170,588 行，split=test"
+      }
+    ],
+    "ok": true,
+    "submission": "/home/q3user/kuairand-research-agent/runs/20260901_005427_gemini_pro_baseline/submission.csv",
+    "champion_iteration": 3
+  },
+  "best_history": [
+    0.601468756352959,
+    0.6032277176425208,
+    0.6049101379883897
+  ],
+  "best_measured": {
+    "iteration": 3,
+    "primary": 0.6049101379883897,
+    "gauc": 0.6715727200746566,
+    "ndcg5": 0.5382475559021226,
+    "workspace": "iterations/it03"
+  },
+  "synthesis": "The only model change attempted was replacing the numpy FM with a PyTorch DeepFM (it01), which failed due to missing PyTorch. The only training change attempted was switching to pairwise BPR loss (it02), which succeeded with a measured gain of +0.0018 over the champion. No feature, multitask, or other directions have been attempted. Pairwise BPR was promoted, while PyTorch DeepFM failed. Calibration shows predicted gains overstated by +0.0011 on average.",
+  "history": [
+    {
+      "iteration": 1,
+      "hypothesis": "Replacing the numpy FM with a PyTorch DeepFM and concatenating strictly past-only user/video historical rates as numerical features into the MLP will allow the model to learn high-order interactions and behavioral priors, significantly raising primary.",
+      "category": "model",
+      "training_log_tail": "",
+      "status": "failed",
+      "primary": null,
+      "gauc": null,
+      "ndcg5": null,
+      "decision": "failed",
+      "promoted": false,
+      "streak_after": 1,
+      "tokens": 42913,
+      "runtime_s": 0.1,
+      "lesson": "PyTorch DeepFM failed due to missing torch module; no score.",
+      "error_short": "[debugger abandoned: PyTorch (torch) is not installed in the environment; cannot implement the required DeepFM model. The experiment's hypothesis requires torch, which is unavailable, so it cannot be…",
+      "timestamp": "2026-08-31T16:56:47Z"
+    },
+    {
+      "iteration": 2,
+      "hypothesis": "Training the numpy FM with a within-user pairwise BPR loss directly aligns the optimization objective with the evaluation metrics (GAUC, nDCG@5), providing a stronger ranking signal than pointwise logloss.",
+      "category": "training",
+      "training_log_tail": "epoch  1 | pairs 382579 | loss 0.6749 | valid GAUC 0.6571 nDCG@5 0.5297 primary 0.5934 | 0.9s\nepoch  2 | pairs 382579 | loss 0.6171 | valid GAUC 0.6637 nDCG@5 0.5336 primary 0.5987 | 0.9s\nepoch  3 | pairs 382579 | loss 0.5745 | valid GAUC 0.6672 nDCG@5 0.5353 primary 0.6013 | 0.9s\nepoch  4 | pairs 382579 | loss 0.5571 | valid GAUC 0.6681 nDCG@5 0.5351 primary 0.6016 | 0.9s\nepoch  5 | pairs 382579 | loss 0.5500 | valid GAUC 0.6700 nDCG@5 0.5364 primary 0.6032 | 0.9s\nepoch  6 | pairs 382579 | loss 0.5441 | valid GAUC 0.6694 nDCG@5 0.5366 primary 0.6030 | 0.9s\nepoch  7 | pairs 382579 | loss 0.5397 | valid GAUC 0.6689 nDCG@5 0.5358 primary 0.6024 | 0.9s\nepoch  8 | pairs 382579 | loss 0.5359 | valid GAUC 0.6694 nDCG@5 0.5362 primary 0.6028 | 0.9s\nepoch  9 | pairs 382579 | loss 0.5318 | valid GAUC 0.6694 nDCG@5 0.5365 primary 0.6030 | 0.9s\nearly stop at epoch 9\nwrote preds_val.csv: 124909 rows for split=valid in 13s\nABLATION champion_equiv primary=0.601470 gauc=0.667133 ndcg5=0.535806",
+      "status": "scored",
+      "primary": 0.6032277176425208,
+      "gauc": 0.6700340230229958,
+      "ndcg5": 0.5364214122620459,
+      "decision": "promoted",
+      "promoted": true,
+      "streak_after": 2,
+      "tokens": 43568,
+      "runtime_s": 28.5,
+      "lesson": "Pairwise BPR: 0.601470 vs 0.6032277176425208, promoted; early-stopped at epoch 9.",
+      "error_short": "",
+      "timestamp": "2026-08-31T16:59:36Z"
+    },
+    {
+      "iteration": 3,
+      "hypothesis": "Adding the user's daily session depth and hour-of-day as past-only categorical features captures position and time bias, and combining this with a 5-seed score average will reduce variance and safely raise primary over the threshold.",
+      "category": "feature",
+      "training_log_tail": "epoch  3 | pairs 382579 | loss 0.5596 | valid GAUC 0.6694 nDCG@5 0.5372 primary 0.6033 | 1.4s\nepoch  4 | pairs 382579 | loss 0.5521 | valid GAUC 0.6685 nDCG@5 0.5369 primary 0.6027 | 1.6s\nepoch  5 | pairs 382579 | loss 0.5492 | valid GAUC 0.6700 nDCG@5 0.5375 primary 0.6038 | 2.1s\nepoch  6 | pairs 382579 | loss 0.5458 | valid GAUC 0.6686 nDCG@5 0.5363 primary 0.6025 | 1.6s\nepoch  7 | pairs 382579 | loss 0.5432 | valid GAUC 0.6707 nDCG@5 0.5377 primary 0.6042 | 1.8s\nepoch  8 | pairs 382579 | loss 0.5405 | valid GAUC 0.6699 nDCG@5 0.5376 primary 0.6038 | 1.7s\nepoch  9 | pairs 382579 | loss 0.5379 | valid GAUC 0.6692 nDCG@5 0.5369 primary 0.6030 | 1.7s\nepoch 10 | pairs 382579 | loss 0.5326 | valid GAUC 0.6698 nDCG@5 0.5369 primary 0.6034 | 2.0s\nepoch 11 | pairs 382579 | loss 0.5266 | valid GAUC 0.6687 nDCG@5 0.5364 primary 0.6025 | 1.5s\nearly stop at epoch 11\nwrote preds_val.csv: 124909 rows for split=valid in 98s\nABLATION 1_seed primary=0.603694 gauc=0.670317 ndcg5=0.537071",
+      "status": "scored",
+      "primary": 0.6049101379883897,
+      "gauc": 0.6715727200746566,
+      "ndcg5": 0.5382475559021226,
+      "decision": "promoted",
+      "promoted": true,
+      "streak_after": 3,
+      "tokens": 48377,
+      "runtime_s": 98.8,
+      "lesson": "Adding daily session depth and hour-of-day as past-only categorical features with 5-seed score averaging promoted primary to 0.6049.",
+      "error_short": "",
+      "timestamp": "2026-08-31T17:04:37Z"
+    }
+  ],
+  "warnings": [
+    "sandbox isolation: none (WARNING: no OS-level network/write confinement on this host)",
+    "it03: scribe synthesis rejected (contained a number not in the digest)"
+  ],
+  "config_snapshot": {
+    "llm": {
+      "provider": "openrouter",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "researcher_model": "google/gemini-3.1-pro-preview",
+      "engineer_model": "google/gemini-3.1-pro-preview",
+      "debugger_model": "deepseek/deepseek-v4-flash",
+      "scribe_model": "mistralai/codestral-2508",
+      "fallback_models": {
+        "researcher": [
+          "z-ai/glm-5.2",
+          "deepseek/deepseek-v4-flash"
+        ],
+        "engineer": [
+          "deepseek/deepseek-v4-flash",
+          "qwen/qwen3-coder"
+        ],
+        "debugger": [
+          "qwen/qwen3-coder",
+          "mistralai/codestral-2508"
+        ],
+        "scribe": [
+          "qwen/qwen3-coder"
+        ]
+      },
+      "reasoning": {
+        "researcher": {
+          "effort": "medium"
+        },
+        "engineer": {
+          "effort": "medium"
+        },
+        "debugger": {
+          "effort": "low"
+        },
+        "scribe": {}
+      },
+      "max_output_tokens": {
+        "researcher": 40000,
+        "engineer": 40000,
+        "debugger": 24000,
+        "scribe": 600
+      },
+      "inactivity_timeout_s": 120,
+      "call_timeout_s": 900,
+      "timeout_retries": 1,
+      "heartbeat_s": 30,
+      "extra_headers": {
+        "HTTP-Referer": "https://github.com/",
+        "X-Title": "kuairand-research-agent"
+      },
+      "extra_body": {
+        "provider": {
+          "sort": "throughput",
+          "allow_fallbacks": true
+        }
+      },
+      "max_total_tokens": 4000000,
+      "request_timeout_s": 600,
+      "max_retries": 3,
+      "scribe_narrative": true,
+      "scribe_digest": true,
+      "allow_sdk_default_credentials": false,
+      "effort": {
+        "researcher": "high",
+        "engineer": "high",
+        "debugger": "medium",
+        "scribe": null
+      },
+      "thinking": {
+        "researcher": "adaptive",
+        "engineer": "adaptive",
+        "debugger": "adaptive",
+        "scribe": "none"
+      },
+      "refusal_fallbacks": true,
+      "prompt_caching": true,
+      "profiles": {
+        "gemini": {
+          "provider": "gemini",
+          "api_key_env": "GEMINI_API_KEY",
+          "researcher_model": "gemini-3.7-flash",
+          "engineer_model": "gemini-3.7-flash",
+          "debugger_model": "gemini-3.7-flash",
+          "scribe_model": "gemini-3.7-flash",
+          "max_output_tokens": {
+            "researcher": 3000,
+            "engineer": 12000,
+            "debugger": 12000,
+            "scribe": 300
+          },
+          "max_retries": 5
+        },
+        "groq": {
+          "provider": "groq",
+          "api_key_env": "GROQ_API_KEY",
+          "researcher_model": "openai/gpt-oss-120b",
+          "engineer_model": "openai/gpt-oss-120b",
+          "debugger_model": "openai/gpt-oss-120b",
+          "scribe_model": "llama-3.1-8b-instant",
+          "max_output_tokens": {
+            "researcher": 3000,
+            "engineer": 12000,
+            "debugger": 12000,
+            "scribe": 300
+          },
+          "max_retries": 6
+        },
+        "openrouter": {
+          "provider": "openrouter",
+          "api_key_env": "OPENROUTER_API_KEY"
+        },
+        "openrouter_free": {
+          "provider": "openrouter",
+          "api_key_env": "OPENROUTER_API_KEY",
+          "researcher_model": "minimax/minimax-m3:free",
+          "engineer_model": "minimax/minimax-m3:free",
+          "debugger_model": "minimax/minimax-m3:free",
+          "scribe_model": "cohere/north-mini-code:free",
+          "fallback_models": {
+            "researcher": [
+              "z-ai/glm-5.2:free",
+              "minimax/minimax-m3"
+            ],
+            "engineer": [
+              "z-ai/glm-5.2:free",
+              "minimax/minimax-m3"
+            ],
+            "debugger": [
+              "z-ai/glm-5.2:free",
+              "minimax/minimax-m3"
+            ],
+            "scribe": [
+              "minimax/minimax-m3:free",
+              "deepseek/deepseek-v4-flash"
+            ]
+          }
+        },
+        "fast": {
+          "provider": "openrouter",
+          "api_key_env": "OPENROUTER_API_KEY",
+          "researcher_model": "deepseek/deepseek-v4-flash",
+          "engineer_model": "qwen/qwen3-coder",
+          "debugger_model": "qwen/qwen3-coder",
+          "scribe_model": "mistralai/codestral-2508",
+          "reasoning": {
+            "researcher": {
+              "effort": "medium"
+            },
+            "engineer": {},
+            "debugger": {},
+            "scribe": {}
+          },
+          "fallback_models": {
+            "researcher": [
+              "qwen/qwen3-coder",
+              "z-ai/glm-5.3-flash"
+            ],
+            "engineer": [
+              "mistralai/codestral-2508",
+              "qwen/qwen3-coder-next"
+            ],
+            "debugger": [
+              "mistralai/codestral-2508",
+              "qwen/qwen3-coder-next"
+            ],
+            "scribe": [
+              "qwen/qwen3-coder"
+            ]
+          }
+        },
+        "openrouter_open": {
+          "provider": "openrouter",
+          "api_key_env": "OPENROUTER_API_KEY",
+          "researcher_model": "z-ai/glm-5.2",
+          "engineer_model": "qwen/qwen3-coder",
+          "debugger_model": "qwen/qwen3-coder",
+          "scribe_model": "deepseek/deepseek-v4-flash",
+          "reasoning": {
+            "researcher": {
+              "max_tokens": 6000
+            },
+            "engineer": {
+              "max_tokens": 4000
+            },
+            "debugger": {
+              "max_tokens": 4000
+            },
+            "scribe": {
+              "effort": "none"
+            }
+          },
+          "fallback_models": {
+            "researcher": [
+              "minimax/minimax-m3"
+            ],
+            "engineer": [
+              "minimax/minimax-m3",
+              "deepseek/deepseek-v4-flash"
+            ],
+            "debugger": [
+              "minimax/minimax-m3",
+              "deepseek/deepseek-v4-flash"
+            ],
+            "scribe": [
+              "qwen/qwen3-coder"
+            ]
+          }
+        },
+        "openrouter_glm": {
+          "provider": "openrouter",
+          "api_key_env": "OPENROUTER_API_KEY",
+          "researcher_model": "z-ai/glm-5.2",
+          "engineer_model": "z-ai/glm-5.2",
+          "debugger_model": "z-ai/glm-5.2",
+          "scribe_model": "deepseek/deepseek-v4-flash",
+          "fallback_models": {
+            "researcher": [
+              "minimax/minimax-m3"
+            ],
+            "engineer": [
+              "minimax/minimax-m3"
+            ],
+            "debugger": [
+              "minimax/minimax-m3"
+            ],
+            "scribe": [
+              "minimax/minimax-m3"
+            ]
+          }
+        },
+        "openrouter_claude": {
+          "provider": "openrouter",
+          "api_key_env": "OPENROUTER_API_KEY",
+          "researcher_model": "anthropic/claude-opus-4.8",
+          "engineer_model": "anthropic/claude-opus-4.8",
+          "debugger_model": "anthropic/claude-opus-4.8",
+          "scribe_model": "anthropic/claude-haiku-4.5",
+          "fallback_models": {}
+        },
+        "anthropic": {
+          "provider": "anthropic",
+          "api_key_env": "ANTHROPIC_API_KEY",
+          "workspace_id": "default",
+          "researcher_model": "claude-opus-5",
+          "engineer_model": "claude-opus-5",
+          "debugger_model": "claude-opus-5",
+          "scribe_model": "claude-haiku-4-5",
+          "fallback_models": {}
+        },
+        "cerebras": {
+          "provider": "cerebras",
+          "api_key_env": "CEREBRAS_API_KEY",
+          "researcher_model": "gpt-oss-120b",
+          "engineer_model": "gpt-oss-120b",
+          "debugger_model": "gpt-oss-120b",
+          "scribe_model": "gpt-oss-120b",
+          "max_output_tokens": {
+            "researcher": 2000,
+            "engineer": 8000,
+            "debugger": 8000,
+            "scribe": 300
+          }
+        },
+        "deepseek": {
+          "provider": "deepseek",
+          "api_key_env": "DEEPSEEK_API_KEY",
+          "researcher_model": "deepseek-chat",
+          "engineer_model": "deepseek-chat",
+          "debugger_model": "deepseek-chat",
+          "scribe_model": "deepseek-chat",
+          "max_output_tokens": {
+            "researcher": 3000,
+            "engineer": 8000,
+            "debugger": 8000,
+            "scribe": 300
+          }
+        },
+        "poe": {
+          "provider": "poe",
+          "api_key_env": "POE_API_KEY",
+          "base_url": "https://api.poe.com",
+          "researcher_model": "claude-opus-4.8",
+          "engineer_model": "claude-opus-4.8",
+          "debugger_model": "claude-opus-4.8",
+          "scribe_model": "claude-haiku-4.5",
+          "refusal_fallbacks": false,
+          "prompt_caching": false,
+          "thinking": {
+            "researcher": "none",
+            "engineer": "none",
+            "debugger": "none",
+            "scribe": "none"
+          },
+          "effort": {
+            "researcher": null,
+            "engineer": null,
+            "debugger": null,
+            "scribe": null
+          },
+          "max_output_tokens": {
+            "researcher": 3000,
+            "engineer": 12000,
+            "debugger": 12000,
+            "scribe": 300
+          }
+        }
+      }
+    },
+    "research_tools": {
+      "enabled": true,
+      "max_tool_turns": 6
+    },
+    "run": {
+      "EPSILON": 0.002,
+      "N_FLAT": 3,
+      "MAX_ITERS": 50,
+      "WALL_CLOCK_HOURS": 6,
+      "PROMOTE_MARGIN": 0.0002,
+      "MAX_SPEND_USD": 5.0,
+      "DEBUG_RETRIES": 3,
+      "EXPERIMENT_TIMEOUT_S": 1500,
+      "FINALIZE_TIMEOUT_S": 1800,
+      "STALL_FAILURES": 3,
+      "implausible_gauc_below": 0.5,
+      "implausible_primary_above": 0.7,
+      "leak_check": "on_improvement",
+      "leak_check_min_primary": 0.5,
+      "cross_run_memory": true,
+      "cross_run_max_rows": 60,
+      "sizing_directive": true,
+      "briefing_recent_iterations": 5,
+      "briefing_diff_chars": 2500,
+      "briefing_spec_chars": 1200,
+      "retry_timeouts_with_debugger": true,
+      "mask_test_period_in_loop": true,
+      "categories": [
+        "feature",
+        "model",
+        "training",
+        "multitask",
+        "other"
+      ]
+    },
+    "paths": {
+      "starter_kit": "./starter_kit",
+      "data": "./starter_kit/KuaiRand-Pure/data",
+      "loop_data": "./data_cache/loop_train_valid",
+      "sealed": "./sealed",
+      "runs": "./runs",
+      "prompts": "./prompts",
+      "knowledge": "./knowledge/library.md",
+      "baseline_repro": "./baseline_repro",
+      "baseline_scores": "./starter_kit/baseline_scores.json"
+    },
+    "phase0": {
+      "assert_rungs": true,
+      "rung_tolerance": 0.01,
+      "baseline_tolerance": 0.005,
+      "random_seed": 0,
+      "pop_prior": 20.0
+    },
+    "sandbox": {
+      "python": null,
+      "isolation": "auto",
+      "env_passthrough": [
+        "PATH",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "TMPDIR"
+      ],
+      "threads": null,
+      "forbidden_imports": [
+        "subprocess",
+        "socket",
+        "urllib",
+        "requests",
+        "http",
+        "ftplib",
+        "smtplib",
+        "telnetlib",
+        "pip",
+        "ensurepip",
+        "ctypes"
+      ],
+      "forbidden_patterns": [
+        "pip install",
+        "os.system(",
+        "os.popen(",
+        "os.execv",
+        "shutil.rmtree(",
+        "__import__("
+      ]
+    },
+    "toy": {
+      "data_dir": "./data_cache/toy/data",
+      "loop_data": "./data_cache/toy/loop",
+      "champion_src": "./data_cache/toy/champion",
+      "seed": 0,
+      "overrides": {
+        "run": {
+          "MAX_ITERS": 5,
+          "N_FLAT": 99,
+          "EXPERIMENT_TIMEOUT_S": 60,
+          "FINALIZE_TIMEOUT_S": 60
+        },
+        "llm": {
+          "scribe_narrative": true
+        }
+      }
+    }
+  }
+}
