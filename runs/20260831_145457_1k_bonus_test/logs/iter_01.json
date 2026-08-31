@@ -1,0 +1,79 @@
+{
+  "iteration": 1,
+  "timestamp": "2026-08-31T08:18:48Z",
+  "hypothesis": "Projecting the 5 numerical features (past-only historical rates and session time gaps) into the FM's embedding space to compute pairwise interactions with the categorical IDs will allow the model to learn personalized affinities for items with high historical rates, raising the primary ranking metric.",
+  "rationale": "Our current Numpy FM limits the 5 continuous features (historical click rates and time gaps) to a linear `X_num.dot(W_num)` term, meaning they cannot interact with `user_id` or `video_id`. By projecting them via a 5xK matrix `V_num` into the shared embedding space, we naturally extend the FM formula to model second-order interactions like (user_id x video_rate), directly answering the need for stronger personalization without expanding capacity for static fields.",
+  "category": "model",
+  "code_diff": "--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -211,7 +211,7 @@\n     return enc, int(sum(field_dims))\n \n \n-# ----------------------------------------------------------------------------- [4] model (= champion_1k.py, unchanged)\n+# ----------------------------------------------------------------------------- [4] model\n def sigmoid(x):\n     return 1.0 / (1.0 + np.exp(-np.clip(x, -30, 30)))\n \n@@ -220,17 +220,21 @@\n     def __init__(self, dim, k=K, lr=LR, l2=L2, seed=SEED):\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n+        self.V_num = rng.normal(0, 0.01, (5, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n         self.W_num = np.zeros(5, dtype=np.float32)\n         self.b = np.float32(0.0)\n         self.lr, self.l2 = lr, l2\n         self.mV = np.zeros_like(self.V); self.vV = np.zeros_like(self.V)\n+        self.mV_num = np.zeros_like(self.V_num); self.vV_num = np.zeros_like(self.V_num)\n         self.mW = np.zeros_like(self.W); self.vW = np.zeros_like(self.W)\n         self.mW_num = np.zeros_like(self.W_num); self.vW_num = np.zeros_like(self.W_num)\n         self.t = 0\n \n     def logits(self, X, X_num):\n-        E = self.V[X]\n+        E_cat = self.V[X]\n+        E_num = X_num[:, :, None] * self.V_num[None, :, :]\n+        E = np.concatenate([E_cat, E_num], axis=1)\n         S = E.sum(1)\n         inter = 0.5 * ((S ** 2).sum(1) - (E ** 2).sum((1, 2)))\n         return self.b + self.W[X].sum(1) + X_num.dot(self.W_num) + inter, E, S\n@@ -246,17 +250,25 @@\n         gW = np.zeros_like(self.W)\n         np.add.at(gW, X_pos, g[:, None])\n         np.add.at(gW, X_neg, -g[:, None])\n-        np.add.at(gV, X_pos, g[:, None, None] * (S_pos[:, None, :] - E_pos))\n-        np.add.at(gV, X_neg, -g[:, None, None] * (S_neg[:, None, :] - E_neg))\n+        \n+        gE_pos = g[:, None, None] * (S_pos[:, None, :] - E_pos)\n+        gE_neg = -g[:, None, None] * (S_neg[:, None, :] - E_neg)\n+        \n+        np.add.at(gV, X_pos, gE_pos[:, :7, :])\n+        np.add.at(gV, X_neg, gE_neg[:, :7, :])\n+        \n+        gV_num = (gE_pos[:, 7:, :] * X_num_pos[:, :, None]).sum(0) + (gE_neg[:, 7:, :] * X_num_neg[:, :, None]).sum(0)\n         gW_num = (g[:, None] * (X_num_pos - X_num_neg)).sum(0)\n \n         gV += self.l2 * self.V\n+        gV_num += self.l2 * self.V_num\n         gW += self.l2 * self.W\n         gW_num += self.l2 * self.W_num\n \n         self.t += 1\n         b1, b2, eps = 0.9, 0.999, 1e-8\n-        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)):\n+        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.V_num, gV_num, self.mV_num, self.vV_num), \n+                            (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)):\n             M *= b1; M += (1 - b1) * G\n             Vv *= b2; Vv += (1 - b2) * (G * G)\n             P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)\n@@ -267,7 +279,7 @@\n         return np.concatenate([self.logits(X[i:i + bs], X_num[i:i + bs])[0] for i in range(0, len(X), bs)])\n \n \n-# ----------------------------------------------------------------------------- [5] training (= champion_1k.py, unchanged)\n+# ----------------------------------------------------------------------------- [5] training\n def train(enc, dim, mode=\"pure_bpr\", max_epochs=EPOCHS, seed=SEED, log=print):\n     Xtr, Xnum_tr, ytr, utr = enc[\"train\"][0], enc[\"train\"][1], enc[\"train\"][2], enc[\"train\"][3]\n     Xva, Xnum_va, yva, uva = enc[\"valid\"][0], enc[\"valid\"][1], enc[\"valid\"][2], enc[\"valid\"][3]\n@@ -331,7 +343,7 @@\n \n         if va[\"primary\"] > best + 1e-5:\n             best, bad = va[\"primary\"], 0\n-            best_state = (m.V.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b))\n+            best_state = (m.V.copy(), m.V_num.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b))\n             best_metrics = va.copy()\n         else:\n             bad += 1\n@@ -340,11 +352,11 @@\n                 break\n \n     if best_state is not None:\n-        m.V, m.W, m.W_num, m.b = best_state\n+        m.V, m.V_num, m.W, m.W_num, m.b = best_state\n     return m, best_metrics\n \n \n-# ----------------------------------------------------------------------------- [6] CLI (= champion_1k.py contract)\n+# ----------------------------------------------------------------------------- [6] CLI\n def write_preds(path, uid_list, vid_list, scores):\n     with open(path, \"w\", newline=\"\") as fh:\n         w = csv.writer(fh)\n@@ -362,6 +374,7 @@\n \n     split = \"valid\" if a.split in (\"val\", \"valid\") else \"test\"\n     t_start = time.time()\n+    budget = float(os.environ.get(\"KUAIRAND_TIME_BUDGET_S\", 3000.0))\n     fast = os.environ.get(\"KUAIRAND_FAST\", \"0\") == \"1\"\n \n     enc, dim = load_and_encode(a.data)\n@@ -392,6 +405,12 @@\n         ens_metrics = evaluate(uva.tolist(), yva.tolist(), mean_scores_va)\n         print(f\"ABLATION pure_bpr_ensemble primary={ens_metrics['primary']:.4f} gauc={ens_metrics['GAUC']:.4f} ndcg5={ens_metrics['nDCG@5']:.4f}\")\n \n+        if budget - (time.time() - t_start) > 0.25 * budget:\n+            model_ce, metrics_ce = train(enc, dim, mode=\"champion_equiv\", max_epochs=10, seed=42)\n+            print(f\"ABLATION champion_equiv primary={metrics_ce['primary']:.4f} gauc={metrics_ce['GAUC']:.4f} ndcg5={metrics_ce['nDCG@5']:.4f}\")\n+        else:\n+            print(\"ABLATION champion_equiv skipped: out of time budget\")\n+\n \n if __name__ == \"__main__\":\n     main()",
+  "result": {
+    "status": "scored",
+    "gauc": 0.672216881455185,
+    "ndcg5": 0.6089548976347691,
+    "primary": 0.640585889544977,
+    "runtime_s": 1924.8,
+    "error_excerpt": "",
+    "vs_best": "-0.0005"
+  },
+  "errors_and_recovery": [],
+  "decision": "kept_champion",
+  "streak_after": 1,
+  "tokens_this_iteration": 71211,
+  "runtime_s": 1924.8,
+  "lesson": "FM with projected numerical features: 0.6406 vs 0.6411, kept; early-stopped at epoch 5.",
+  "harness_extra": {
+    "run_id": "20260831_145457_1k_bonus_test",
+    "best_primary_after": 0.6410755222093484,
+    "best_iter_after": 0,
+    "best_at_iteration_start": 0.6410755222093484,
+    "promoted": false,
+    "expected_risk": "low",
+    "change_summary": "pipeline.py (+28/-9)",
+    "tokens": {
+      "input_tokens": 33052,
+      "output_tokens": 21114,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 17045,
+      "cost_usd": 0.31620984,
+      "total": 71211
+    },
+    "llm_calls": 6,
+    "iteration_wall_s": 2107.2,
+    "blocked_added": null,
+    "consecutive_failures": 0,
+    "leak_test": null,
+    "expected_gain": 0.003,
+    "gain_evidence": "Previous runs showed that injecting numerical historical rates yielded small linear gains (+0.0005). The current champion limits these powerful dynamic signals to just linear weights, completely ignoring how different users might value 'author hit rate' differently. Permitting full inner-product interactions between numerical features and user/item embeddings reliably yields structural gains comparable to BPR itself (+0.0029) by unlocking cross-feature personalization.",
+    "ablation_plan": "champion_equiv: current pipeline without V_num interaction",
+    "ablations": [
+      {
+        "name": "pure_bpr_single",
+        "primary": 0.6388,
+        "gauc": 0.6706,
+        "ndcg5": 0.607
+      },
+      {
+        "name": "pure_bpr_ensemble",
+        "primary": 0.6407,
+        "gauc": 0.6722,
+        "ndcg5": 0.6091
+      },
+      {
+        "name": "champion_equiv",
+        "primary": 0.6395,
+        "gauc": 0.6684,
+        "ndcg5": 0.6106
+      }
+    ],
+    "research_tool_calls": [
+      {
+        "tool": "arxiv_search",
+        "args": {
+          "query": "\"within-user\" ranking BPR GAUC"
+        },
+        "result_preview": "[{'title': 'Revisiting BPR: A Replicability Study of a Common Recommender System Baseline', 'authors': ['Aleksandr Milogradskii', 'Oleg Lashinin', 'Alexander P', 'Marina Ananyeva', 'Sergey Kolesnikov'], 'summary': 'Bayesian Personalized Ranking (BPR), a collaborative filtering approach based on matr"
+      }
+    ],
+    "new_knowledge_added": false,
+    "workspace": "iterations/it01"
+  }
+}

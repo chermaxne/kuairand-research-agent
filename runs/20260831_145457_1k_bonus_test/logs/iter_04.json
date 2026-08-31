@@ -1,0 +1,106 @@
+{
+  "iteration": 4,
+  "timestamp": "2026-08-31T12:39:17Z",
+  "hypothesis": "Standardizing past-only numerical features will stabilize DeepFM's gradients against scale imbalances, adding missing user click/like rates will complete the behavioral priors, and within-user rank ensembling will optimally align the predictions with the GAUC evaluation metric, jointly exceeding the threshold.",
+  "rationale": "DeepFM concatenates unnormalized raw counts with small initialized embeddings (~0.01). Standardizing the numerical features to mean 0 and std 1 stabilizes the MLP gradients. Adding the omitted user click and like rates completes the interaction surfaces for the user behavior priors. Finally, ensembling by averaging within-user percentile ranks guarantees equal weighting across seeds for the GAUC evaluation, avoiding domination by poorly-calibrated seeds.",
+  "category": "feature",
+  "code_diff": "--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -20,6 +20,7 @@\n import time\n \n import numpy as np\n+import pandas as pd\n \n # ----------------------------------------------------------------------------- [1] config (= champion_1k.py)\n LABEL = \"long_view\"\n@@ -146,12 +147,13 @@\n \n     # --- video/author historical-rate features, in chronological (time_ms) order; only train rows update\n     #     the running counters -- identical semantics to champion_1k.py's load(), just array-backed. ---\n-    num_features = np.empty((N, 11), dtype=np.float32)\n+    num_features = np.empty((N, 13), dtype=np.float32)\n     v_imp = [0] * n_videos; v_pos = [0] * n_videos\n     a_imp = [0] * n_authors; a_pos = [0] * n_authors\n     u_imp = [0] * n_users; u_pos = [0] * n_users\n     v_click = [0] * n_videos; v_like = [0] * n_videos\n     a_click = [0] * n_authors; a_like = [0] * n_authors\n+    u_click = [0] * n_users; u_like = [0] * n_users\n     time_order = np.argsort(time_arr, kind=\"stable\").tolist()\n     video_l, author_l, user_l, label_l, click_l, like_l, train_l = video_arr.tolist(), author_arr.tolist(), user_arr.tolist(), label_arr.tolist(), click_arr.tolist(), like_arr.tolist(), train_mask.tolist()\n     log1p = np.log1p\n@@ -161,6 +163,7 @@\n         ui, up = u_imp[uid], u_pos[uid]\n         vc, vl = v_click[vid], v_like[vid]\n         ac, al = a_click[aid], a_like[aid]\n+        uc, ul = u_click[uid], u_like[uid]\n         \n         num_features[i, 0] = log1p(vi)\n         num_features[i, 1] = vp / vi if vi > 0 else 0.0\n@@ -172,6 +175,8 @@\n         num_features[i, 8] = ac / ai if ai > 0 else 0.0\n         num_features[i, 9] = vl / vi if vi > 0 else 0.0\n         num_features[i, 10] = al / ai if ai > 0 else 0.0\n+        num_features[i, 11] = uc / ui if ui > 0 else 0.0\n+        num_features[i, 12] = ul / ui if ui > 0 else 0.0\n         \n         if train_l[i]:\n             v_imp[vid] = vi + 1\n@@ -184,10 +189,12 @@\n             if click_l[i] == 1:\n                 v_click[vid] = vc + 1\n                 a_click[aid] = ac + 1\n+                u_click[uid] = uc + 1\n             if like_l[i] == 1:\n                 v_like[vid] = vl + 1\n                 a_like[aid] = al + 1\n-    del v_imp, v_pos, a_imp, a_pos, u_imp, u_pos, v_click, v_like, a_click, a_like, time_order, video_l, author_l, user_l, label_l, click_l, like_l, train_l\n+                u_like[uid] = ul + 1\n+    del v_imp, v_pos, a_imp, a_pos, u_imp, u_pos, v_click, v_like, a_click, a_like, u_click, u_like, time_order, video_l, author_l, user_l, label_l, click_l, like_l, train_l\n     print(f\"  historical-rate features done, {time.time() - t0:.1f}s\")\n \n     # --- session depth + time-gap-since-last-event, per (user, date) group ordered by time_ms ---\n@@ -222,6 +229,11 @@\n     X_full = np.stack([m + o for m, o in zip(mapped_fields, offsets)], axis=1).astype(np.int32)\n     print(f\"  categorical encoding done (dim={sum(field_dims)}), {time.time() - t0:.1f}s\")\n \n+    nf_mean = num_features[train_mask].mean(axis=0)\n+    nf_std = num_features[train_mask].std(axis=0) + 1e-8\n+    num_features = (num_features - nf_mean) / nf_std\n+    print(f'TRAIN nf mean: {num_features[train_mask].mean():.4f}, std: {num_features[train_mask].std():.4f}')\n+\n     # reverse maps for OUTPUT only (real ids the pipeline contract requires in the predictions CSV)\n     uid_by_code = [None] * len(user_vc)\n     for s, c in user_vc.d.items():\n@@ -250,7 +262,7 @@\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n-        self.W_num = np.zeros(11, dtype=np.float32)\n+        self.W_num = np.zeros(13, dtype=np.float32)\n         self.b = np.float32(0.0)\n         self.lr, self.l2 = lr, l2\n         self.mV = np.zeros_like(self.V); self.vV = np.zeros_like(self.V)\n@@ -261,7 +273,7 @@\n         self.use_mlp = use_mlp\n         self.k = k\n         if self.use_mlp:\n-            self.mlp_in_dim = 7 * k + 11\n+            self.mlp_in_dim = 7 * k + 13\n             self.mlp_h = 64\n             self.mlp_w1 = rng.normal(0, 0.05, (self.mlp_in_dim, self.mlp_h)).astype(np.float32)\n             self.mlp_b1 = np.zeros(self.mlp_h, dtype=np.float32)\n@@ -464,6 +476,10 @@\n             w.writerow([i, u, v, f\"{float(s):.6g}\"])\n \n \n+def within_user_rank(users, scores):\n+    return pd.Series(scores).groupby(users, sort=False).rank(pct=True).values\n+\n+\n def main():\n     ap = argparse.ArgumentParser()\n     ap.add_argument(\"--data\", required=True)\n@@ -486,9 +502,9 @@\n     seeds = [42] if fast else [42, 43, 44, 45, 46]\n     for s in seeds:\n         model_bpr, metrics_bpr = train(enc, dim, mode=\"pure_bpr\", seed=s)\n-        all_scores.append(model_bpr.predict(X, X_num))\n+        all_scores.append(within_user_rank(enc[split][3], model_bpr.predict(X, X_num)))\n         if not fast:\n-            all_scores_va.append(model_bpr.predict(Xva, Xnum_va))\n+            all_scores_va.append(within_user_rank(uva, model_bpr.predict(Xva, Xnum_va)))\n         if last_single_metrics is None:\n             last_single_metrics = metrics_bpr\n ",
+  "result": {
+    "status": "scored",
+    "gauc": 0.6783095032411551,
+    "ndcg5": 0.6273737465287674,
+    "primary": 0.6528416248849613,
+    "runtime_s": 1860.8,
+    "error_excerpt": "",
+    "vs_best": "+0.0037"
+  },
+  "errors_and_recovery": [],
+  "decision": "promoted",
+  "streak_after": 0,
+  "tokens_this_iteration": 140138,
+  "runtime_s": 1860.8,
+  "lesson": "DeepFM with standardized features and within-user rank ensembling promoted to new champion with primary score 0.6528.",
+  "harness_extra": {
+    "run_id": "20260831_145457_1k_bonus_test",
+    "best_primary_after": 0.6528416248849613,
+    "best_iter_after": 4,
+    "best_at_iteration_start": 0.6491585731636069,
+    "promoted": true,
+    "expected_risk": "low",
+    "change_summary": "pipeline.py (+22/-6)",
+    "tokens": {
+      "input_tokens": 49121,
+      "output_tokens": 33310,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 57707,
+      "cost_usd": 0.5016502399999999,
+      "total": 140138
+    },
+    "llm_calls": 7,
+    "iteration_wall_s": 3986.9,
+    "blocked_added": null,
+    "consecutive_failures": 0,
+    "leak_test": {
+      "fraction": 0.1,
+      "ran": true,
+      "runtime_s": 1884.9,
+      "n_flipped_users": 112,
+      "subset_primary": 0.6597913540670333,
+      "subset_gauc": 0.6978045926391514,
+      "full_primary": 0.6528416248849613,
+      "attempts": [
+        {
+          "fraction": 0.1,
+          "ran": true,
+          "runtime_s": 1884.9,
+          "n_flipped_users": 112,
+          "subset_primary": 0.6597913540670333,
+          "subset_gauc": 0.6978045926391514,
+          "full_primary": 0.6528416248849613
+        }
+      ],
+      "verdict": "clean"
+    },
+    "expected_gain": 0.0025,
+    "gain_evidence": "DeepFM expects inputs of roughly similar scale; feeding raw values up to 18.2 (like log time gap) unnormalized distorts gradients. Normalization guarantees stable MLP learning. Adding user-side click/like rates complements the item/author rates from it03 (+0.0003). Rank-averaging enforces equal seed contribution for within-user metrics, reducing ensemble variance.",
+    "ablation_plan": "champion_equiv: model without the MLP and numerical features, to verify the baseline score is strictly preserved.",
+    "ablations": [
+      {
+        "name": "pure_bpr_single",
+        "primary": 0.6472,
+        "gauc": 0.6743,
+        "ndcg5": 0.62
+      },
+      {
+        "name": "pure_bpr_ensemble",
+        "primary": 0.6528,
+        "gauc": 0.6783,
+        "ndcg5": 0.6273
+      },
+      {
+        "name": "champion_equiv",
+        "primary": 0.6395,
+        "gauc": 0.6684,
+        "ndcg5": 0.6106
+      }
+    ],
+    "research_tool_calls": [
+      {
+        "tool": "arxiv_search",
+        "args": {
+          "query": "\"Deep Cross Network\" recommendation KuaiRand"
+        },
+        "result_preview": "[{'title': 'KuaiRand: An Unbiased Sequential Recommendation Dataset with Randomly Exposed Videos', 'authors': ['Chongming Gao', 'Shijun Li', 'Yuan Zhang', 'Jiawei Chen', 'Biao Li', 'Wenqiang Lei', 'Peng Jiang', 'Xiangnan He'], 'summary': \"Recommender systems deployed in real-world applications can h"
+      },
+      {
+        "tool": "arxiv_search",
+        "args": {
+          "query": "\"Negative Sampling\" recommendation \"KuaiRand\""
+        },
+        "result_preview": "[{'title': 'KuaiRand: An Unbiased Sequential Recommendation Dataset with Randomly Exposed Videos', 'authors': ['Chongming Gao', 'Shijun Li', 'Yuan Zhang', 'Jiawei Chen', 'Biao Li', 'Wenqiang Lei', 'Peng Jiang', 'Xiangnan He'], 'summary': \"Recommender systems deployed in real-world applications can h"
+      }
+    ],
+    "new_knowledge_added": false,
+    "workspace": "iterations/it04"
+  }
+}

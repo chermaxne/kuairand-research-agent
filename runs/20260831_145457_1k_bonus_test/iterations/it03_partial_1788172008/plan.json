@@ -1,0 +1,13 @@
+{
+  "hypothesis": "Adding strictly past-only historical click (valid play) and like rates for videos and authors as numerical features will inject granular item-engagement priors that directly correlate with long_view, providing a richer signal to the DeepFM and raising the primary ranking metric.",
+  "category": "feature",
+  "change_spec": "1. In `load_and_encode`, initialize `click_a` and `like_a` arrays of type 'b'. During CSV parsing, append `int(r['is_click'])` and `int(r['is_like'])` to them.\n2. Convert them to `np.int8` arrays and to lists `click_l` and `like_l`.\n3. Change `num_features` shape from `(N, 5)` to `(N, 9)`.\n4. Initialize `v_click`, `v_like`, `a_click`, `a_like` as lists of 0s.\n5. In the time_order loop, compute features 5, 6, 7, 8 as `vc / vi`, `ac / ai`, `vl / vi`, `al / ai` (guarding against zero denominators, exactly like the existing rates). Update the running counts if `train_l[i]` is true and the respective feedback is 1.\n6. In `FM.__init__`, change `self.W_num` initialization to `np.zeros(9, dtype=np.float32)`. Update `self.mlp_in_dim = 7 * k + 9`.\n7. `FM.step_bpr` dynamically sizes `gW_num` via slicing `7*self.k:`, so it needs no structural changes.",
+  "expected_risk": "low",
+  "builds_on": "champion",
+  "rationale": "Multi-task learning with sparse targets like 'like' often fails to improve shared embeddings due to gradient noise, but feeding the historical rates of these targets directly as features bypasses that bottleneck. The DeepFM component we added in it02 is perfectly positioned to capture nonlinear interactions between these new engagement priors and the user/item IDs.",
+  "expected_gain": 0.003,
+  "gain_evidence": "In prior runs, adding past-only video and author historical click and like rates as numerical features yielded the best score ever recorded (0.6051). Integrating these rich multi-behaviour signals directly into the DeepFM allows the MLP to learn high-order interactions between engagement rates and ID embeddings.",
+  "ablation_plan": "champion_equiv: DeepFM with only the original 5 numerical features (can be implemented by zeroing out columns 5-8 of X_num_tr and X_num_va before training); pure_bpr_ensemble: full DeepFM with 9 numerical features.",
+  "new_knowledge": "",
+  "search_check": "I am adding past-only historical engagement rates (click, like) as numerical features. This is a standard and well-documented feature engineering technique for tabular models and click-through rate prediction; I am confident no recent papers invalidate the utility of engagement history statistics."
+}

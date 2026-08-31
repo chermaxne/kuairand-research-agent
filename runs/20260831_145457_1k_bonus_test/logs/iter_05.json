@@ -1,0 +1,91 @@
+{
+  "iteration": 5,
+  "timestamp": "2026-08-31T13:49:38Z",
+  "hypothesis": "Adding past-only user-tab specific historical impression and positive rates as numerical features will give the DeepFM MLP a highly personalized, context-aware baseline for each user's generosity across different UI tabs, improving within-user ranking.",
+  "rationale": "Previous iterations confirmed that feeding granular historical rates (item click/like, user overall) to the DeepFM MLP yields steady gains. Since nearly 40% of users interact across multiple tabs with vastly different base rates, a user's behavior is highly context-dependent. Explicit user-tab running rates provide this exact context to the MLP without requiring huge embedding capacity.",
+  "category": "feature",
+  "code_diff": "--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -143,11 +143,14 @@\n \n     n_users = len(user_vc)\n     n_videos, n_authors = len(video_vc), len(author_vc)\n+    n_tabs = len(tab_vc)\n     train_mask = (date_arr >= SPLITS[\"train\"][0]) & (date_arr <= SPLITS[\"train\"][1])\n \n     # --- video/author historical-rate features, in chronological (time_ms) order; only train rows update\n     #     the running counters -- identical semantics to champion_1k.py's load(), just array-backed. ---\n-    num_features = np.empty((N, 13), dtype=np.float32)\n+    num_features = np.empty((N, 15), dtype=np.float32)\n+    u_tab_imp = [0] * (n_users * n_tabs)\n+    u_tab_pos = [0] * (n_users * n_tabs)\n     v_imp = [0] * n_videos; v_pos = [0] * n_videos\n     a_imp = [0] * n_authors; a_pos = [0] * n_authors\n     u_imp = [0] * n_users; u_pos = [0] * n_users\n@@ -155,10 +158,13 @@\n     a_click = [0] * n_authors; a_like = [0] * n_authors\n     u_click = [0] * n_users; u_like = [0] * n_users\n     time_order = np.argsort(time_arr, kind=\"stable\").tolist()\n-    video_l, author_l, user_l, label_l, click_l, like_l, train_l = video_arr.tolist(), author_arr.tolist(), user_arr.tolist(), label_arr.tolist(), click_arr.tolist(), like_arr.tolist(), train_mask.tolist()\n+    video_l, author_l, user_l, tab_l, label_l, click_l, like_l, train_l = video_arr.tolist(), author_arr.tolist(), user_arr.tolist(), tab_arr.tolist(), label_arr.tolist(), click_arr.tolist(), like_arr.tolist(), train_mask.tolist()\n     log1p = np.log1p\n     for i in time_order:\n-        vid, aid, uid = video_l[i], author_l[i], user_l[i]\n+        vid, aid, uid, tid = video_l[i], author_l[i], user_l[i], tab_l[i]\n+        ut_idx = uid * n_tabs + tid\n+        uti, utp = u_tab_imp[ut_idx], u_tab_pos[ut_idx]\n+        \n         vi, vp, ai, ap = v_imp[vid], v_pos[vid], a_imp[aid], a_pos[aid]\n         ui, up = u_imp[uid], u_pos[uid]\n         vc, vl = v_click[vid], v_like[vid]\n@@ -177,15 +183,19 @@\n         num_features[i, 10] = al / ai if ai > 0 else 0.0\n         num_features[i, 11] = uc / ui if ui > 0 else 0.0\n         num_features[i, 12] = ul / ui if ui > 0 else 0.0\n+        num_features[i, 13] = log1p(uti)\n+        num_features[i, 14] = utp / uti if uti > 0 else 0.0\n         \n         if train_l[i]:\n             v_imp[vid] = vi + 1\n             a_imp[aid] = ai + 1\n             u_imp[uid] = ui + 1\n+            u_tab_imp[ut_idx] = uti + 1\n             if label_l[i] == 1:\n                 v_pos[vid] = vp + 1\n                 a_pos[aid] = ap + 1\n                 u_pos[uid] = up + 1\n+                u_tab_pos[ut_idx] = utp + 1\n             if click_l[i] == 1:\n                 v_click[vid] = vc + 1\n                 a_click[aid] = ac + 1\n@@ -194,7 +204,7 @@\n                 v_like[vid] = vl + 1\n                 a_like[aid] = al + 1\n                 u_like[uid] = ul + 1\n-    del v_imp, v_pos, a_imp, a_pos, u_imp, u_pos, v_click, v_like, a_click, a_like, u_click, u_like, time_order, video_l, author_l, user_l, label_l, click_l, like_l, train_l\n+    del v_imp, v_pos, a_imp, a_pos, u_imp, u_pos, v_click, v_like, a_click, a_like, u_click, u_like, u_tab_imp, u_tab_pos, time_order, video_l, author_l, user_l, tab_l, label_l, click_l, like_l, train_l\n     print(f\"  historical-rate features done, {time.time() - t0:.1f}s\")\n \n     # --- session depth + time-gap-since-last-event, per (user, date) group ordered by time_ms ---\n@@ -262,7 +272,7 @@\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n-        self.W_num = np.zeros(13, dtype=np.float32)\n+        self.W_num = np.zeros(15, dtype=np.float32)\n         self.b = np.float32(0.0)\n         self.lr, self.l2 = lr, l2\n         self.mV = np.zeros_like(self.V); self.vV = np.zeros_like(self.V)\n@@ -273,7 +283,7 @@\n         self.use_mlp = use_mlp\n         self.k = k\n         if self.use_mlp:\n-            self.mlp_in_dim = 7 * k + 13\n+            self.mlp_in_dim = 7 * k + 15\n             self.mlp_h = 64\n             self.mlp_w1 = rng.normal(0, 0.05, (self.mlp_in_dim, self.mlp_h)).astype(np.float32)\n             self.mlp_b1 = np.zeros(self.mlp_h, dtype=np.float32)",
+  "result": {
+    "status": "scored",
+    "gauc": 0.6787599517567969,
+    "ndcg5": 0.6338577705039068,
+    "primary": 0.6563088611303518,
+    "runtime_s": 1924.9,
+    "error_excerpt": "",
+    "vs_best": "+0.0035"
+  },
+  "errors_and_recovery": [],
+  "decision": "promoted",
+  "streak_after": 0,
+  "tokens_this_iteration": 67870,
+  "runtime_s": 1924.9,
+  "lesson": "DeepFM MLP with past-only user-tab features: primary 0.6563 promoted.",
+  "harness_extra": {
+    "run_id": "20260831_145457_1k_bonus_test",
+    "best_primary_after": 0.6563088611303518,
+    "best_iter_after": 5,
+    "best_at_iteration_start": 0.6528416248849613,
+    "promoted": true,
+    "expected_risk": "low",
+    "change_summary": "pipeline.py (+16/-6)",
+    "tokens": {
+      "input_tokens": 48062,
+      "output_tokens": 19808,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cost_usd": 0.32447009999999993,
+      "total": 67870
+    },
+    "llm_calls": 5,
+    "iteration_wall_s": 3931.6,
+    "blocked_added": null,
+    "consecutive_failures": 0,
+    "leak_test": {
+      "fraction": 0.1,
+      "ran": true,
+      "runtime_s": 1866.6,
+      "n_flipped_users": 112,
+      "subset_primary": 0.6639913553086049,
+      "subset_gauc": 0.6978324178642952,
+      "full_primary": 0.6563088611303518,
+      "attempts": [
+        {
+          "fraction": 0.1,
+          "ran": true,
+          "runtime_s": 1866.6,
+          "n_flipped_users": 112,
+          "subset_primary": 0.6639913553086049,
+          "subset_gauc": 0.6978324178642952,
+          "full_primary": 0.6563088611303518
+        }
+      ],
+      "verdict": "clean"
+    },
+    "expected_gain": 0.0025,
+    "gain_evidence": "Tabs represent highly distinct UI scenarios with massive variations in long_view rates (0.004 to 0.49). Global user rates smear this variance. Giving the MLP explicit user-tab past rates allows it to perfectly contextualize the user's expected behavior, adding direct non-linear interaction signal not reachable by simple tab embeddings alone.",
+    "ablation_plan": "pure_bpr_single: single-seed version of this full bundle; champion_equiv: bundle without MLP or numerical features to isolate baseline drift.",
+    "ablations": [
+      {
+        "name": "pure_bpr_single",
+        "primary": 0.6479,
+        "gauc": 0.6749,
+        "ndcg5": 0.6209
+      },
+      {
+        "name": "pure_bpr_ensemble",
+        "primary": 0.6562,
+        "gauc": 0.6788,
+        "ndcg5": 0.6336
+      },
+      {
+        "name": "champion_equiv",
+        "primary": 0.6395,
+        "gauc": 0.6684,
+        "ndcg5": 0.6106
+      }
+    ],
+    "research_tool_calls": [],
+    "new_knowledge_added": false,
+    "workspace": "iterations/it05"
+  }
+}

@@ -1,0 +1,5 @@
+# Ledger (tier-1 memory, append-only; one line per iteration, harness-written except LESSON)
+# it00 champion installed from runs/20260830_165325_seeded_0605/best/code: val primary 0.6050 (GAUC 0.6718 / nDCG5 0.5383); published baseline 0.6016; rungs random 0.4827 pop 0.5807
+[it01] HYP: Providing the model with strictly past-only video and author historical click (valid play) and like rates as numerical… | CHANGE: pipeline.py (+27/-13) | RESULT: 0.6051 (best 0.6050) -> kept | LESSON: Primary 0.6051 vs 0.6050, kept; early-stopped at epoch 9.
+[it02] HYP: Generalizing the Factorization Machine to a Field-weighted FM (FwFM) will allow the model to learn the importance of di… | CHANGE: pipeline.py (+51/-22) | RESULT: 0.6049 (best 0.6050) -> kept | LESSON: FwFM primary=0.6049 gauc=0.6717 ndcg5=0.5380 kept; early-stopped at epoch 9.
+[it03] HYP: Treating click and long_view as ordinal feedback levels and training BPR on all valid pairs (long_view > no_click, long… | CHANGE: pipeline.py (+53/-22) | RESULT: 0.5970 (best 0.6050) -> kept | LESSON: Ordinal BPR on click and long_view pairs primary 0.5970 vs 0.6050, kept_champion.

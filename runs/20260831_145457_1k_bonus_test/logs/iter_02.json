@@ -1,0 +1,91 @@
+{
+  "iteration": 2,
+  "timestamp": "2026-08-31T09:24:53Z",
+  "hypothesis": "Extending the FM to a DeepFM by adding a 1-layer MLP over the concatenated embeddings and numerical features will allow the model to learn arbitrary high-order feature interactions, providing a stronger personalization signal on this large 5M-row dataset.",
+  "rationale": "Our previous attempt to cross numerical features with embeddings via linear projection (it01) yielded no gain, likely because it lacked non-linearity and capacity. By upgrading the model to a DeepFM, we provide a principled, non-linear pathway for arbitrary feature combinations, especially useful on the larger 1K dataset which can support the 64-unit MLP's capacity.",
+  "category": "model",
+  "code_diff": "--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -217,7 +217,7 @@\n \n \n class FM:\n-    def __init__(self, dim, k=K, lr=LR, l2=L2, seed=SEED):\n+    def __init__(self, dim, k=K, lr=LR, l2=L2, seed=SEED, use_mlp=True):\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n@@ -228,17 +228,45 @@\n         self.mW = np.zeros_like(self.W); self.vW = np.zeros_like(self.W)\n         self.mW_num = np.zeros_like(self.W_num); self.vW_num = np.zeros_like(self.W_num)\n         self.t = 0\n+        \n+        self.use_mlp = use_mlp\n+        self.k = k\n+        if self.use_mlp:\n+            self.mlp_in_dim = 7 * k + 5\n+            self.mlp_h = 64\n+            self.mlp_w1 = rng.normal(0, 0.05, (self.mlp_in_dim, self.mlp_h)).astype(np.float32)\n+            self.mlp_b1 = np.zeros(self.mlp_h, dtype=np.float32)\n+            self.mlp_w2 = rng.normal(0, 0.05, (self.mlp_h, 1)).astype(np.float32)\n+            self.mlp_b2 = np.zeros(1, dtype=np.float32)\n+            \n+            self.mM_w1 = np.zeros_like(self.mlp_w1)\n+            self.vM_w1 = np.zeros_like(self.mlp_w1)\n+            self.mM_b1 = np.zeros_like(self.mlp_b1)\n+            self.vM_b1 = np.zeros_like(self.mlp_b1)\n+            self.mM_w2 = np.zeros_like(self.mlp_w2)\n+            self.vM_w2 = np.zeros_like(self.mlp_w2)\n+            self.mM_b2 = np.zeros_like(self.mlp_b2)\n+            self.vM_b2 = np.zeros_like(self.mlp_b2)\n \n     def logits(self, X, X_num):\n         E = self.V[X]\n         S = E.sum(1)\n         inter = 0.5 * ((S ** 2).sum(1) - (E ** 2).sum((1, 2)))\n-        return self.b + self.W[X].sum(1) + X_num.dot(self.W_num) + inter, E, S\n+        fm_out = self.b + self.W[X].sum(1) + X_num.dot(self.W_num) + inter\n+        \n+        if self.use_mlp:\n+            E_flat = E.reshape(len(X), -1)\n+            mlp_in = np.concatenate([E_flat, X_num], axis=1)\n+            h1 = np.maximum(0, mlp_in.dot(self.mlp_w1) + self.mlp_b1)\n+            mlp_out = (h1.dot(self.mlp_w2) + self.mlp_b2).squeeze()\n+            return fm_out + mlp_out, E, S, h1, mlp_in\n+        else:\n+            return fm_out, E, S, None, None\n \n     def step_bpr(self, X_pos, X_num_pos, X_neg, X_num_neg):\n         B = len(X_pos)\n-        z_pos, E_pos, S_pos = self.logits(X_pos, X_num_pos)\n-        z_neg, E_neg, S_neg = self.logits(X_neg, X_num_neg)\n+        z_pos, E_pos, S_pos, h1_pos, mlp_in_pos = self.logits(X_pos, X_num_pos)\n+        z_neg, E_neg, S_neg, h1_neg, mlp_in_neg = self.logits(X_neg, X_num_neg)\n         z_diff = z_pos - z_neg\n         g = ((sigmoid(z_diff) - 1.0) / B).astype(np.float32)\n \n@@ -246,9 +274,41 @@\n         gW = np.zeros_like(self.W)\n         np.add.at(gW, X_pos, g[:, None])\n         np.add.at(gW, X_neg, -g[:, None])\n-        np.add.at(gV, X_pos, g[:, None, None] * (S_pos[:, None, :] - E_pos))\n-        np.add.at(gV, X_neg, -g[:, None, None] * (S_neg[:, None, :] - E_neg))\n-        gW_num = (g[:, None] * (X_num_pos - X_num_neg)).sum(0)\n+        \n+        gE_pos_fm = g[:, None, None] * (S_pos[:, None, :] - E_pos)\n+        gE_neg_fm = -g[:, None, None] * (S_neg[:, None, :] - E_neg)\n+\n+        if self.use_mlp:\n+            g_out_pos = g[:, None]\n+            g_out_neg = -g[:, None]\n+            \n+            gh1_pos = g_out_pos.dot(self.mlp_w2.T) * (h1_pos > 0)\n+            g_mlp_w2 = h1_pos.T.dot(g_out_pos)\n+            g_mlp_b2 = g_out_pos.sum(0)\n+            g_mlp_w1 = mlp_in_pos.T.dot(gh1_pos)\n+            g_mlp_b1 = gh1_pos.sum(0)\n+            g_mlp_in_pos = gh1_pos.dot(self.mlp_w1.T)\n+            \n+            gh1_neg = g_out_neg.dot(self.mlp_w2.T) * (h1_neg > 0)\n+            g_mlp_w2 += h1_neg.T.dot(g_out_neg)\n+            g_mlp_b2 += g_out_neg.sum(0)\n+            g_mlp_w1 += mlp_in_neg.T.dot(gh1_neg)\n+            g_mlp_b1 += gh1_neg.sum(0)\n+            g_mlp_in_neg = gh1_neg.dot(self.mlp_w1.T)\n+            \n+            gE_pos_fm += g_mlp_in_pos[:, :7*self.k].reshape(-1, 7, self.k)\n+            gE_neg_fm += g_mlp_in_neg[:, :7*self.k].reshape(-1, 7, self.k)\n+            \n+            gW_num = (g[:, None] * (X_num_pos - X_num_neg)).sum(0)\n+            gW_num += g_mlp_in_pos[:, 7*self.k:].sum(0) + g_mlp_in_neg[:, 7*self.k:].sum(0)\n+            \n+            g_mlp_w2 += self.l2 * self.mlp_w2\n+            g_mlp_w1 += self.l2 * self.mlp_w1\n+        else:\n+            gW_num = (g[:, None] * (X_num_pos - X_num_neg)).sum(0)\n+            \n+        np.add.at(gV, X_pos, gE_pos_fm)\n+        np.add.at(gV, X_neg, gE_neg_fm)\n \n         gV += self.l2 * self.V\n         gW += self.l2 * self.W\n@@ -256,7 +316,22 @@\n \n         self.t += 1\n         b1, b2, eps = 0.9, 0.999, 1e-8\n-        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)):\n+        \n+        params = [\n+            (self.V, gV, self.mV, self.vV), \n+            (self.W, gW, self.mW, self.vW), \n+            (self.W_num, gW_num, self.mW_num, self.vW_num)\n+        ]\n+        \n+        if self.use_mlp:\n+            params.extend([\n+                (self.mlp_w1, g_mlp_w1, self.mM_w1, self.vM_w1),\n+                (self.mlp_b1, g_mlp_b1, self.mM_b1, self.vM_b1),\n+                (self.mlp_w2, g_mlp_w2, self.mM_w2, self.vM_w2),\n+                (self.mlp_b2, g_mlp_b2, self.mM_b2, self.vM_b2)\n+            ])\n+            \n+        for P, G, M, Vv in params:\n             M *= b1; M += (1 - b1) * G\n             Vv *= b2; Vv += (1 - b2) * (G * G)\n             P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)\n@@ -307,7 +382,8 @@\n     num_pairs = len(pos_indices)\n     log(f\"[{mode}] Total within-user pairs: {num_pairs}\")\n \n-    m = FM(dim, seed=seed)\n+    use_mlp = (mode != \"champion_equiv\")\n+    m = FM(dim, seed=seed, use_mlp=use_mlp)\n     rng = np.random.default_rng(seed)\n     best, best_state, best_metrics, bad = -1.0, None, None, 0\n \n@@ -331,7 +407,10 @@\n \n         if va[\"primary\"] > best + 1e-5:\n             best, bad = va[\"primary\"], 0\n-            best_state = (m.V.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b))\n+            if m.use_mlp:\n+                best_state = (m.V.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b), m.mlp_w1.copy(), m.mlp_b1.copy(), m.mlp_w2.copy(), m.mlp_b2.copy())\n+            else:\n+                best_state = (m.V.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b))\n             best_metrics = va.copy()\n         else:\n             bad += 1\n@@ -340,7 +419,10 @@\n                 break\n \n     if best_state is not None:\n-        m.V, m.W, m.W_num, m.b = best_state\n+        if m.use_mlp:\n+            m.V, m.W, m.W_num, m.b, m.mlp_w1, m.mlp_b1, m.mlp_w2, m.mlp_b2 = best_state\n+        else:\n+            m.V, m.W, m.W_num, m.b = best_state\n     return m, best_metrics\n \n \n@@ -362,6 +444,7 @@\n \n     split = \"valid\" if a.split in (\"val\", \"valid\") else \"test\"\n     t_start = time.time()\n+    budget = float(os.environ.get(\"KUAIRAND_TIME_BUDGET_S\", 3000))\n     fast = os.environ.get(\"KUAIRAND_FAST\", \"0\") == \"1\"\n \n     enc, dim = load_and_encode(a.data)\n@@ -377,7 +460,8 @@\n         all_scores.append(model_bpr.predict(X, X_num))\n         if not fast:\n             all_scores_va.append(model_bpr.predict(Xva, Xnum_va))\n-        last_single_metrics = metrics_bpr\n+        if last_single_metrics is None:\n+            last_single_metrics = metrics_bpr\n \n     mean_scores = np.mean(all_scores, axis=0)\n     assert np.all(np.isfinite(mean_scores)), \"non-finite scores\"\n@@ -392,6 +476,13 @@\n         ens_metrics = evaluate(uva.tolist(), yva.tolist(), mean_scores_va)\n         print(f\"ABLATION pure_bpr_ensemble primary={ens_metrics['primary']:.4f} gauc={ens_metrics['GAUC']:.4f} ndcg5={ens_metrics['nDCG@5']:.4f}\")\n \n+    if not fast:\n+        if (time.time() - t_start) < 0.75 * budget:\n+            _, eq_metrics = train(enc, dim, mode=\"champion_equiv\", seed=42)\n+            print(f\"ABLATION champion_equiv primary={eq_metrics['primary']:.4f} gauc={eq_metrics['GAUC']:.4f} ndcg5={eq_metrics['nDCG@5']:.4f}\")\n+        else:\n+            print(\"ABLATION champion_equiv skipped: out of time budget\")\n+\n \n if __name__ == \"__main__\":\n     main()",
+  "result": {
+    "status": "scored",
+    "gauc": 0.6762281976297213,
+    "ndcg5": 0.6214751609180392,
+    "primary": 0.6488516792738803,
+    "runtime_s": 1887.7,
+    "error_excerpt": "",
+    "vs_best": "+0.0078"
+  },
+  "errors_and_recovery": [],
+  "decision": "promoted",
+  "streak_after": 0,
+  "tokens_this_iteration": 55656,
+  "runtime_s": 1887.7,
+  "lesson": "DeepFM primary=0.6489 gauc=0.6762 ndcg5=0.6215, promoted.",
+  "harness_extra": {
+    "run_id": "20260831_145457_1k_bonus_test",
+    "best_primary_after": 0.6488516792738803,
+    "best_iter_after": 2,
+    "best_at_iteration_start": 0.6410755222093484,
+    "promoted": true,
+    "expected_risk": "low",
+    "change_summary": "pipeline.py (+103/-12)",
+    "tokens": {
+      "input_tokens": 34187,
+      "output_tokens": 21469,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cost_usd": 0.31745790000000007,
+      "total": 55656
+    },
+    "llm_calls": 5,
+    "iteration_wall_s": 3964.5,
+    "blocked_added": null,
+    "consecutive_failures": 0,
+    "leak_test": {
+      "fraction": 0.1,
+      "ran": true,
+      "runtime_s": 1896.1,
+      "n_flipped_users": 112,
+      "subset_primary": 0.660742808412034,
+      "subset_gauc": 0.6956105117406816,
+      "full_primary": 0.6488516792738803,
+      "attempts": [
+        {
+          "fraction": 0.1,
+          "ran": true,
+          "runtime_s": 1896.1,
+          "n_flipped_users": 112,
+          "subset_primary": 0.660742808412034,
+          "subset_gauc": 0.6956105117406816,
+          "full_primary": 0.6488516792738803
+        }
+      ],
+      "verdict": "clean"
+    },
+    "expected_gain": 0.0025,
+    "gain_evidence": "DeepFM (Guo et al.) allows explicit high-order feature interactions between the dense numerical statistics and the ID embeddings. While adding capacity failed on KuaiRand-Pure (1M rows), KuaiRand-1K has over 5M rows, providing enough data to support a 64-unit hidden layer without instantly overfitting. Given the failure of the linear projection attempt (+0.0000 gain effectively), a non-linear network is needed to merge these signals.",
+    "ablation_plan": "champion_equiv: the model with use_mlp=False (standard FM) to verify baseline parity. pure_bpr_single: the DeepFM model with a single seed. pure_bpr_ensemble: the DeepFM with 5 seeds.",
+    "ablations": [
+      {
+        "name": "pure_bpr_single",
+        "primary": 0.6347,
+        "gauc": 0.6725,
+        "ndcg5": 0.5969
+      },
+      {
+        "name": "pure_bpr_ensemble",
+        "primary": 0.6489,
+        "gauc": 0.6762,
+        "ndcg5": 0.6215
+      },
+      {
+        "name": "champion_equiv",
+        "primary": 0.6395,
+        "gauc": 0.6684,
+        "ndcg5": 0.6106
+      }
+    ],
+    "research_tool_calls": [],
+    "new_knowledge_added": false,
+    "workspace": "iterations/it02"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "iteration": 5,
+  "score": {
+    "gauc": 0.6787599517567969,
+    "ndcg5": 0.6338577705039068,
+    "primary": 0.6563088611303518,
+    "users": 978,
+    "rows": 2524980
+  },
+  "installed_at": "2026-08-31T13:49:32Z",
+  "source": "/home/q3user/kuairand-research-agent/runs/20260831_145457_1k_bonus_test/iterations/it05"
+}

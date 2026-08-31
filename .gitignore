@@ -14,6 +14,14 @@ runs/example_run/**/preds_*.csv
 runs/example_run/**/*.npz
 runs/example_run/**/__pycache__/
 
+# --- real-API runs kept, minus prediction CSVs (referenced by README's Limitations section) ---
+!runs/20260830_224430_seeded_0605_v2/
+!runs/20260830_224430_seeded_0605_v2/**
+runs/20260830_224430_seeded_0605_v2/**/*.csv
+!runs/20260831_145457_1k_bonus_test/
+!runs/20260831_145457_1k_bonus_test/**
+runs/20260831_145457_1k_bonus_test/**/*.csv
+
 # --- data (downloaded per starter_kit/README.md; never committed) ---
 starter_kit/KuaiRand-Pure/
 starter_kit/KuaiRand-Pure.tar.gz

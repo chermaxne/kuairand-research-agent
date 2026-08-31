@@ -1,0 +1,79 @@
+{
+  "iteration": 3,
+  "timestamp": "2026-08-30T15:00:03Z",
+  "hypothesis": "Treating click and long_view as ordinal feedback levels and training BPR on all valid pairs (long_view > no_click, long_view > click_only, click_only > no_click) will provide granular gradients for items and give all-negative users a ranking signal, raising primary.",
+  "rationale": "The streak is at 2, requiring a guaranteed >+0.002 gain. We maintain the champion's proven features and 5-seed ensemble and introduce ordinal BPR pairs. By utilizing `is_click` as a secondary threshold (7s play time) beneath the primary `long_view` (18s), we unlock gradients for purely negative users and improve granularity without changing the model architecture.",
+  "category": "training",
+  "code_diff": "--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -71,7 +71,8 @@\n         with open(os.path.join(data_dir, f)) as fh:\n             for r in csv.DictReader(fh):\n                 rows_orig.append((int(r[\"date\"]), r[\"user_id\"], r[\"video_id\"], vid2author.get(r[\"video_id\"], \"UNK\"), r[\"tab\"],\n-                                 float(r[\"duration_ms\"]), 1 if r[LABEL] != \"0\" else 0, int(r[\"time_ms\"]), int(r[\"hourmin\"]) // 100))\n+                                 float(r[\"duration_ms\"]), 1 if r[LABEL] != \"0\" else 0, int(r[\"time_ms\"]), int(r[\"hourmin\"]) // 100,\n+                                 1 if r[\"is_click\"] != \"0\" else 0))\n     N = len(rows_orig)\n     \n     # indices sorted by time for historical stats\n@@ -83,7 +84,7 @@\n     \n     for i in time_order:\n         x = rows_orig[i]\n-        date, _, vid, aid, _, _, label, _, _ = x\n+        date, _, vid, aid, _, _, label, _, _, _ = x\n         v_imp, v_pos = v_stats[vid]\n         a_imp, a_pos = a_stats[aid]\n         \n@@ -125,7 +126,7 @@\n     # Build new rows in original order\n     new_rows = []\n     for i, x in enumerate(rows_orig):\n-        new_rows.append(x[:7] + (str(x[8]), depth_map[i], num_features[i]))\n+        new_rows.append(x[:7] + (str(x[8]), depth_map[i], num_features[i], x[9]))\n     rows = new_rows\n     return {name: [x for x in rows if lo <= x[0] <= hi] for name, (lo, hi) in SPLITS.items()}\n \n@@ -157,14 +158,16 @@\n         X = np.empty((len(rws), len(FIELDS)), dtype=np.int32)\n         X_num = np.empty((len(rws), 5), dtype=np.float32)\n         y = np.empty(len(rws), dtype=np.float32)\n+        c = np.empty(len(rws), dtype=np.float32)\n         users = []\n         for n, x in enumerate(rws):\n             for i, v in enumerate(raw(x)):\n                 X[n, i] = vocabs[i].get(v, unk[i]) + offsets[i]\n             X_num[n] = x[9]\n             y[n] = x[6]\n+            c[n] = x[10]\n             users.append(x[1])\n-        enc[name] = (X, X_num, y, users)\n+        enc[name] = (X, X_num, y, c, users)\n     return enc, int(sum(field_dims))\n \n \n@@ -252,30 +255,58 @@\n # ----------------------------------------------------------------------------- [5] training\n def train(enc, dim, mode=\"pure_bpr\", max_epochs=EPOCHS, seed=SEED, log=print):\n     \"\"\"Train on train, early-stop on validation primary. Returns the best model and its metrics.\"\"\"\n-    Xtr, Xnum_tr, ytr, utr = enc[\"train\"]\n-    Xva, Xnum_va, yva, uva = enc[\"valid\"]\n+    Xtr, Xnum_tr, ytr, ctr, utr = enc[\"train\"]\n+    Xva, Xnum_va, yva, cva, uva = enc[\"valid\"]\n     \n     if mode == \"champion_equiv\":\n         Xnum_tr = np.zeros_like(Xnum_tr)\n         Xnum_va = np.zeros_like(Xnum_va)\n     \n     if mode in (\"pure_bpr\", \"champion_equiv\"):\n-        user2pos = collections.defaultdict(list)\n-        user2neg = collections.defaultdict(list)\n-        for i, (u, y) in enumerate(zip(utr, ytr)):\n-            if y == 1.0:\n-                user2pos[u].append(i)\n-            else:\n-                user2neg[u].append(i)\n-                \n         pos_indices = []\n         neg_indices = []\n-        for u, pos_list in user2pos.items():\n-            neg_list = user2neg.get(u, [])\n-            if len(neg_list) > 0:\n-                for p in pos_list:\n-                    pos_indices.append(p)\n-                    neg_indices.append(neg_list)\n+        if mode == \"champion_equiv\":\n+            user2pos = collections.defaultdict(list)\n+            user2neg = collections.defaultdict(list)\n+            for i, (u, y) in enumerate(zip(utr, ytr)):\n+                if y == 1.0:\n+                    user2pos[u].append(i)\n+                else:\n+                    user2neg[u].append(i)\n+            \n+            for u, pos_list in user2pos.items():\n+                neg_list = user2neg.get(u, [])\n+                if len(neg_list) > 0:\n+                    for p in pos_list:\n+                        pos_indices.append(p)\n+                        neg_indices.append(neg_list)\n+        else:\n+            user2l2 = collections.defaultdict(list)\n+            user2l1 = collections.defaultdict(list)\n+            user2l0 = collections.defaultdict(list)\n+            for i, (u, y, c) in enumerate(zip(utr, ytr, ctr)):\n+                if y == 1.0:\n+                    user2l2[u].append(i)\n+                elif c == 1.0:\n+                    user2l1[u].append(i)\n+                else:\n+                    user2l0[u].append(i)\n+            \n+            for u, l2_list in user2l2.items():\n+                l1_list = user2l1.get(u, [])\n+                l0_list = user2l0.get(u, [])\n+                l1_l0 = l1_list + l0_list\n+                if len(l1_l0) > 0:\n+                    for p in l2_list:\n+                        pos_indices.append(p)\n+                        neg_indices.append(l1_l0)\n+            \n+            for u, l1_list in user2l1.items():\n+                l0_list = user2l0.get(u, [])\n+                if len(l0_list) > 0:\n+                    for p in l1_list:\n+                        pos_indices.append(p)\n+                        neg_indices.append(l0_list)\n                     \n         pos_indices = np.array(pos_indices, dtype=np.int32)\n         lens = np.array([len(n) for n in neg_indices], dtype=np.int32)\n@@ -360,8 +391,8 @@\n     enc, dim = encode(splits)\n     \n     # 1. Full fit on champion (pure_bpr) and write predictions\n-    X, X_num, _, _ = enc[split]\n-    Xva, Xnum_va, yva, uva = enc[\"valid\"]\n+    X, X_num, _, _, _ = enc[split]\n+    Xva, Xnum_va, yva, cva, uva = enc[\"valid\"]\n     \n     all_scores = []\n     all_scores_va = []",
+  "result": {
+    "status": "scored",
+    "gauc": 0.6608552016242932,
+    "ndcg5": 0.5331674203972817,
+    "primary": 0.5970113110107875,
+    "runtime_s": 95.7,
+    "error_excerpt": "",
+    "vs_best": "-0.0080"
+  },
+  "errors_and_recovery": [],
+  "decision": "kept_champion",
+  "streak_after": 3,
+  "tokens_this_iteration": 80714,
+  "runtime_s": 95.7,
+  "lesson": "Ordinal BPR on click and long_view pairs primary 0.5970 vs 0.6050, kept_champion.",
+  "harness_extra": {
+    "run_id": "20260830_224430_seeded_0605_v2",
+    "best_primary_after": 0.6050329621374994,
+    "best_iter_after": 0,
+    "best_at_iteration_start": 0.6050329621374994,
+    "promoted": false,
+    "expected_risk": "low",
+    "change_summary": "pipeline.py (+53/-22)",
+    "tokens": {
+      "input_tokens": 39192,
+      "output_tokens": 20042,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 21480,
+      "cost_usd": 0.31606835999999994,
+      "total": 80714
+    },
+    "llm_calls": 6,
+    "iteration_wall_s": 237.2,
+    "blocked_added": null,
+    "consecutive_failures": 0,
+    "leak_test": null,
+    "expected_gain": 0.0035,
+    "gain_evidence": "This directly targets the ~40% of users who have no long_views and are ignored by standard BPR, as well as providing intra-negative ranking for mixed users. The dataset mechanics confirm is_click and long_view are nested (7s vs 18s play time), mapping perfectly to ordinal decomposition. Prior runs failed with pointwise multi-task click, but incorporating ordinal pairs into BPR preserves the powerful pairwise ranking objective (+0.0115 historical gain) while strictly adding new valid signal.",
+    "ablation_plan": "champion_equiv: exactly the champion baseline (train with only long_view pairs) to isolate the impact of the ordinal pairs.",
+    "ablations": [
+      {
+        "name": "pure_bpr_single",
+        "primary": 0.5964,
+        "gauc": 0.6602,
+        "ndcg5": 0.5325
+      },
+      {
+        "name": "pure_bpr_ensemble",
+        "primary": 0.597,
+        "gauc": 0.6609,
+        "ndcg5": 0.5332
+      },
+      {
+        "name": "champion_equiv",
+        "primary": 0.6033,
+        "gauc": 0.6694,
+        "ndcg5": 0.5371
+      }
+    ],
+    "research_tool_calls": [
+      {
+        "tool": "arxiv_search",
+        "args": {
+          "query": "\"KuaiRand\" AND \"within-user\""
+        },
+        "result_preview": "[]"
+      }
+    ],
+    "new_knowledge_added": false,
+    "workspace": "iterations/it03"
+  }
+}

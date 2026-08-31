@@ -1,0 +1,47 @@
+  video_features loaded (4371868 videos) 5.0s
+  log_standard_4_08_to_4_21_1k.csv parsed, running total 5055984 rows, 19.0s
+  log_standard_4_22_to_5_08_1k.csv parsed, running total 7580964 rows, 26.2s
+  7580964 rows -> typed arrays, 26.2s
+  historical-rate features done, 34.7s
+  session-depth features done, 39.9s
+  categorical encoding done (dim=2925582), 42.0s
+  splits sliced, total load+encode 43.0s
+{'train': 5055984, 'valid': 2524980, 'test': 0} fields=['user_id', 'video_id', 'author_id', 'tab', 'dur_bucket', 'hour', 'sess_depth'] load+encode 43.1s
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5950 | valid GAUC 0.6713 nDCG@5 0.6158 primary 0.6435 | 53.7s
+[pure_bpr] epoch  2 | loss 0.4857 | valid GAUC 0.6716 nDCG@5 0.5867 primary 0.6291 | 53.4s
+[pure_bpr] epoch  3 | loss 0.4181 | valid GAUC 0.6678 nDCG@5 0.5650 primary 0.6164 | 63.0s
+[pure_bpr] epoch  4 | loss 0.3645 | valid GAUC 0.6639 nDCG@5 0.5434 primary 0.6037 | 65.0s
+[pure_bpr] epoch  5 | loss 0.3257 | valid GAUC 0.6617 nDCG@5 0.5409 primary 0.6013 | 55.1s
+[pure_bpr] early stop at epoch 5
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5953 | valid GAUC 0.6707 nDCG@5 0.5989 primary 0.6348 | 53.8s
+[pure_bpr] epoch  2 | loss 0.4862 | valid GAUC 0.6711 nDCG@5 0.5772 primary 0.6241 | 53.5s
+[pure_bpr] epoch  3 | loss 0.4183 | valid GAUC 0.6677 nDCG@5 0.5593 primary 0.6135 | 63.1s
+[pure_bpr] epoch  4 | loss 0.3656 | valid GAUC 0.6644 nDCG@5 0.5463 primary 0.6054 | 65.0s
+[pure_bpr] epoch  5 | loss 0.3284 | valid GAUC 0.6611 nDCG@5 0.5400 primary 0.6006 | 55.0s
+[pure_bpr] early stop at epoch 5
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5946 | valid GAUC 0.6707 nDCG@5 0.6077 primary 0.6392 | 53.5s
+[pure_bpr] epoch  2 | loss 0.4859 | valid GAUC 0.6711 nDCG@5 0.5799 primary 0.6255 | 53.2s
+[pure_bpr] epoch  3 | loss 0.4183 | valid GAUC 0.6677 nDCG@5 0.5575 primary 0.6126 | 62.9s
+[pure_bpr] epoch  4 | loss 0.3657 | valid GAUC 0.6645 nDCG@5 0.5424 primary 0.6034 | 64.8s
+[pure_bpr] epoch  5 | loss 0.3277 | valid GAUC 0.6626 nDCG@5 0.5504 primary 0.6065 | 55.6s
+[pure_bpr] early stop at epoch 5
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5944 | valid GAUC 0.6711 nDCG@5 0.5940 primary 0.6326 | 53.5s
+[pure_bpr] epoch  2 | loss 0.4854 | valid GAUC 0.6698 nDCG@5 0.5788 primary 0.6243 | 53.3s
+[pure_bpr] epoch  3 | loss 0.4187 | valid GAUC 0.6669 nDCG@5 0.5644 primary 0.6157 | 63.0s
+[pure_bpr] epoch  4 | loss 0.3657 | valid GAUC 0.6635 nDCG@5 0.5493 primary 0.6064 | 64.9s
+[pure_bpr] epoch  5 | loss 0.3287 | valid GAUC 0.6615 nDCG@5 0.5422 primary 0.6019 | 54.8s
+[pure_bpr] early stop at epoch 5
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5951 | valid GAUC 0.6705 nDCG@5 0.5967 primary 0.6336 | 54.2s
+[pure_bpr] epoch  2 | loss 0.4863 | valid GAUC 0.6708 nDCG@5 0.5895 primary 0.6301 | 53.7s
+[pure_bpr] epoch  3 | loss 0.4197 | valid GAUC 0.6671 nDCG@5 0.5741 primary 0.6206 | 63.4s
+[pure_bpr] epoch  4 | loss 0.3664 | valid GAUC 0.6634 nDCG@5 0.5552 primary 0.6093 | 65.0s
+[pure_bpr] epoch  5 | loss 0.3284 | valid GAUC 0.6621 nDCG@5 0.5444 primary 0.6033 | 55.0s
+[pure_bpr] early stop at epoch 5
+wrote preds_val.csv: 2524980 rows for split=valid in 1511s
+ABLATION pure_bpr_single primary=0.6336 gauc=0.6705 ndcg5=0.5967
+ABLATION pure_bpr_ensemble primary=0.6411 gauc=0.6729 ndcg5=0.6092

@@ -1,0 +1,12 @@
+{
+  "iteration": 0,
+  "score": {
+    "gauc": 0.6717939866609295,
+    "ndcg5": 0.5382719376140692,
+    "primary": 0.6050329621374994,
+    "users": 22377,
+    "rows": 124909
+  },
+  "installed_at": "2026-08-30T14:46:14Z",
+  "source": "/home/q3user/kuairand-research-agent/runs/20260830_165325_seeded_0605/best/code"
+}

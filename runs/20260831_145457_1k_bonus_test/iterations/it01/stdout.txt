@@ -1,0 +1,55 @@
+  video_features loaded (4371868 videos) 5.1s
+  log_standard_4_08_to_4_21_1k.csv parsed, running total 5055984 rows, 19.0s
+  log_standard_4_22_to_5_08_1k.csv parsed, running total 7580964 rows, 26.2s
+  7580964 rows -> typed arrays, 26.2s
+  historical-rate features done, 34.6s
+  session-depth features done, 39.9s
+  categorical encoding done (dim=2925582), 42.1s
+  splits sliced, total load+encode 42.9s
+{'train': 5055984, 'valid': 2524980, 'test': 0} fields=['user_id', 'video_id', 'author_id', 'tab', 'dur_bucket', 'hour', 'sess_depth'] load+encode 43.1s
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5929 | valid GAUC 0.6711 nDCG@5 0.6157 primary 0.6434 | 54.8s
+[pure_bpr] epoch  2 | loss 0.4920 | valid GAUC 0.6741 nDCG@5 0.6008 primary 0.6375 | 54.8s
+[pure_bpr] epoch  3 | loss 0.4172 | valid GAUC 0.6703 nDCG@5 0.5817 primary 0.6260 | 66.1s
+[pure_bpr] epoch  4 | loss 0.3519 | valid GAUC 0.6651 nDCG@5 0.5539 primary 0.6095 | 67.4s
+[pure_bpr] epoch  5 | loss 0.3041 | valid GAUC 0.6616 nDCG@5 0.5437 primary 0.6027 | 56.2s
+[pure_bpr] early stop at epoch 5
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5933 | valid GAUC 0.6714 nDCG@5 0.6039 primary 0.6377 | 55.0s
+[pure_bpr] epoch  2 | loss 0.4925 | valid GAUC 0.6742 nDCG@5 0.6005 primary 0.6373 | 55.1s
+[pure_bpr] epoch  3 | loss 0.4160 | valid GAUC 0.6715 nDCG@5 0.5842 primary 0.6278 | 64.9s
+[pure_bpr] epoch  4 | loss 0.3500 | valid GAUC 0.6666 nDCG@5 0.5682 primary 0.6174 | 69.4s
+[pure_bpr] epoch  5 | loss 0.3031 | valid GAUC 0.6624 nDCG@5 0.5528 primary 0.6076 | 58.9s
+[pure_bpr] early stop at epoch 5
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5947 | valid GAUC 0.6693 nDCG@5 0.6135 primary 0.6414 | 58.8s
+[pure_bpr] epoch  2 | loss 0.4915 | valid GAUC 0.6746 nDCG@5 0.6053 primary 0.6400 | 71.2s
+[pure_bpr] epoch  3 | loss 0.4125 | valid GAUC 0.6707 nDCG@5 0.5949 primary 0.6328 | 80.8s
+[pure_bpr] epoch  4 | loss 0.3457 | valid GAUC 0.6669 nDCG@5 0.5649 primary 0.6159 | 77.5s
+[pure_bpr] epoch  5 | loss 0.2982 | valid GAUC 0.6632 nDCG@5 0.5608 primary 0.6120 | 57.9s
+[pure_bpr] early stop at epoch 5
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5937 | valid GAUC 0.6714 nDCG@5 0.6052 primary 0.6383 | 55.5s
+[pure_bpr] epoch  2 | loss 0.4924 | valid GAUC 0.6737 nDCG@5 0.6005 primary 0.6371 | 57.1s
+[pure_bpr] epoch  3 | loss 0.4163 | valid GAUC 0.6705 nDCG@5 0.5990 primary 0.6348 | 65.6s
+[pure_bpr] epoch  4 | loss 0.3499 | valid GAUC 0.6656 nDCG@5 0.5716 primary 0.6186 | 67.6s
+[pure_bpr] epoch  5 | loss 0.3028 | valid GAUC 0.6623 nDCG@5 0.5604 primary 0.6113 | 57.3s
+[pure_bpr] early stop at epoch 5
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5935 | valid GAUC 0.6706 nDCG@5 0.6070 primary 0.6388 | 55.3s
+[pure_bpr] epoch  2 | loss 0.4932 | valid GAUC 0.6740 nDCG@5 0.5980 primary 0.6360 | 55.8s
+[pure_bpr] epoch  3 | loss 0.4189 | valid GAUC 0.6707 nDCG@5 0.5849 primary 0.6278 | 65.5s
+[pure_bpr] epoch  4 | loss 0.3528 | valid GAUC 0.6664 nDCG@5 0.5650 primary 0.6157 | 67.2s
+[pure_bpr] epoch  5 | loss 0.3043 | valid GAUC 0.6637 nDCG@5 0.5622 primary 0.6129 | 57.3s
+[pure_bpr] early stop at epoch 5
+wrote preds_val.csv: 2524980 rows for split=valid in 1620s
+ABLATION pure_bpr_single primary=0.6388 gauc=0.6706 ndcg5=0.6070
+ABLATION pure_bpr_ensemble primary=0.6407 gauc=0.6722 ndcg5=0.6091
+[champion_equiv] Total within-user pairs: 1332063
+[champion_equiv] epoch  1 | loss 0.6007 | valid GAUC 0.6684 nDCG@5 0.6106 primary 0.6395 | 55.6s
+[champion_equiv] epoch  2 | loss 0.4851 | valid GAUC 0.6695 nDCG@5 0.5835 primary 0.6265 | 55.6s
+[champion_equiv] epoch  3 | loss 0.4172 | valid GAUC 0.6659 nDCG@5 0.5569 primary 0.6114 | 65.1s
+[champion_equiv] epoch  4 | loss 0.3667 | valid GAUC 0.6620 nDCG@5 0.5371 primary 0.5996 | 67.0s
+[champion_equiv] epoch  5 | loss 0.3320 | valid GAUC 0.6595 nDCG@5 0.5323 primary 0.5959 | 58.5s
+[champion_equiv] early stop at epoch 5
+ABLATION champion_equiv primary=0.6395 gauc=0.6684 ndcg5=0.6106

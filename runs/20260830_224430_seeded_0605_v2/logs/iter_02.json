@@ -1,0 +1,71 @@
+{
+  "iteration": 2,
+  "timestamp": "2026-08-30T14:56:05Z",
+  "hypothesis": "Generalizing the Factorization Machine to a Field-weighted FM (FwFM) will allow the model to learn the importance of different field-pair interactions, upweighting critical crosses like user-video while discounting noisy ones, raising primary.",
+  "rationale": "Following the directive to implement structural improvements that clear the +0.002 threshold, adding field-weighted interactions to the FM provides a new modeling capability. The baseline FM treats all field crosses equally, but within-user ranking heavily depends on specific pairs (user-video, user-tab). FwFM changes the *form* of the interaction, directly addressing the limitations noted in the knowledge library for feature-interaction models.",
+  "category": "model",
+  "code_diff": "--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -176,7 +176,7 @@\n class FM:\n     \"\"\"Second-order factorization machine, pointwise logloss or BPR, Adam.\"\"\"\n \n-    def __init__(self, dim, k=K, lr=LR, l2=L2, seed=SEED):\n+    def __init__(self, dim, k=K, lr=LR, l2=L2, seed=SEED, freeze_r=False):\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n@@ -186,13 +186,24 @@\n         self.mV = np.zeros_like(self.V); self.vV = np.zeros_like(self.V)\n         self.mW = np.zeros_like(self.W); self.vW = np.zeros_like(self.W)\n         self.mW_num = np.zeros_like(self.W_num); self.vW_num = np.zeros_like(self.W_num)\n+        self.freeze_r = freeze_r\n+        self.num_fields = len(FIELDS)\n+        self.R = np.ones((self.num_fields, self.num_fields), dtype=np.float32)\n+        self.mR = np.zeros_like(self.R)\n+        self.vR = np.zeros_like(self.R)\n         self.t = 0\n \n     def logits(self, X, X_num):\n         E = self.V[X]                                   # (B,F,k)\n-        S = E.sum(1)                                    # (B,k)\n-        inter = 0.5 * ((S ** 2).sum(1) - (E ** 2).sum((1, 2)))\n-        return self.b + self.W[X].sum(1) + X_num.dot(self.W_num) + inter, E, S\n+        inter = np.zeros(len(X), dtype=np.float32)\n+        S_weighted = np.zeros_like(E)\n+        for i in range(self.num_fields):\n+            for j in range(i + 1, self.num_fields):\n+                dot = (E[:, i, :] * E[:, j, :]).sum(axis=1)\n+                inter += self.R[i, j] * dot\n+                S_weighted[:, i, :] += self.R[i, j] * E[:, j, :]\n+                S_weighted[:, j, :] += self.R[i, j] * E[:, i, :]\n+        return self.b + self.W[X].sum(1) + X_num.dot(self.W_num) + inter, E, S_weighted\n \n     def step(self, X, X_num, y):\n         B = len(y)\n@@ -200,14 +211,25 @@\n         g = ((sigmoid(z) - y) / B).astype(np.float32)\n         gV = np.zeros_like(self.V); gW = np.zeros_like(self.W)\n         np.add.at(gW, X, g[:, None])\n-        np.add.at(gV, X, g[:, None, None] * (S[:, None, :] - E))\n+        np.add.at(gV, X, g[:, None, None] * S)\n         gW_num = (g[:, None] * X_num).sum(0)\n+        \n+        gR = np.zeros_like(self.R)\n+        for i in range(self.num_fields):\n+            for j in range(i + 1, self.num_fields):\n+                dot = (E[:, i, :] * E[:, j, :]).sum(axis=1)\n+                gR[i, j] = (g * dot).sum()\n         \n         gV += self.l2 * self.V; gW += self.l2 * self.W\n         gW_num += self.l2 * self.W_num\n+        gR += self.l2 * self.R\n+        \n         self.t += 1\n         b1, b2, eps = 0.9, 0.999, 1e-8\n-        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)):\n+        params = [(self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)]\n+        if not self.freeze_r:\n+            params.append((self.R, gR, self.mR, self.vR))\n+        for P, G, M, Vv in params:\n             M *= b1; M += (1 - b1) * G\n             Vv *= b2; Vv += (1 - b2) * (G * G)\n             P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)\n@@ -227,18 +249,29 @@\n         np.add.at(gW, X_pos, g[:, None])\n         np.add.at(gW, X_neg, -g[:, None])\n         \n-        np.add.at(gV, X_pos, g[:, None, None] * (S_pos[:, None, :] - E_pos))\n-        np.add.at(gV, X_neg, -g[:, None, None] * (S_neg[:, None, :] - E_neg))\n+        np.add.at(gV, X_pos, g[:, None, None] * S_pos)\n+        np.add.at(gV, X_neg, -g[:, None, None] * S_neg)\n         \n         gW_num = (g[:, None] * (X_num_pos - X_num_neg)).sum(0)\n+        \n+        gR = np.zeros_like(self.R)\n+        for i in range(self.num_fields):\n+            for j in range(i + 1, self.num_fields):\n+                dot_pos = (E_pos[:, i, :] * E_pos[:, j, :]).sum(axis=1)\n+                dot_neg = (E_neg[:, i, :] * E_neg[:, j, :]).sum(axis=1)\n+                gR[i, j] = (g * (dot_pos - dot_neg)).sum()\n         \n         gV += self.l2 * self.V\n         gW += self.l2 * self.W\n         gW_num += self.l2 * self.W_num\n+        gR += self.l2 * self.R\n         \n         self.t += 1\n         b1, b2, eps = 0.9, 0.999, 1e-8\n-        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)):\n+        params = [(self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW), (self.W_num, gW_num, self.mW_num, self.vW_num)]\n+        if not self.freeze_r:\n+            params.append((self.R, gR, self.mR, self.vR))\n+        for P, G, M, Vv in params:\n             M *= b1; M += (1 - b1) * G\n             Vv *= b2; Vv += (1 - b2) * (G * G)\n             P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)\n@@ -255,11 +288,7 @@\n     Xtr, Xnum_tr, ytr, utr = enc[\"train\"]\n     Xva, Xnum_va, yva, uva = enc[\"valid\"]\n     \n-    if mode == \"champion_equiv\":\n-        Xnum_tr = np.zeros_like(Xnum_tr)\n-        Xnum_va = np.zeros_like(Xnum_va)\n-    \n-    if mode in (\"pure_bpr\", \"champion_equiv\"):\n+    if mode in (\"pure_bpr\", \"no_fwfm\"):\n         user2pos = collections.defaultdict(list)\n         user2neg = collections.defaultdict(list)\n         for i, (u, y) in enumerate(zip(utr, ytr)):\n@@ -290,7 +319,7 @@\n         num_pairs = len(pos_indices)\n         log(f\"[{mode}] Total within-user pairs: {num_pairs}\")\n \n-    m = FM(dim, seed=seed)\n+    m = FM(dim, seed=seed, freeze_r=(mode == 'no_fwfm'))\n     rng = np.random.default_rng(seed)\n     best, best_state, best_metrics, bad = -1.0, None, None, 0\n     \n@@ -298,7 +327,7 @@\n         t0 = time.time()\n         losses = []\n         \n-        if mode in (\"pure_bpr\", \"champion_equiv\"):\n+        if mode in (\"pure_bpr\", \"no_fwfm\"):\n             if num_pairs == 0:\n                 break\n             sampled_neg = flat_negs[offsets + (rng.random(num_pairs) * lens).astype(np.int32)]\n@@ -321,7 +350,7 @@\n             \n         if va[\"primary\"] > best + 1e-5:\n             best, bad = va[\"primary\"], 0\n-            best_state = (m.V.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b))\n+            best_state = (m.V.copy(), m.W.copy(), m.W_num.copy(), np.float32(m.b), m.R.copy())\n             best_metrics = va.copy()\n         else:\n             bad += 1\n@@ -330,7 +359,7 @@\n                 break\n                 \n     if best_state is not None:\n-        m.V, m.W, m.W_num, m.b = best_state\n+        m.V, m.W, m.W_num, m.b, m.R = best_state\n     return m, best_metrics\n \n \n@@ -391,14 +420,14 @@\n     if fast:\n         return\n         \n-    # 2. Ablations (champion_equiv)\n+    # 2. Ablations (no_fwfm)\n     rem_budget = budget - (time.time() - t_start)\n     if rem_budget >= 0.25 * budget:\n-        model_ce, metrics_ce = train(enc, dim, mode=\"champion_equiv\", seed=42, max_epochs=EPOCHS)\n+        model_ce, metrics_ce = train(enc, dim, mode=\"no_fwfm\", seed=42, max_epochs=EPOCHS)\n         if metrics_ce is not None:\n-            print(f\"ABLATION champion_equiv primary={metrics_ce['primary']:.4f} gauc={metrics_ce['GAUC']:.4f} ndcg5={metrics_ce['nDCG@5']:.4f}\")\n+            print(f\"ABLATION no_fwfm primary={metrics_ce['primary']:.4f} gauc={metrics_ce['GAUC']:.4f} ndcg5={metrics_ce['nDCG@5']:.4f}\")\n     else:\n-        print(\"ABLATION champion_equiv skipped: out of time budget\")\n+        print(\"ABLATION no_fwfm skipped: out of time budget\")\n \n if __name__ == \"__main__\":\n     main()",
+  "result": {
+    "status": "scored",
+    "gauc": 0.6717024393999375,
+    "ndcg5": 0.5380415180338269,
+    "primary": 0.6048719787168821,
+    "runtime_s": 153.8,
+    "error_excerpt": "",
+    "vs_best": "-0.0002"
+  },
+  "errors_and_recovery": [],
+  "decision": "kept_champion",
+  "streak_after": 2,
+  "tokens_this_iteration": 55287,
+  "runtime_s": 153.8,
+  "lesson": "FwFM primary=0.6049 gauc=0.6717 ndcg5=0.5380 kept; early-stopped at epoch 9.",
+  "harness_extra": {
+    "run_id": "20260830_224430_seeded_0605_v2",
+    "best_primary_after": 0.6050329621374994,
+    "best_iter_after": 0,
+    "best_at_iteration_start": 0.6050329621374994,
+    "promoted": false,
+    "expected_risk": "low",
+    "change_summary": "pipeline.py (+51/-22)",
+    "tokens": {
+      "input_tokens": 32695,
+      "output_tokens": 21696,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 896,
+      "cost_usd": 0.31760048,
+      "total": 55287
+    },
+    "llm_calls": 5,
+    "iteration_wall_s": 298.8,
+    "blocked_added": null,
+    "consecutive_failures": 0,
+    "leak_test": null,
+    "expected_gain": 0.003,
+    "gain_evidence": "The organizers noted that capacity increases (higher k) and additional static fields do not improve the plain FM, implying uniform field interactions are a bottleneck. Field-weighted FM (FwFM, Pan et al., 2018) specifically addresses this by learning which field pairs matter most. Because R is initialized to 1.0, it starts mathematically identical to the proven champion, ensuring low risk.",
+    "ablation_plan": "no_fwfm: bundle without the FwFM capability (i.e. freeze_r=True, staying mathematically identical to the base FM).",
+    "ablations": [
+      {
+        "name": "pure_bpr_single",
+        "primary": 0.603,
+        "gauc": 0.6693,
+        "ndcg5": 0.5367
+      },
+      {
+        "name": "pure_bpr_ensemble",
+        "primary": 0.6049,
+        "gauc": 0.6717,
+        "ndcg5": 0.538
+      },
+      {
+        "name": "no_fwfm",
+        "primary": 0.6033,
+        "gauc": 0.6697,
+        "ndcg5": 0.5369
+      }
+    ],
+    "research_tool_calls": [],
+    "new_knowledge_added": false,
+    "workspace": "iterations/it02"
+  }
+}

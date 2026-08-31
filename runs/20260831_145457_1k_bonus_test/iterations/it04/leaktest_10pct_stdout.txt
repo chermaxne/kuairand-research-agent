@@ -1,0 +1,56 @@
+  video_features loaded (4371868 videos) 5.0s
+  log_standard_4_08_to_4_21_1k.csv parsed, running total 5055984 rows, 19.2s
+  log_standard_4_22_to_5_08_1k.csv parsed, running total 7580964 rows, 26.8s
+  7580964 rows -> typed arrays, 26.8s
+  historical-rate features done, 43.0s
+  session-depth features done, 48.7s
+  categorical encoding done (dim=2925582), 50.9s
+TRAIN nf mean: 0.0015, std: 1.0056
+  splits sliced, total load+encode 52.5s
+{'train': 5055984, 'valid': 2524980, 'test': 0} fields=['user_id', 'video_id', 'author_id', 'tab', 'dur_bucket', 'hour', 'sess_depth'] load+encode 52.7s
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5728 | valid GAUC 0.5604 nDCG@5 0.5901 primary 0.5752 | 55.0s
+[pure_bpr] epoch  2 | loss 0.4127 | valid GAUC 0.5564 nDCG@5 0.5615 primary 0.5589 | 55.6s
+[pure_bpr] epoch  3 | loss 0.2831 | valid GAUC 0.5530 nDCG@5 0.5292 primary 0.5411 | 65.2s
+[pure_bpr] epoch  4 | loss 0.2347 | valid GAUC 0.5505 nDCG@5 0.5214 primary 0.5360 | 67.2s
+[pure_bpr] epoch  5 | loss 0.2092 | valid GAUC 0.5489 nDCG@5 0.5226 primary 0.5358 | 57.2s
+[pure_bpr] early stop at epoch 5
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5746 | valid GAUC 0.5601 nDCG@5 0.5885 primary 0.5743 | 55.2s
+[pure_bpr] epoch  2 | loss 0.4161 | valid GAUC 0.5570 nDCG@5 0.5782 primary 0.5676 | 55.2s
+[pure_bpr] epoch  3 | loss 0.2843 | valid GAUC 0.5534 nDCG@5 0.5462 primary 0.5498 | 64.7s
+[pure_bpr] epoch  4 | loss 0.2342 | valid GAUC 0.5514 nDCG@5 0.5448 primary 0.5481 | 66.7s
+[pure_bpr] epoch  5 | loss 0.2083 | valid GAUC 0.5486 nDCG@5 0.5348 primary 0.5417 | 57.1s
+[pure_bpr] early stop at epoch 5
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5717 | valid GAUC 0.5605 nDCG@5 0.5963 primary 0.5784 | 54.8s
+[pure_bpr] epoch  2 | loss 0.4135 | valid GAUC 0.5566 nDCG@5 0.5679 primary 0.5623 | 55.5s
+[pure_bpr] epoch  3 | loss 0.2814 | valid GAUC 0.5532 nDCG@5 0.5330 primary 0.5431 | 65.0s
+[pure_bpr] epoch  4 | loss 0.2320 | valid GAUC 0.5511 nDCG@5 0.5234 primary 0.5372 | 67.4s
+[pure_bpr] epoch  5 | loss 0.2051 | valid GAUC 0.5487 nDCG@5 0.5232 primary 0.5360 | 57.3s
+[pure_bpr] early stop at epoch 5
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5716 | valid GAUC 0.5606 nDCG@5 0.5862 primary 0.5734 | 54.5s
+[pure_bpr] epoch  2 | loss 0.4122 | valid GAUC 0.5565 nDCG@5 0.5625 primary 0.5595 | 55.3s
+[pure_bpr] epoch  3 | loss 0.2819 | valid GAUC 0.5530 nDCG@5 0.5441 primary 0.5485 | 67.2s
+[pure_bpr] epoch  4 | loss 0.2332 | valid GAUC 0.5512 nDCG@5 0.5253 primary 0.5383 | 71.9s
+[pure_bpr] epoch  5 | loss 0.2078 | valid GAUC 0.5500 nDCG@5 0.5241 primary 0.5371 | 59.0s
+[pure_bpr] early stop at epoch 5
+[pure_bpr] Total within-user pairs: 1332063
+[pure_bpr] epoch  1 | loss 0.5746 | valid GAUC 0.5602 nDCG@5 0.5721 primary 0.5662 | 56.8s
+[pure_bpr] epoch  2 | loss 0.4181 | valid GAUC 0.5568 nDCG@5 0.5638 primary 0.5603 | 56.8s
+[pure_bpr] epoch  3 | loss 0.2866 | valid GAUC 0.5531 nDCG@5 0.5395 primary 0.5463 | 67.8s
+[pure_bpr] epoch  4 | loss 0.2349 | valid GAUC 0.5501 nDCG@5 0.5287 primary 0.5394 | 69.1s
+[pure_bpr] epoch  5 | loss 0.2087 | valid GAUC 0.5491 nDCG@5 0.5253 primary 0.5372 | 58.0s
+[pure_bpr] early stop at epoch 5
+wrote preds_val_leaktest.csv: 2524980 rows for split=valid in 1591s
+ABLATION pure_bpr_single primary=0.5752 gauc=0.5604 ndcg5=0.5901
+ABLATION pure_bpr_ensemble primary=0.5808 gauc=0.5622 ndcg5=0.5994
+[champion_equiv] Total within-user pairs: 1332063
+[champion_equiv] epoch  1 | loss 0.6007 | valid GAUC 0.5580 nDCG@5 0.5846 primary 0.5713 | 53.8s
+[champion_equiv] epoch  2 | loss 0.4851 | valid GAUC 0.5580 nDCG@5 0.5635 primary 0.5608 | 53.6s
+[champion_equiv] epoch  3 | loss 0.4172 | valid GAUC 0.5560 nDCG@5 0.5435 primary 0.5497 | 63.2s
+[champion_equiv] epoch  4 | loss 0.3667 | valid GAUC 0.5545 nDCG@5 0.5223 primary 0.5384 | 65.2s
+[champion_equiv] epoch  5 | loss 0.3320 | valid GAUC 0.5532 nDCG@5 0.5254 primary 0.5393 | 55.2s
+[champion_equiv] early stop at epoch 5
+ABLATION champion_equiv primary=0.5713 gauc=0.5580 ndcg5=0.5846

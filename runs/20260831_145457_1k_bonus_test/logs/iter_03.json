@@ -1,0 +1,120 @@
+{
+  "iteration": 3,
+  "timestamp": "2026-08-31T11:32:50Z",
+  "hypothesis": "Adding user historical long_view rates and item/author auxiliary feedback rates (click, like) as past-only numerical features will provide DeepFM's MLP with rich interaction surfaces, allowing it to learn non-linear personalized generosity-vs-quality crosses and raising the ranking metric.",
+  "rationale": "Pure user features and auxiliary signals were previously hard to integrate linearly, but DeepFM's 64-unit MLP naturally learns high-order crosses. By extending our past-only rate trackers to include User history and Click/Like rates, we feed exactly the dense, unconfounded behavioral priors that MLP needs to compute personalized relevance.",
+  "category": "feature",
+  "code_diff": "--- champion/pipeline.py\n+++ attempt/pipeline.py\n@@ -100,6 +100,8 @@\n     date_a, user_a, video_a, author_a, tab_a = (array.array(\"i\") for _ in range(5))\n     dur_a = array.array(\"f\")\n     label_a = array.array(\"b\")\n+    click_a = array.array(\"b\")\n+    like_a = array.array(\"b\")\n     time_a = array.array(\"q\")\n     hour_a = array.array(\"i\")\n \n@@ -117,6 +119,8 @@\n                 tab_a.append(tab_vc.code(r[\"tab\"]))\n                 dur_a.append(float(r[\"duration_ms\"]))\n                 label_a.append(1 if r[LABEL] != \"0\" else 0)\n+                click_a.append(1 if r[\"is_click\"] != \"0\" else 0)\n+                like_a.append(1 if r[\"is_like\"] != \"0\" else 0)\n                 time_a.append(int(r[\"time_ms\"]))\n                 hour_a.append(int(r[\"hourmin\"]) // 100)\n         print(f\"  {fname} parsed, running total {len(date_a)} rows, {time.time() - t0:.1f}s\")\n@@ -129,36 +133,61 @@\n     tab_arr = np.frombuffer(tab_a, dtype=np.int32)\n     dur_arr = np.frombuffer(dur_a, dtype=np.float32)\n     label_arr = np.frombuffer(label_a, dtype=np.int8)\n+    click_arr = np.frombuffer(click_a, dtype=np.int8)\n+    like_arr = np.frombuffer(like_a, dtype=np.int8)\n     time_arr = np.frombuffer(time_a, dtype=np.int64)\n     hour_arr = np.frombuffer(hour_a, dtype=np.int32)\n-    del date_a, user_a, video_a, author_a, tab_a, dur_a, label_a, time_a, hour_a\n+    del date_a, user_a, video_a, author_a, tab_a, dur_a, label_a, click_a, like_a, time_a, hour_a\n     print(f\"  {N} rows -> typed arrays, {time.time() - t0:.1f}s\")\n \n+    n_users = len(user_vc)\n     n_videos, n_authors = len(video_vc), len(author_vc)\n     train_mask = (date_arr >= SPLITS[\"train\"][0]) & (date_arr <= SPLITS[\"train\"][1])\n \n     # --- video/author historical-rate features, in chronological (time_ms) order; only train rows update\n     #     the running counters -- identical semantics to champion_1k.py's load(), just array-backed. ---\n-    num_features = np.empty((N, 5), dtype=np.float32)\n+    num_features = np.empty((N, 11), dtype=np.float32)\n     v_imp = [0] * n_videos; v_pos = [0] * n_videos\n     a_imp = [0] * n_authors; a_pos = [0] * n_authors\n+    u_imp = [0] * n_users; u_pos = [0] * n_users\n+    v_click = [0] * n_videos; v_like = [0] * n_videos\n+    a_click = [0] * n_authors; a_like = [0] * n_authors\n     time_order = np.argsort(time_arr, kind=\"stable\").tolist()\n-    video_l, author_l, label_l, train_l = video_arr.tolist(), author_arr.tolist(), label_arr.tolist(), train_mask.tolist()\n+    video_l, author_l, user_l, label_l, click_l, like_l, train_l = video_arr.tolist(), author_arr.tolist(), user_arr.tolist(), label_arr.tolist(), click_arr.tolist(), like_arr.tolist(), train_mask.tolist()\n     log1p = np.log1p\n     for i in time_order:\n-        vid, aid = video_l[i], author_l[i]\n+        vid, aid, uid = video_l[i], author_l[i], user_l[i]\n         vi, vp, ai, ap = v_imp[vid], v_pos[vid], a_imp[aid], a_pos[aid]\n+        ui, up = u_imp[uid], u_pos[uid]\n+        vc, vl = v_click[vid], v_like[vid]\n+        ac, al = a_click[aid], a_like[aid]\n+        \n         num_features[i, 0] = log1p(vi)\n         num_features[i, 1] = vp / vi if vi > 0 else 0.0\n         num_features[i, 2] = log1p(ai)\n         num_features[i, 3] = ap / ai if ai > 0 else 0.0\n+        num_features[i, 5] = log1p(ui)\n+        num_features[i, 6] = up / ui if ui > 0 else 0.0\n+        num_features[i, 7] = vc / vi if vi > 0 else 0.0\n+        num_features[i, 8] = ac / ai if ai > 0 else 0.0\n+        num_features[i, 9] = vl / vi if vi > 0 else 0.0\n+        num_features[i, 10] = al / ai if ai > 0 else 0.0\n+        \n         if train_l[i]:\n             v_imp[vid] = vi + 1\n             a_imp[aid] = ai + 1\n+            u_imp[uid] = ui + 1\n             if label_l[i] == 1:\n                 v_pos[vid] = vp + 1\n                 a_pos[aid] = ap + 1\n-    del v_imp, v_pos, a_imp, a_pos, time_order, video_l, author_l, label_l, train_l\n+                u_pos[uid] = up + 1\n+            if click_l[i] == 1:\n+                v_click[vid] = vc + 1\n+                a_click[aid] = ac + 1\n+            if like_l[i] == 1:\n+                v_like[vid] = vl + 1\n+                a_like[aid] = al + 1\n+    del v_imp, v_pos, a_imp, a_pos, u_imp, u_pos, v_click, v_like, a_click, a_like, time_order, video_l, author_l, user_l, label_l, click_l, like_l, train_l\n     print(f\"  historical-rate features done, {time.time() - t0:.1f}s\")\n \n     # --- session depth + time-gap-since-last-event, per (user, date) group ordered by time_ms ---\n@@ -221,7 +250,7 @@\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n-        self.W_num = np.zeros(5, dtype=np.float32)\n+        self.W_num = np.zeros(11, dtype=np.float32)\n         self.b = np.float32(0.0)\n         self.lr, self.l2 = lr, l2\n         self.mV = np.zeros_like(self.V); self.vV = np.zeros_like(self.V)\n@@ -232,7 +261,7 @@\n         self.use_mlp = use_mlp\n         self.k = k\n         if self.use_mlp:\n-            self.mlp_in_dim = 7 * k + 5\n+            self.mlp_in_dim = 7 * k + 11\n             self.mlp_h = 64\n             self.mlp_w1 = rng.normal(0, 0.05, (self.mlp_in_dim, self.mlp_h)).astype(np.float32)\n             self.mlp_b1 = np.zeros(self.mlp_h, dtype=np.float32)",
+  "result": {
+    "status": "scored",
+    "gauc": 0.676647330011664,
+    "ndcg5": 0.62166981631555,
+    "primary": 0.6491585731636069,
+    "runtime_s": 1856.8,
+    "error_excerpt": "",
+    "vs_best": "+0.0003"
+  },
+  "errors_and_recovery": [],
+  "decision": "promoted",
+  "streak_after": 1,
+  "tokens_this_iteration": 159602,
+  "runtime_s": 1856.8,
+  "lesson": "Adding user historical long_view rates and item/author auxiliary feedback rates as past-only numerical features promoted the ranking metric to 0.6492.",
+  "harness_extra": {
+    "run_id": "20260831_145457_1k_bonus_test",
+    "best_primary_after": 0.6491585731636069,
+    "best_iter_after": 3,
+    "best_at_iteration_start": 0.6488516792738803,
+    "promoted": true,
+    "expected_risk": "low",
+    "change_summary": "pipeline.py (+36/-7)",
+    "tokens": {
+      "input_tokens": 49657,
+      "output_tokens": 36993,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 72952,
+      "cost_usd": 0.5481018,
+      "total": 159602
+    },
+    "llm_calls": 8,
+    "iteration_wall_s": 3962.0,
+    "blocked_added": null,
+    "consecutive_failures": 0,
+    "leak_test": {
+      "fraction": 0.1,
+      "ran": true,
+      "runtime_s": 1855.5,
+      "n_flipped_users": 112,
+      "subset_primary": 0.6636035523781658,
+      "subset_gauc": 0.6966385199401666,
+      "full_primary": 0.6491585731636069,
+      "attempts": [
+        {
+          "fraction": 0.1,
+          "ran": true,
+          "runtime_s": 1855.5,
+          "n_flipped_users": 112,
+          "subset_primary": 0.6636035523781658,
+          "subset_gauc": 0.6966385199401666,
+          "full_primary": 0.6491585731636069
+        }
+      ],
+      "verdict": "clean"
+    },
+    "expected_gain": 0.003,
+    "gain_evidence": "DeepFM added +0.0078 because it could explicitly cross embeddings and numerical features. Supplying it with user generosity (user past rate) and granular item quality (click/like rates) provides explicit signals for non-linear user-item interactions, building on prior runs showing click/like numerical features yield positive gains.",
+    "ablation_plan": "champion_equiv: zero out X_num and disable MLP; pure_bpr_single: 1-seed of the new bundle",
+    "ablations": [
+      {
+        "name": "pure_bpr_single",
+        "primary": 0.6353,
+        "gauc": 0.673,
+        "ndcg5": 0.5976
+      },
+      {
+        "name": "pure_bpr_ensemble",
+        "primary": 0.6492,
+        "gauc": 0.6766,
+        "ndcg5": 0.6217
+      },
+      {
+        "name": "champion_equiv",
+        "primary": 0.6395,
+        "gauc": 0.6684,
+        "ndcg5": 0.6106
+      }
+    ],
+    "research_tool_calls": [
+      {
+        "tool": "arxiv_search",
+        "args": {
+          "query": "KuaiRand sequential recommendation"
+        },
+        "result_preview": "ERROR: ReadTimeout: HTTPSConnectionPool(host='export.arxiv.org', port=443): Read timed out. (read timeout=10)"
+      },
+      {
+        "tool": "arxiv_search",
+        "args": {
+          "query": "DIN target attention recommendation"
+        },
+        "result_preview": "[{'title': 'Déjà vu: A Contextualized Temporal Attention Mechanism for Sequential Recommendation', 'authors': ['Jibang Wu', 'Renqin Cai', 'Hongning Wang'], 'summary': \"Predicting users' preferences based on their sequential behaviors in history is challenging and crucial for modern recommender syste"
+      },
+      {
+        "tool": "arxiv_search",
+        "args": {
+          "query": "ESMM recommendation bias"
+        },
+        "result_preview": "[{'title': 'Mitigating Popularity Bias in Recommendation with Unbalanced Interactions: A Gradient Perspective', 'authors': ['Weijieying Ren', 'Lei Wang', 'Kunpeng Liu', 'Ruocheng Guo', 'Lim Ee Peng', 'Yanjie Fu'], 'summary': 'Recommender systems learn from historical user-item interactions to identi"
+      },
+      {
+        "tool": "arxiv_search",
+        "args": {
+          "query": "MMoE multi task recommendation"
+        },
+        "result_preview": "[{'title': 'CPMR: Context-Aware Incremental Sequential Recommendation with Pseudo-Multi-Task Learning', 'authors': ['Qingtian Bian', 'Jiaxing Xu', 'Hui Fang', 'Yiping Ke'], 'summary': 'The motivations of users to make interactions can be divided into static preference and dynamic interest. To accura"
+      }
+    ],
+    "new_knowledge_added": false,
+    "workspace": "iterations/it03"
+  }
+}
