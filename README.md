@@ -10,19 +10,35 @@ grade or checkpoint itself. Full design contract: `NOTES.md`.
 ## Architecture
 
 ```mermaid
-flowchart TD
-    R["Researcher LLM<br/>hypothesis + change spec"] --> E["Engineer LLM<br/>writes pipeline.py"]
-    E --> BOX["Sandbox<br/>run pipeline.py (no network)"]
-    BOX -- "crash / bad output" --> D["Debugger LLM<br/>smallest fix, same hypothesis"]
-    D --> BOX
-    BOX -- "preds_val.csv" --> SEAL["Sealed evaluate.py<br/>GAUC / nDCG@5 -> primary"]
-    SEAL --> DEC{"Promotion (margin)<br/>Convergence (epsilon, streak of 3)"}
-    DEC -- "beats champion" --> CHAMP[("Champion checkpoint<br/>runs/RUN_ID/best/")]
-    DEC -- "streak 3 / 50 iters / 6h" --> FIN["Finalize<br/>submission.csv"]
-    CHAMP --> R
-    DEC --> SCRIBE["Scribe LLM<br/>lesson + log + research digest"]
-    SCRIBE --> R
+flowchart LR
+    RES["Researcher<br/><small><i>picks + sizes hypothesis</i></small>"]
+    ENG["Engineer<br/><small><i>writes pipeline.py</i></small>"]
+    SBX["Sandbox<br/><small><i>trains + predicts, no network</i></small>"]
+    DBG["Debugger<br/><small><i>smallest fix on crash</i></small>"]
+    EVAL["Sealed evaluate.py<br/><small><i>GAUC / nDCG@5 → primary</i></small>"]
+    GATE{"Promoted?\nConverged?"}
+    CKPT[("Champion<br/>runs/RUN_ID/best/")]
+    SCR["Scribe<br/><small><i>lesson + digest</i></small>"]
+    FIN(["Finalize<br/>submission.csv"])
+
+    RES --> ENG --> SBX
+    SBX -. "crash" .-> DBG -. "fix" .-> SBX
+    SBX -- "preds_val.csv" --> EVAL --> GATE
+    GATE -- "beats champion" --> CKPT
+    GATE -- "kept / failed" --> SCR
+    GATE -. "streak 3 · 50 iters · 6h" .-> FIN
+    SCR ==>|"next iteration"| RES
+
+    classDef llm fill:#EDE9FE,stroke:#7C3AED,stroke-width:1.5px,color:#3B0764
+    classDef harness fill:#DCFCE7,stroke:#16A34A,stroke-width:1.5px,color:#14532D
+    classDef gate fill:#FEF3C7,stroke:#D97706,stroke-width:1.5px,color:#78350F
+    classDef term fill:#FEE2E2,stroke:#DC2626,stroke-width:1.5px,color:#7F1D1D
+    class RES,ENG,DBG,SCR llm
+    class SBX,EVAL,CKPT harness
+    class GATE gate
+    class FIN term
 ```
+Purple = LLM role, green = deterministic harness, amber = the promotion/convergence gate, red = terminal.
 
 | Role | Job | Model (shipped) |
 |---|---|---|
