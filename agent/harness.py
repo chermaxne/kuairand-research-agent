@@ -755,13 +755,14 @@ class Harness:
         assert state is not None
         b = state.baseline_primary
         delta = (state.best_primary - b) if (b is not None and state.best_primary is not None) else None
+        baseline_label = "published baseline" if getattr(self.task, "baseline_is_published", True) else "self-measured baseline (not organizer-published)"
         promoted = [h for h in state.history if h.get("promoted")]
         failed = [h for h in state.history if h["status"] != "scored"]
         lines = [f"# Results summary — {state.run_id}", "",
                  f"- stop reason: **{state.stop_reason}**",
                  f"- best validation: **primary {state.best_primary:.4f}** (GAUC {state.best_gauc:.4f} / nDCG@5 {state.best_ndcg5:.4f}) at it{state.best_iter:02d}"
                  if state.best_primary is not None else "- best validation: n/a",
-                 f"- published baseline (valid): {b} → delta **{delta:+.4f}**" if delta is not None else "- published baseline: n/a",
+                 f"- {baseline_label} (valid): {b} → delta **{delta:+.4f}**" if delta is not None else f"- {baseline_label}: n/a",
                  f"- iterations used: {state.iteration} (promoted {len(promoted)}, failed {len(failed)}); final streak {state.streak}",
                  (f"- best leak-clean measurement: it{state.best_measured['iteration']:02d} at {state.best_measured['primary']:.4f}"
                   + (" (below the promotion margin; used for the submission)" if state.best_measured['primary'] > (state.best_primary or -1) + 1e-12 else "")

@@ -202,12 +202,12 @@ iterations, ≈42k tokens over 13 LLM calls (mock usage is estimated from charac
 0 interventions. Note how it01 shows the two separate judgments: promoted, yet the flat streak advanced.
 
 ## Limitations
-* **No real-API run yet.** No working key was available while this was built, so both clients are verified only
-  against fake transports (request shape, usage parsing, refusal/truncation handling, model fallback). Before the
-  official run, put the key in `.env` and execute `.venv/bin/python -m agent.harness --llm-check` then
-  `.venv/bin/python -m agent.harness --max-iters 1 --label smoke`, and check `llm_calls.jsonl` (real token counts,
-  `estimated_usage: false`). On the native Anthropic profile, set `llm.refusal_fallbacks: false` if the account
-  rejects the server-side-fallback beta.
+* **Real-API runs**: several completed runs now exist against real models via OpenRouter, e.g.
+  `runs/20260830_224430_seeded_0605_v2` (KuaiRand-Pure, `results_summary.md`) and
+  `runs/20260831_145457_1k_bonus_test` (KuaiRand-1K bonus benchmark — see its own Warnings section for the
+  extra kit-scaffolding this dataset needed, since only Pure ships a starter kit natively). To verify
+  connectivity before a new run: `.venv/bin/python -m agent.harness --llm-check`, then check
+  `llm_calls.jsonl` for real per-call cost (`estimated_usage: false`).
 * **Prompt quality with real models is untested** — whether Researcher change specs are precise enough and
   whether the Engineer keeps diffs minimal. The prompts live in `prompts/` and are meant to be tuned by humans.
 * **OS-level sandboxing is macOS-only** (`sandbox-exec`): no network, writes confined to the workspace,
@@ -224,3 +224,19 @@ iterations, ≈42k tokens over 13 LLM calls (mock usage is estimated from charac
   `--split test` pass is the only time test-period rows are read, and it is a prediction-only pass.
 
 See `NOTES.md` §5 for what works, what is untested, and what the humans must verify next.
+
+## Iteration category vocabulary
+Every iteration is tagged with one `category` (`config.yaml: run.categories`):
+`feature` (input signals — historical rates, session context, embeddings of raw fields), `model`
+(architecture — e.g. FM → FwFM, FM → DeepFM), `training` (the objective/loss — pointwise, BPR, softmax,
+ordinal), `multitask` (auxiliary heads), `other`. This is a 5-value vocabulary specific to this project,
+not a generic taxonomy — if a rubric expects different category names, they map onto these directly
+(architecture→`model`, training_strategy→`training`, features→`feature`; this project has no distinct
+`evaluation_diagnostics` or `hyperparameters` category, since neither has ever been the *substance* of a
+proposed change here — hyperparameter-only proposals are explicitly disallowed by the sizing directive in
+`agent/harness.py`). Every promoted change across every kept run's lineage carries a real category value —
+see any run's `iterations/it*/plan.json`.
+
+## Contributions
+_Fill in before submitting — not something this repo can state on its own:_ list each team member and what
+they specifically did (harness design, prompt engineering, a specific run's setup, the write-up, etc.).

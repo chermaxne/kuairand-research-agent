@@ -1,0 +1,10 @@
+{
+  "note": "Self-measured reference numbers for the KuaiRand-1K bonus benchmark (not organizer-published -- only KuaiRand-Pure ships published baseline_scores.json). Computed in-repo: random/item_popularity/oracle_ceiling via starter_kit_1k/data.py + evaluate.py against the real valid split (agent/task.py's make_task with phase0.assert_rungs=false, so these are informational, not hard gates). fm_official is the literal organizer FM (starter_kit_1k/baseline.py, unchanged algorithm/hyperparameters, k=16 lr=0.001 batch=8192 epochs<=40 patience=4) reproduced on 1K data, single seed 0, measured in this session before wiring up the harness -- phase0 re-runs this for real via submit.py --make and logs a fresh number.",
+  "scores": {
+    "random": {"valid": {"GAUC": 0.4999132252737302, "nDCG@5": 0.36683997471837615, "primary": 0.43337659999605316}},
+    "item_popularity": {"valid": {"GAUC": 0.5423196994909828, "nDCG@5": 0.5430117721232838, "primary": 0.5426657358071333}},
+    "fm_official": {"valid": {"GAUC": 0.6752, "nDCG@5": 0.6105, "primary": 0.6428}},
+    "oracle_ceiling": {"valid": {"GAUC": 1.0, "nDCG@5": 0.9948875255623721, "primary": 0.9974437627811861}}
+  },
+  "convergence_rule": {"epsilon": 0.002, "N": 3}
+}

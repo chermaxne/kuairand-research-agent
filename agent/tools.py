@@ -93,7 +93,8 @@ def _fingerprint(full_dir: str, max_date: int) -> Dict[str, Any]:
 
 
 def ensure_loop_data_dir(full_dir: str, loop_dir: str, max_date: int, filter_files: Sequence[str] = (
-        "log_standard_4_22_to_5_08_pure.csv", "log_random_4_22_to_5_08_pure.csv")) -> Dict[str, Any]:
+        "log_standard_4_22_to_5_08_pure.csv", "log_random_4_22_to_5_08_pure.csv",
+        "log_standard_4_22_to_5_08_1k.csv", "log_random_4_22_to_5_08_1k.csv")) -> Dict[str, Any]:
     """Build (once, fingerprinted) a copy of the data dir whose log files stop at `max_date` (the last
     validation day). Row order is preserved, so validation row_ids are identical to the full dir."""
     full_dir, loop_dir = os.path.realpath(full_dir), os.path.realpath(loop_dir)
@@ -154,7 +155,8 @@ def _flip_bucket(user_id: str) -> int:
 
 
 def ensure_flipped_labels_dir(loop_dir: str, out_dir: str, train_end_date: int, flip_fraction: float = 0.10,
-                              log_files: Sequence[str] = ("log_standard_4_22_to_5_08_pure.csv", "log_random_4_22_to_5_08_pure.csv")) -> Dict[str, Any]:
+                              log_files: Sequence[str] = ("log_standard_4_22_to_5_08_pure.csv", "log_random_4_22_to_5_08_pure.csv",
+                                                          "log_standard_4_22_to_5_08_1k.csv", "log_random_4_22_to_5_08_1k.csv")) -> Dict[str, Any]:
     """Build (once, fingerprinted) a copy of the loop data dir where, for a deterministic `flip_fraction` of the users,
     every row dated AFTER the train period has its binary feedback columns inverted (1 - y) and its continuous feedback
     columns zeroed. Non-feedback columns (ids, date, hourmin, time_ms, duration_ms, tab, is_rand) are untouched, so row
